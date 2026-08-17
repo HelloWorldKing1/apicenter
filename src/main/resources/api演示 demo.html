@@ -1,0 +1,1159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>apicenter · API 三方接口统一调用平台组件 Demo</title>
+<style>
+  :root {
+    --bg: #f3f5f9;
+    --card: #ffffff;
+    --line: #e3e8f0;
+    --ink: #1e293b;
+    --muted: #64748b;
+    --primary: #2563eb;
+    --primary-soft: #eff6ff;
+    --green: #16a34a;
+    --green-soft: #f0fdf4;
+    --amber: #d97706;
+    --amber-soft: #fffbeb;
+    --red: #dc2626;
+    --red-soft: #fef2f2;
+    --purple: #7c3aed;
+    --purple-soft: #f5f3ff;
+    --grey: #6b7280;
+    --grey-soft: #f9fafb;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.6;
+  }
+  /* ---------- top bar ---------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; align-items: center; gap: 16px;
+    background: #0f172a; color: #e2e8f0;
+    padding: 10px 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.25);
+  }
+  .topbar .logo { font-weight: 700; font-size: 16px; letter-spacing: .3px; white-space: nowrap; }
+  .topbar .logo span { color: #60a5fa; }
+  .topbar .trace {
+    display: flex; align-items: center; gap: 8px;
+    background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 4px 10px;
+    font-family: var(--mono); font-size: 13px; color: #7dd3fc;
+  }
+  .topbar .trace b { color: #93c5fd; font-weight: 600; }
+  .topbar button {
+    background: #334155; color: #e2e8f0; border: 1px solid #475569; border-radius: 6px;
+    padding: 4px 10px; font-size: 12px; cursor: pointer;
+  }
+  .topbar button:hover { background: #475569; }
+  .topbar .spacer { flex: 1; }
+  .topbar .hint { font-size: 12px; color: #94a3b8; }
+  /* ---------- badges ---------- */
+  .badges { display: flex; gap: 10px; padding: 14px 20px 0; flex-wrap: wrap; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); padding: 6px 14px; cursor: pointer;
+    font-size: 13px; box-shadow: 0 1px 2px rgba(0,0,0,.04);
+  }
+  .badge:hover { border-color: var(--primary); color: var(--primary); }
+  .badge .dot { width: 8px; height: 8px; border-radius: 50%; }
+  /* ---------- tabs ---------- */
+  .tabs { display: flex; gap: 4px; padding: 12px 20px 0; border-bottom: 1px solid var(--line); }
+  .tab {
+    padding: 8px 16px; border: 1px solid transparent; border-bottom: none;
+    border-radius: 8px 8px 0 0; cursor: pointer; color: var(--muted); font-size: 14px;
+    background: transparent; user-select: none;
+  }
+  .tab:hover { color: var(--primary); }
+  .tab.active { background: var(--card); border-color: var(--line); color: var(--primary); font-weight: 600; }
+  .panes { padding: 16px 20px 30px; max-width: 1280px; margin: 0 auto; }
+  .pane { display: none; }
+  .pane.active { display: block; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+  .card + .card { margin-top: 14px; }
+  h2.sec { font-size: 16px; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 13px; }
+  /* ---------- flow layout ---------- */
+  .flow-wrap { display: grid; grid-template-columns: 210px 1fr 340px; gap: 14px; align-items: stretch; }
+  @media (max-width: 1100px) { .flow-wrap { grid-template-columns: 1fr; } }
+  .steps { list-style: none; }
+  .step-item {
+    display: flex; gap: 10px; padding: 9px 10px; border-radius: 8px; cursor: pointer;
+    border: 1px solid transparent; color: var(--muted);
+  }
+  .step-item:hover { background: var(--grey-soft); }
+  .step-item.active { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); font-weight: 600; }
+  .step-item .n {
+    flex: 0 0 22px; height: 22px; border-radius: 50%; background: var(--line); color: var(--muted);
+    text-align: center; font-size: 12px; line-height: 22px; font-weight: 600;
+  }
+  .step-item.active .n { background: var(--primary); color: #fff; }
+  /* lanes */
+  .lanes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .lane {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--grey-soft);
+    padding: 10px; min-height: 300px;
+  }
+  .lane h4 {
+    font-size: 12px; color: var(--muted); text-align: center; text-transform: uppercase;
+    letter-spacing: .5px; padding-bottom: 8px; border-bottom: 1px dashed var(--line); margin-bottom: 10px;
+  }
+  .node {
+    border: 1px solid var(--line); background: var(--card); border-radius: 8px;
+    padding: 10px 12px; margin-bottom: 10px; font-size: 13px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.03); transition: all .25s;
+  }
+  .node .nt { font-weight: 600; }
+  .node .nd { color: var(--muted); font-size: 12px; font-family: var(--mono); margin-top: 2px; }
+  .node.active { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); animation: pulse 1.2s ease-in-out infinite; }
+  .node.active.green { border-color: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
+  .node.active.red   { border-color: var(--red);   box-shadow: 0 0 0 3px var(--red-soft); }
+  .node.active.amber { border-color: var(--amber); box-shadow: 0 0 0 3px var(--amber-soft); }
+  .node.active.purple{ border-color: var(--purple);box-shadow: 0 0 0 3px var(--purple-soft); }
+  .node.active.grey  { border-color: var(--grey);  box-shadow: 0 0 0 3px var(--grey-soft); }
+  @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.015); } }
+  /* trace chain */
+  .chain {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    font-family: var(--mono); font-size: 12px; color: var(--muted);
+    background: var(--grey-soft); border: 1px dashed var(--line); border-radius: 8px; padding: 8px 12px; margin-top: 12px;
+  }
+  .chain .seg { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; }
+  .chain .seg.hot { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+  .chain .arr { color: #94a3b8; }
+  /* detail panel */
+  .detail { font-size: 13px; }
+  .detail .dl-h { font-size: 13px; font-weight: 600; margin-bottom: 8px; color: var(--ink); }
+  pre.json, pre.xml {
+    background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 12px 14px;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.55; overflow: auto;
+    white-space: pre; margin: 0;
+  }
+  pre.json .k { color: #7dd3fc; }
+  pre.json .s { color: #86efac; }
+  pre.json .n { color: #fca5a5; }
+  .kv { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed var(--line); font-family: var(--mono); font-size: 12.5px; }
+  .kv:last-child { border-bottom: none; }
+  .kv .k { color: var(--muted); }
+  .pill { display: inline-block; border-radius: 999px; padding: 1px 9px; font-size: 11px; font-weight: 600; margin: 2px 4px 2px 0; }
+  .pill.ok    { background: var(--green-soft);  color: var(--green); }
+  .pill.retry { background: var(--amber-soft);  color: var(--amber); }
+  .pill.err   { background: var(--red-soft);    color: var(--red); }
+  .pill.comp  { background: var(--purple-soft); color: var(--purple); }
+  .pill.grey  { background: var(--grey-soft);   color: var(--grey); }
+  .pill.blue  { background: var(--primary-soft);color: var(--primary); }
+  /* log console */
+  .console {
+    background: #0b1120; border-radius: 10px; padding: 12px 14px;
+    font-family: var(--mono); font-size: 12px; color: #cbd5e1; height: 200px; overflow: auto;
+    margin-top: 12px; border: 1px solid #1e293b;
+  }
+  .console .ln { padding: 1px 0; white-space: pre-wrap; word-break: break-all; }
+  .console .ln .t { color: #475569; margin-right: 6px; }
+  .console .ln.blue   { color: #7dd3fc; }
+  .console .ln.green  { color: #4ade80; }
+  .console .ln.amber  { color: #fbbf24; }
+  .console .ln.red    { color: #f87171; }
+  .console .ln.purple { color: #c4b5fd; }
+  .console .ln.grey   { color: #94a3b8; }
+  .console .ln.white  { color: #e2e8f0; }
+  /* controls */
+  .controls { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .btn {
+    background: var(--primary); color: #fff; border: none; border-radius: 8px;
+    padding: 8px 16px; font-size: 13px; cursor: pointer;
+  }
+  .btn:hover { filter: brightness(1.08); }
+  .btn.ghost { background: var(--card); color: var(--ink); border: 1px solid var(--line); }
+  .btn.ghost:hover { border-color: var(--primary); color: var(--primary); }
+  select, .switch label {
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+    padding: 7px 10px; font-size: 13px; color: var(--ink);
+  }
+  .switch { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .switch input { accent-color: var(--primary); width: 15px; height: 15px; }
+  /* mapping tab */
+  table.mt { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.mt th, table.mt td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  table.mt th { background: var(--grey-soft); font-weight: 600; }
+  table.mt tr[data-m]:hover { background: var(--primary-soft); }
+  table.mt tr[data-m]:hover td { border-color: var(--primary); }
+  .mt code { background: var(--grey-soft); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; font-family: var(--mono); font-size: 12px; }
+  .samples { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+  @media (max-width: 900px) { .samples { grid-template-columns: 1fr; } }
+  .samples .s-h { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+  pre.json .hl, pre.xml .hl { background: #1d4ed8; color: #fff; border-radius: 3px; padding: 0 1px; }
+  pre.xml .hl { background: #b45309; }
+  pre.json .hlk, pre.xml .hlk { background: #166534; }
+  /* sync tab */
+  .watermark { display: flex; align-items: center; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
+  .wm-bar { flex: 1; min-width: 200px; height: 14px; background: var(--line); border-radius: 999px; position: relative; }
+  .wm-bar .fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--primary), #60a5fa); border-radius: 999px; transition: width .6s; }
+  .wm-bar .cursor { position: absolute; top: -4px; width: 2px; height: 22px; background: var(--red); transition: left .6s; }
+  .wm-tag { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .sync-list { margin-top: 10px; font-size: 13px; }
+  .sync-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-bottom: 1px dashed var(--line); }
+  .sync-row.dedup { background: var(--amber-soft); }
+  .sync-row .id { font-family: var(--mono); font-size: 12px; }
+  .sync-row .st { margin-left: auto; }
+  /* state machine tab */
+  .sm-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 14px 0; }
+  .sm-node {
+    border: 2px solid var(--line); background: var(--card); border-radius: 8px;
+    padding: 8px 14px; font-size: 13px; font-weight: 600; color: var(--muted); position: relative;
+  }
+  .sm-node.hot { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); box-shadow: 0 0 0 3px var(--primary-soft); }
+  .sm-node.hot.dead { border-color: var(--red); color: var(--red); background: var(--red-soft); box-shadow: 0 0 0 3px var(--red-soft); }
+  .sm-node.hot.unknown { border-color: var(--grey); color: var(--grey); background: var(--grey-soft); }
+  .sm-arr { color: #94a3b8; font-size: 12px; }
+  .sm-branch { margin-left: 26px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; opacity: .9; }
+  .sm-branch .lbl { font-size: 11px; color: var(--muted); background: var(--grey-soft); border-radius: 4px; padding: 1px 6px; }
+  table.core { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.core th, table.core td { border: 1px solid var(--line); padding: 6px 9px; text-align: left; }
+  table.core th { background: var(--grey-soft); }
+  table.core td code { font-family: var(--mono); font-size: 11.5px; background: var(--grey-soft); border-radius: 3px; padding: 0 4px; }
+  .foot { text-align: center; color: var(--muted); font-size: 12px; padding: 18px 0 26px; }
+  .foot a { color: var(--primary); }
+  .note { font-size: 12.5px; color: var(--muted); background: var(--grey-soft); border-left: 3px solid var(--primary); padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 10px 0; }
+</style>
+</head>
+<body>
+
+<!-- ======================= TOP BAR ======================= -->
+<header class="topbar">
+  <div class="logo">API <span>·</span> 三方接口统一调用平台组件</div>
+  <div class="trace" title="W3C traceparent 全程不变">
+    traceId: <b id="traceIdText">…………</b>
+  </div>
+  <button onclick="copyTrace()">复制 traceId</button>
+  <button onclick="resetAll()">重置</button>
+  <div class="spacer"></div>
+  <div class="hint">ERP → 组件 → 第三方 ｜ 第三方 → 组件 → ERP</div>
+</header>
+
+<!-- ======================= CAPABILITY BADGES ======================= -->
+<div class="badges">
+  <div class="badge" onclick="gotoTab('mapping')"><span class="dot" style="background:#2563eb"></span>3.1 字段映射</div>
+  <div class="badge" onclick="gotoTab('flowa'); setScenario('timeout')"><span class="dot" style="background:#d97706"></span>3.2 失败重试</div>
+  <div class="badge" onclick="gotoTab('flowa')"><span class="dot" style="background:#7c3aed"></span>3.3 请求日志</div>
+  <div class="badge" onclick="gotoTab('sync')"><span class="dot" style="background:#16a34a"></span>3.4 定时/实时同步</div>
+</div>
+
+<!-- ======================= TABS ======================= -->
+<nav class="tabs">
+  <div class="tab active" data-tab="flowa" onclick="gotoTab('flowa')">Flow A · 出站（ERP→组件→第三方）</div>
+  <div class="tab" data-tab="flowb" onclick="gotoTab('flowb')">Flow B · 入站回调（第三方→组件→ERP）</div>
+  <div class="tab" data-tab="mapping" onclick="gotoTab('mapping')">字段映射</div>
+  <div class="tab" data-tab="sync" onclick="gotoTab('sync')">定时增量拉取</div>
+  <div class="tab" data-tab="sm" onclick="gotoTab('sm')">状态机 · 数据模型</div>
+</nav>
+
+<div class="panes">
+
+  <!-- ======================= FLOW A ======================= -->
+  <div class="pane active" id="pane-flowa">
+    <div class="controls">
+      <button class="btn" id="btnPlayA" onclick="playFlowA()">▶ 逐步调用</button>
+      <button class="btn ghost" onclick="resetFlowA()">重置</button>
+      <label>场景：
+        <select id="scenarioSel" onchange="onScenarioChange()">
+          <option value="direct200">纯成功 200（首次调用即成功）</option>
+          <option value="success">重试后成功（500 → 指数退避重试 → 200）</option>
+          <option value="compensate">重试耗尽 → 补偿重放 → 成功</option>
+          <option value="rate429">429 限流路径（短重试后成功）</option>
+          <option value="badRequest">400 业务错误路径（→ 死信）</option>
+          <option value="timeout">超时路径（→ UNKNOWN → 对账）</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="flow-wrap">
+      <!-- steps -->
+      <div class="card">
+        <h2 class="sec">步骤</h2>
+        <div class="sub">点击可跳步</div>
+        <ul class="steps" id="stepsA"></ul>
+      </div>
+
+      <!-- lanes -->
+      <div class="card">
+        <h2 class="sec">链路视图</h2>
+        <div class="sub" id="chainA"></div>
+        <div class="lanes" id="lanesA"></div>
+      </div>
+
+      <!-- detail -->
+      <div class="card">
+        <h2 class="sec">请求 / 响应详情</h2>
+        <div class="sub" id="detailSubA">选择「▶ 逐步调用」或点击步骤开始演示</div>
+        <div class="detail" id="detailA"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="sec">日志控制台 <span style="color:var(--muted);font-weight:400;font-size:12px">（AOP 统一拦截 · traceId 串联 · 敏感头脱敏）</span></h2>
+      <div class="console" id="consoleA"></div>
+    </div>
+  </div>
+
+  <!-- ======================= FLOW B ======================= -->
+  <div class="pane" id="pane-flowb">
+    <div class="controls">
+      <button class="btn" onclick="playFlowB()">▶ 模拟回调</button>
+      <button class="btn ghost" onclick="resetFlowB()">重置</button>
+      <label class="switch"><input type="checkbox" id="erpDown"> 模拟「ERP 暂不可用」（送达失败 → 补偿重发）</label>
+    </div>
+
+    <div class="card">
+      <h2 class="sec">① ERP 预配置的入站回调订阅</h2>
+      <div class="sub">第三方回调 → 组件验签/映射 → 送达 ERP。配置落表 <code>callback_subscription</code></div>
+      <table class="mt" style="margin-top:10px">
+        <tr><th>channelCode</th><th>callbackPath</th><th>erpCallbackUrl</th><th>erpAuthToken</th><th>erpSignatureSecret</th></tr>
+        <tr>
+          <td><code>PARTNER_A</code></td>
+          <td><code>/callback/PARTNER_A/order-status</code></td>
+          <td><code>http://localhost:8103/api/erp/order-status</code></td>
+          <td><code>erp-token</code></td>
+          <td><code>erp-secret</code></td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="flow-wrap">
+      <div class="card">
+        <h2 class="sec">步骤</h2>
+        <div class="sub">点击可跳步</div>
+        <ul class="steps" id="stepsB"></ul>
+      </div>
+      <div class="card">
+        <h2 class="sec">链路视图</h2>
+        <div class="sub" id="chainB"></div>
+        <div class="lanes" id="lanesB"></div>
+      </div>
+      <div class="card">
+        <h2 class="sec">回调详情</h2>
+        <div class="sub" id="detailSubB">勾选「ERP 暂不可用」可看补偿重发分支</div>
+        <div class="detail" id="detailB"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="sec">日志控制台</h2>
+      <div class="console" id="consoleB"></div>
+    </div>
+  </div>
+
+  <!-- ======================= MAPPING ======================= -->
+  <div class="pane" id="pane-mapping">
+    <div class="card">
+      <h2 class="sec">3.1 字段映射 <span style="color:var(--muted);font-weight:400;font-size:13px">@HttpExchange + Jackson 注解 + MapStruct</span></h2>
+      <div class="sub">同一业务对象 <code>OrderDto</code> 映射为 PARTNER_A（JSON）与 PARTNER_B（XML）两种第三方格式。悬停行查看对应字段。</div>
+      <div style="overflow:auto;margin-top:10px">
+      <table class="mt">
+        <thead>
+          <tr><th>语义</th><th>ERP 字段</th><th>PARTNER_A JSON 键</th><th>PARTNER_B XML 键</th><th>转换规则</th></tr>
+        </thead>
+        <tbody>
+          <tr data-m="orderNo"><td>订单号</td><td><code>orderId</code></td><td><code>orderNo</code></td><td><code>&lt;OrderNo&gt;</code></td><td>命名差异（camel ↔ Pascal）</td></tr>
+          <tr data-m="orderType"><td>业务类型</td><td><code>orderType</code></td><td><code>orderType</code></td><td><code>&lt;OrderType&gt;</code></td><td>直传</td></tr>
+          <tr data-m="orderStatus"><td>状态</td><td><code>orderStatus</code></td><td><code>orderStatus</code></td><td><code>&lt;Status&gt;</code></td><td>值映射 NEW→1 / PAID→2 / SHIPPED→3</td></tr>
+          <tr data-m="totalAmount"><td>总金额</td><td><code>totalAmount</code>（元）</td><td><code>totalAmountCent</code>（分）</td><td><code>&lt;TotalAmount&gt;</code>（分）</td><td>元 ×100 → 分（BigDecimal→long）</td></tr>
+          <tr data-m="currency"><td>币种</td><td><code>currency</code></td><td><code>currency</code></td><td><code>&lt;Currency&gt;</code></td><td>直传</td></tr>
+          <tr data-m="buyer"><td>买家</td><td><code>buyerName</code> + <code>buyerPhone</code></td><td><code>buyer.name</code> / <code>buyer.mobile</code></td><td><code>&lt;Buyer&gt;&lt;Name&gt;</code> / <code>&lt;Phone&gt;</code></td><td>平铺 → 嵌套聚合</td></tr>
+          <tr data-m="createdTime"><td>创建时间</td><td><code>createdTime</code></td><td><code>createdAt</code>（ISO-8601）</td><td><code>&lt;CreatedTime&gt;</code>（yyyyMMddHHmmss）</td><td>时间格式差异</td></tr>
+          <tr data-m="items"><td>明细</td><td><code>items[]</code></td><td><code>items[]</code></td><td><code>&lt;Item&gt;</code> 平铺（无外层包裹）</td><td>嵌套列表；金额同 ×100</td></tr>
+          <tr data-m="address"><td>收货地址</td><td><code>shippingAddress</code></td><td><code>receiver</code></td><td><code>&lt;Receiver&gt;</code></td><td>字段重命名 + 嵌套</td></tr>
+          <tr data-m="remark"><td>备注</td><td><code>remark</code></td><td><code>note</code></td><td><code>&lt;Remark&gt;</code></td><td>命名差异</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="sec">实际样例（同一 OrderDto → 两种第三方格式）</h2>
+      <div class="samples">
+        <div>
+          <div class="s-h"><span class="dot" style="width:8px;height:8px;border-radius:50%;background:#2563eb;display:inline-block"></span> PARTNER_A · JSON（@JsonProperty）</div>
+          <pre class="json" id="sampleJson"></pre>
+        </div>
+        <div>
+          <div class="s-h"><span class="dot" style="width:8px;height:8px;border-radius:50%;background:#b45309;display:inline-block"></span> PARTNER_B · XML（@JacksonXmlRootElement / @JacksonXmlProperty）</div>
+          <pre class="xml" id="sampleXml"></pre>
+        </div>
+      </div>
+      <div class="note">金额 <b>199.00 元</b> → JSON <code>totalAmountCent: 19900</code> / XML <code>&lt;TotalAmount&gt;19900</code>（元×100）；状态 <code>PAID</code> → XML <code>&lt;Status&gt;2</code>（值映射）；时间 <code>2026-08-17T10:30:00</code> → XML <code>20260817103000</code>（dateFormat）。</div>
+    </div>
+  </div>
+
+  <!-- ======================= SYNC ======================= -->
+  <div class="pane" id="pane-sync">
+    <div class="card">
+      <h2 class="sec">3.4 定时增量拉取（高水位游标 + 同窗口防重）</h2>
+      <div class="sub">XXL-JOB（Demo 用 @Scheduled 模拟）触发 → @HttpExchange 增量拉取 → 幂等防重 → 推进游标</div>
+      <div class="watermark">
+        <span class="wm-tag">游标 watermark</span>
+        <span class="wm-tag" id="wmCur" style="color:var(--red);font-weight:700">0</span>
+        <div class="wm-bar"><div class="fill" id="wmFill"></div><div class="cursor" id="wmCursor"></div></div>
+        <button class="btn" onclick="runSync()">▶ 触发一次拉取</button>
+        <button class="btn ghost" onclick="resetSync()">重置</button>
+      </div>
+      <div class="sync-list" id="syncList"></div>
+      <div class="console" id="consoleSync"></div>
+      <div class="note">同窗口防重：唯一键 <code>(biz_type, channel_code, biz_id)</code> 命中则跳过并计数 dedup；生产切换分布式锁（Redis SETNX）包住整个拉取窗口。</div>
+    </div>
+  </div>
+
+  <!-- ======================= STATE MACHINE ======================= -->
+  <div class="pane" id="pane-sm">
+    <div class="card">
+      <h2 class="sec">出站状态机（§6.1）</h2>
+      <div class="sub">运行 Flow A 时当前状态实时高亮</div>
+      <div class="sm-flow" id="smOut"></div>
+    </div>
+    <div class="card">
+      <h2 class="sec">入站送达状态机（§6.2）</h2>
+      <div class="sub">运行 Flow B 时当前状态实时高亮</div>
+      <div class="sm-flow" id="smIn"></div>
+    </div>
+    <div class="card">
+      <h2 class="sec">核心数据表（§9）</h2>
+      <div style="overflow:auto">
+      <table class="core">
+        <thead><tr><th>表</th><th>关键列</th><th>用途 / 关联</th></tr></thead>
+        <tbody>
+          <tr><td><code>integration_channel</code></td><td>channel_code PK、base_url、auth_token、signature_secret、read_timeout_ms、enabled</td><td>渠道配置，对齐 application.yaml</td></tr>
+          <tr><td><code>integration_request</code></td><td>status、attempt_count、next_retry_at、trace_id</td><td>出站请求主记录（outbox），status 即状态机载体</td></tr>
+          <tr><td><code>integration_call_log</code></td><td>trace_id、span_id、direction、req_headers(脱敏)</td><td>AOP 写入，日志可查</td></tr>
+          <tr><td><code>dead_letter</code></td><td>request_id、reason、status</td><td>400 死信</td></tr>
+          <tr><td><code>callback_subscription</code></td><td>channel_code、callback_path、erp_callback_url、erp_signature_secret</td><td>Flow B 入站渠道配置</td></tr>
+          <tr><td><code>callback_delivery</code></td><td>subscription_id、delivery_status、attempt_count、ack_to_partner_status</td><td>送达 / 补偿记录</td></tr>
+          <tr><td><code>sync_watermark</code></td><td>sync_job、channel_code、watermark_value</td><td>高水位游标</td></tr>
+          <tr><td><code>sync_job_log</code></td><td>pulled_count、dedup_count、status</td><td>定时拉取执行审计</td></tr>
+          <tr><td><code>idempotency_key</code></td><td>(biz_type, channel_code, biz_id) 唯一</td><td>同窗口防重</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="foot">
+  apicenter 组件设计演示 ｜ 详见 <a href="doc/设计文档.md">设计文档 design.md</a> ｜ 状态机 §6 / 字段映射 §5 / 数据模型 §9 数据与本页一致
+</div>
+
+<script>
+'use strict';
+/* ============================ helpers ============================ */
+const $ = id => document.getElementById(id);
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const escAttr = s => esc(s).replace(/"/g,'&quot;');
+
+let TRACE_ID = '';
+function genTrace() {
+  const h = '0123456789abcdef';
+  let s = '';
+  for (let i=0;i<32;i++) s += h[Math.floor(Math.random()*16)];
+  return s;
+}
+function copyTrace() {
+  if (navigator.clipboard) navigator.clipboard.writeText(TRACE_ID).then(()=>flash('traceId 已复制'));
+}
+function flash(msg){ const t=$('traceIdText'); const old=t.textContent; t.textContent='✓ '+msg; setTimeout(()=>t.textContent=old,1200); }
+function resetAll(){ TRACE_ID = genTrace(); $('traceIdText').textContent = TRACE_ID; resetFlowA(); resetFlowB(); resetSync(); }
+function logNow(){ const d=new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0')+'.'+String(d.getMilliseconds()).padStart(3,'0'); }
+
+/* ============================ tabs ============================ */
+function gotoTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===name));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active', p.id==='pane-'+name));
+}
+
+/* ============================ Flow A ============================ */
+const LANES_A = [
+  { key:'erp', name:'ERP 业务服务', nodes:[
+    { id:'fa-erp',   nt:'ERP 业务服务', nd:'POST /api/orders' }
+  ]},
+  { key:'ac', name:'apicenter 组件', nodes:[
+    { id:'fa-auth',  nt:'接入层 · 鉴权', nd:'signature + token' },
+    { id:'fa-map',   nt:'编排层 · 字段映射', nd:'MapStruct → JSON' },
+    { id:'fa-http',  nt:'出站客户端 · @HttpExchange', nd:'RestClient → :8101' },
+    { id:'fa-state', nt:'持久化 · 状态机/落库', nd:'integration_request' }
+  ]},
+  { key:'pa', name:'PARTNER_A（JSON）', nodes:[
+    { id:'fa-pa',    nt:'订单接口', nd:'POST /v1/order/push :8101' }
+  ]}
+];
+
+const STEPS_A = [
+  { label:'ERP 发起 POST /api/orders', node:'fa-erp',   cls:'',   state:'INIT',
+    detail:`<div class="dl-h">ERP → 组件：统一接口调用（Header 含敏感签名头）</div>
+      <pre class="json">POST /api/orders
+X-App-Id: erp-app
+X-Timestamp: 2026-08-17T10:29:45+08:00
+X-Signature: a1b2c3d4e5...   <span style="color:#475569">(签名头)</span>
+
+{ <span class="k">"orderId"</span>: <span class="s">"SO202608170001"</span>, <span class="k">"totalAmount"</span>: <span class="n">199.00</span>, <span class="k">"orderStatus"</span>: <span class="s">"PAID"</span> ... }</pre>`,
+    logs:[
+      {cls:'blue',  t:'erp→ac', text:'POST /api/orders 入站（X-App-Id: erp-app, X-Signature: a1b2****, traceparent 注入）'},
+    ]},
+  { label:'组件鉴权 ERP（signature 校验）', node:'fa-auth', cls:'', state:'MAPPING',
+    detail:`<div class="dl-h">组件鉴权通过</div>
+      <div class="kv"><span class="k">时间戳容差 300s</span><span>✓ 2026-08-17T10:29:45</span></div>
+      <div class="kv"><span class="k">signature 校验（HMAC-SHA256）</span><span>✓ 匹配</span></div>
+      <div class="kv"><span class="k">app 白名单</span><span>✓ erp-app</span></div>
+      <div style="margin-top:8px"><span class="pill ok">鉴权通过</span></div>`,
+    logs:[
+      {cls:'green', t:'ac', text:'鉴权通过 signature ✓ (erp-app)'},
+    ]},
+  { label:'MapStruct 字段映射 → PARTNER_A JSON', node:'fa-map', cls:'', state:'SENDING',
+    detail:`<div class="dl-h">OrderDto → PartnerAOrderRequest（金额 元→分 · 时间 ISO · 买家嵌套）</div>
+      <pre class="json">{
+  <span class="k">"orderNo"</span>: <span class="s">"SO202608170001"</span>,
+  <span class="k">"totalAmountCent"</span>: <span class="n">19900</span>,        <span style="color:#475569">// 199.00元 × 100</span>
+  <span class="k">"createdAt"</span>: <span class="s">"2026-08-17T10:30:00"</span>,
+  <span class="k">"buyer"</span>: { <span class="k">"name"</span>: <span class="s">"张三"</span>, <span class="k">"mobile"</span>: <span class="s">"138****1234"</span> }
+}</pre>
+      <span class="pill blue">@Mapping dateFormat</span><span class="pill blue">@Named yuanToCent</span><span class="pill blue">嵌套递归</span>`,
+    logs:[
+      {cls:'white', t:'ac', text:'字段映射完成 → PartnerAOrderRequest（11 字段，2 处换算）'},
+    ]},
+  /* step 4/5 vary by scenario; filled below */
+  null,
+  null,
+  { label:'映射回 ERP 统一响应', node:'fa-map', cls:'green', state:'SUCCESS',
+    detail:`<div class="dl-h">PartnerAResponse → 统一响应（分→元）</div>
+      <pre class="json">{
+  <span class="k">"success"</span>: <span class="n">true</span>,
+  <span class="k">"thirdOrderNo"</span>: <span class="s">"PA-20260817-8821"</span>,
+  <span class="k">"thirdStatus"</span>: <span class="s">"CREATED"</span>,
+  <span class="k">"amount"</span>: <span class="n">199.00</span>     <span style="color:#475569">// 19900分 → 199.00元</span>
+}</pre>
+      <span class="pill blue">@Named centToYuan</span>`,
+    logs:[
+      {cls:'green', t:'ac', text:'响应映射回 ERP 统一格式（分→元）'},
+    ]},
+  { label:'返回 ERP + traceId 收尾', node:'fa-erp', cls:'green', state:'SUCCESS',
+    detail:`<div class="dl-h">组件返回 ERP</div>
+      <pre class="json">HTTP/1.1 200 OK
+X-Trace-Id: {TRACE_ID}
+
+{ <span class="k">"code"</span>: <span class="n">0</span>, <span class="k">"success"</span>: <span class="n">true</span>, <span class="k">"thirdOrderNo"</span>: <span class="s">"PA-20260817-8821"</span> }</pre>
+      <span class="pill ok">全程同 traceId</span><span class="pill ok">integration_request → SUCCESS</span>`,
+    logs:[
+      {cls:'green', t:'ac→erp', text:'返回 ERP 200，traceId 收尾，call_log 已落库'},
+    ]}
+];
+
+const STEP_A_SCENARIOS = {
+  direct200: {
+    steps: [
+      { label:'调用 PARTNER_A → 首次即 200', node:'fa-pa', cls:'green', state:'SUCCESS',
+        detail:`<div class="dl-h">@HttpExchange 调用 PARTNER_A（一次成功）</div>
+          <pre class="json">POST /v1/order/push
+Content-Type: application/json
+
+→ HTTP/1.1 <span class="n">200</span> OK
+{ <span class="k">"code"</span>: <span class="n">0</span>, <span class="k">"orderNo"</span>: <span class="s">"SO202608170001"</span>, <span class="k">"status"</span>: <span class="s">"CREATED"</span> }</pre>
+          <span class="pill ok">一次调用成功 · 无重试</span>`,
+        logs:[{cls:'green', t:'ac→pa', text:'PARTNER_A 首次调用即返回 200，attempt_count=1'}]},
+      { label:'状态机 → SUCCESS（attempt_count=1）', node:'fa-state', cls:'green', state:'SUCCESS',
+        detail:`<div class="dl-h">无重试 · 无补偿，直接落库</div>
+          <pre class="json">{
+  <span class="k">"requestId"</span>: <span class="n">1000</span>,
+  <span class="k">"status"</span>: <span class="s">"SUCCESS"</span>,
+  <span class="k">"attemptCount"</span>: <span class="n">1</span>,
+  <span class="k">"traceId"</span>: <span class="s">"{TRACE_ID}"</span>
+}</pre>
+          <span class="pill ok">SUCCESS</span><span class="pill grey">无重试 · 无补偿 · 无死信</span>`,
+        logs:[{cls:'green', t:'ac', text:'integration_request → SUCCESS（attempt_count=1，无需补偿）'}]}
+    ]
+  },
+  success: {
+    steps: [
+      { label:'调用 PARTNER_A → 返回 500', node:'fa-http', cls:'red', state:'RETRYING',
+        detail:`<div class="dl-h">@HttpExchange 调用 PARTNER_A（第一次）</div>
+          <pre class="json">POST /v1/order/push
+Content-Type: application/json
+
+→ HTTP/1.1 <span class="n">500</span> Internal Server Error
+{ <span class="k">"code"</span>: <span class="n">50000</span>, <span class="k">"message"</span>: <span class="s">"上游系统繁忙"</span> }</pre>
+          <span class="pill err">500 → 进入重试</span><span class="pill blue">@Retryable</span>`,
+        logs:[{cls:'red', t:'ac→pa', text:'PARTNER_A 返回 500，触发 @Retryable 短重试（指数退避）'}]},
+      { label:'@Retryable 指数退避 → 重试成功 200', node:'fa-pa', cls:'green', state:'SUCCESS', retryPills:true,
+        detail:`<div class="dl-h">短重试（delay=200ms · ×2 · maxDelay=2000ms · max-attempts=5）</div>
+          <div id="retryBox" style="margin-bottom:8px">
+            <span class="pill retry">重试 #2 · 退避 200ms</span>
+            <span class="pill retry">重试 #3 · 退避 400ms</span>
+            <span class="pill retry">重试 #4 · 退避 800ms</span>
+            <span class="pill ok">重试 #5 · 退避 1600ms · 200 OK</span>
+          </div>
+          <pre class="json">HTTP/1.1 <span class="n">200</span> OK
+{ <span class="k">"code"</span>: <span class="n">0</span>, <span class="k">"orderNo"</span>: <span class="s">"SO202608170001"</span>, <span class="k">"status"</span>: <span class="s">"CREATED"</span> }</pre>
+          <span class="pill ok">重试后成功 → SUCCESS</span>`,
+        logs:[{cls:'amber', t:'ac→pa', text:'重试 #2(200ms) #3(400ms) #4(800ms) → 200 OK，attempt_count=5'}]}
+    ]
+  },
+  compensate: {
+    steps: [
+      { label:'调用 PARTNER_A → 重试耗尽恒 500', node:'fa-http', cls:'red', state:'COMPENSATING',
+        detail:`<div class="dl-h">重试耗尽（max-attempts=5）→ 转补偿</div>
+          <pre class="json">重试 #1 ~ #5 → 均 HTTP/1.1 <span class="n">500</span> Internal Server Error
+{ <span class="k">"code"</span>: <span class="n">50000</span>, <span class="k">"message"</span>: <span class="s">"上游系统繁忙"</span> }
+
+→ 状态置 <span class="n">COMPENSATING</span>，等待补偿 worker</pre>
+          <span class="pill err">重试耗尽</span><span class="pill purple">COMPENSATING</span>`,
+        logs:[{cls:'red', t:'ac→pa', text:'重试 #2~#5 仍 500，达到 max-attempts=5，状态 → COMPENSATING'}]},
+      { label:'补偿 worker 重放 → 200 成功', node:'fa-state', cls:'purple', state:'SUCCESS',
+        detail:`<div class="dl-h">补偿 worker 扫描 COMPENSATING，按 retry-worker-fixed-delay-ms(3000ms) 重放</div>
+          <pre class="json">补偿重放 #1 → HTTP/1.1 <span class="n">200</span> OK
+{ <span class="k">"code"</span>: <span class="n">0</span>, <span class="k">"orderNo"</span>: <span class="s">"SO202608170001"</span>, <span class="k">"status"</span>: <span class="s">"CREATED"</span> }</pre>
+          <span class="pill purple">补偿重放成功</span><span class="pill ok">SUCCESS</span>`,
+        logs:[{cls:'purple', t:'comp-worker', text:'补偿重放成功，integration_request → SUCCESS（生产换分布式锁）'}]}
+    ]
+  },
+  rate429: {
+    steps: [
+      { label:'调用 PARTNER_A → 返回 429', node:'fa-http', cls:'amber', state:'RETRYING',
+        detail:`<div class="dl-h">@HttpExchange 调用 PARTNER_A（第一次）</div>
+          <pre class="json">POST /v1/order/push
+
+→ HTTP/1.1 <span class="n">429</span> Too Many Requests
+Retry-After: 2</pre>
+          <span class="pill retry">429 → 指数退避重试</span>`,
+        logs:[{cls:'amber', t:'ac→pa', text:'PARTNER_A 返回 429（限流），退避后重试'}]},
+      { label:'退避重试 → 200 成功', node:'fa-pa', cls:'green', state:'SUCCESS',
+        detail:`<div class="dl-h">退避重试成功</div>
+          <pre class="json">HTTP/1.1 <span class="n">200</span> OK
+{ <span class="k">"code"</span>: <span class="n">0</span>, <span class="k">"orderNo"</span>: <span class="s">"SO202608170001"</span>, <span class="k">"status"</span>: <span class="s">"CREATED"</span> }</pre>
+          <span class="pill ok">重试后成功 → SUCCESS</span>`,
+        logs:[{cls:'green', t:'ac→pa', text:'重试成功 200，integration_request → SUCCESS'}]}
+    ]
+  },
+  badRequest: {
+    steps: [
+      { label:'调用 PARTNER_A → 返回 400', node:'fa-http', cls:'red', state:'DEAD_LETTER',
+        detail:`<div class="dl-h">@HttpExchange 调用 PARTNER_A → 业务错误</div>
+          <pre class="json">POST /v1/order/push
+
+→ HTTP/1.1 <span class="n">400</span> Bad Request
+{ <span class="k">"code"</span>: <span class="n">40001</span>, <span class="k">"message"</span>: <span class="s">"订单号重复"</span> }</pre>
+          <span class="pill err">4xx 业务错误 → 不重试 → 死信</span>`,
+        logs:[{cls:'red', t:'ac→pa', text:'PARTNER_A 返回 400（业务错误），不重试'}]},
+      { label:'写入死信 DEAD_LETTER', node:'fa-state', cls:'red', state:'DEAD_LETTER',
+        detail:`<div class="dl-h">400 → dead_letter 落表（人工/管理端点处理）</div>
+          <pre class="json">{
+  <span class="k">"requestId"</span>: <span class="n">1001</span>,
+  <span class="k">"channel"</span>: <span class="s">"PARTNER_A"</span>,
+  <span class="k">"reason"</span>: <span class="s">"订单号重复(40001)"</span>,
+  <span class="k">"status"</span>: <span class="s">"PENDING"</span>
+}</pre>
+          <span class="pill err">DEAD_LETTER</span><span class="pill grey">人工处理</span>`,
+        logs:[{cls:'red', t:'ac', text:'400 进死信 dead_letter(1001)，status=DEAD_LETTER，不重试'}]}
+    ],
+    tail: [
+      { label:'向 ERP 返回失败 ack', node:'fa-state', cls:'red', state:'DEAD_LETTER',
+        detail:`<div class="dl-h">400 已进死信，组件向 ERP 返回失败</div>
+          <pre class="json">HTTP/1.1 200 OK
+{ <span class="k">"code"</span>: <span class="n">40001</span>, <span class="k">"success"</span>: <span class="n">false</span>, <span class="k">"message"</span>: <span class="s">"订单号重复"</span>, <span class="k">"deadLetterId"</span>: <span class="n">1001</span> }</pre>
+          <span class="pill err">DEAD_LETTER</span><span class="pill grey">未进入重试</span>`,
+        logs:[{cls:'red', t:'ac', text:'死信已落库，向 ERP 返回失败 ack（code=40001）'}]},
+      { label:'返回 ERP（失败 ack + 死信提示）', node:'fa-erp', cls:'red', state:'DEAD_LETTER',
+        detail:`<div class="dl-h">ERP 收到失败响应</div>
+          <pre class="json">HTTP/1.1 200 OK
+{ <span class="k">"success"</span>: <span class="n">false</span>, <span class="k">"error"</span>: <span class="s">"订单号重复"</span>, <span class="k">"deadLetterId"</span>: <span class="n">1001</span> }</pre>
+          <span class="pill err">流程终态：DEAD_LETTER</span>`,
+        logs:[{cls:'red', t:'ac→erp', text:'返回 ERP 失败 ack，dead_letter(1001) 待人工/管理端点处理'}]}
+    ]
+  },
+  timeout: {
+    steps: [
+      { label:'调用 PARTNER_A → 读超时', node:'fa-http', cls:'grey', state:'UNKNOWN',
+        detail:`<div class="dl-h">读超时（read-timeout-ms=3000）</div>
+          <pre class="json">POST /v1/order/push
+
+→ <span class="n">ReadTimeoutException</span> (3000ms)
+结果不确定：第三方可能已处理</pre>
+          <span class="pill grey">UNKNOWN → 需对账</span>`,
+        logs:[{cls:'grey', t:'ac→pa', text:'读超时(3000ms)，结果不确定，状态 → UNKNOWN'}]},
+      { label:'UNKNOWN → 对账查询 → 确认成功', node:'fa-pa', cls:'green', state:'SUCCESS',
+        detail:`<div class="dl-h">对账：调第三方查询接口 reconcile</div>
+          <pre class="json">POST /v1/order/query { <span class="k">"orderNo"</span>: <span class="s">"SO202608170001"</span> }
+→ HTTP/1.1 <span class="n">200</span>
+{ <span class="k">"orderNo"</span>: <span class="s">"SO202608170001"</span>, <span class="k">"status"</span>: <span class="s">"CREATED"</span>, <span class="k">"created"</span>: <span class="n">true</span> }</pre>
+          <span class="pill ok">对账确认已成功 → SUCCESS</span><span class="pill grey">对账失败 → DEAD_LETTER / 不确定 → COMPENSATING</span>`,
+        logs:[{cls:'purple', t:'ac', text:'UNKNOWN 触发对账 reconcile → 确认第三方已成功 → SUCCESS'}]}
+    ]
+  }
+};
+
+function buildStepsA(sc){
+  const s = STEPS_A.map(x=>x);      // copy
+  const cfg = STEP_A_SCENARIOS[sc] || STEP_A_SCENARIOS.success;
+  s[3] = cfg.steps[0];
+  s[4] = cfg.steps[1];
+  if(cfg.tail){
+    s[5] = cfg.tail[0];
+    s[6] = cfg.tail[1];
+  }
+  return s;
+}
+
+function renderLanes(containerId, lanes){
+  $(containerId).innerHTML = lanes.map(lane=>`
+    <div class="lane"><h4>${esc(lane.name)}</h4>
+      ${lane.nodes.map(n=>`<div class="node" id="${n.id}"><div class="nt">${esc(n.nt)}</div><div class="nd">${esc(n.nd)}</div></div>`).join('')}
+    </div>`).join('');
+}
+
+function renderChainA(){
+  $('chainA').innerHTML = `<div class="chain"><span>W3C traceparent 传播：</span><span class="seg" data-chain="0">UI · 父 span</span><span class="arr">→</span><span class="seg" data-chain="1">ERP · span-1</span><span class="arr">→</span><span class="seg" data-chain="2">组件 · span-2</span><span class="arr">→</span><span class="seg" data-chain="3">PARTNER_A · span-3</span></div>`;
+}
+
+function setActive(nodeId, cls){
+  document.querySelectorAll('#lanesA .node, #lanesB .node').forEach(n=>{ n.classList.remove('active','green','red','amber','purple','grey'); });
+  if(!nodeId) return;
+  const el = $(nodeId);
+  if(el){ el.classList.add('active'); if(cls) el.classList.add(cls); }
+}
+
+function setChainA(hot){
+  document.querySelectorAll('#chainA .seg').forEach((s,i)=>s.classList.toggle('hot', i===hot));
+}
+function setChainB(hot){
+  document.querySelectorAll('#chainB .seg').forEach((s,i)=>s.classList.toggle('hot', i===hot));
+}
+
+function renderStepsA(){
+  const sc = $('scenarioSel').value;
+  const steps = buildStepsA(sc);
+  $('stepsA').innerHTML = steps.map((s,i)=>`
+    <li class="step-item" id="stepA${i}" onclick="jumpA(${i})">
+      <span class="n">${i+1}</span><span>${esc(s.label)}</span>
+    </li>`).join('');
+}
+
+function stepIndexMap(sc){
+  // mapping: 0,1,2,3,4,5,6
+  return [0,1,2,3,4,5,6];
+}
+
+function renderDetailA(step){
+  $('detailSubA').textContent = step.label;
+  $('detailA').innerHTML = step.detail.replaceAll('{TRACE_ID}', TRACE_ID);
+}
+
+function consoleA(entries){
+  const c = $('consoleA');
+  entries.forEach(e=>{
+    const line = document.createElement('div');
+    line.className = 'ln '+e.cls;
+    line.innerHTML = `<span class="t">[${logNow()}]</span><span style="color:#60a5fa">${TRACE_ID.slice(0,8)}</span> [${esc(e.t)}] ${esc(e.text)}`;
+    c.appendChild(line);
+  });
+  c.scrollTop = c.scrollHeight;
+}
+
+function setStateSM(state){
+  document.querySelectorAll('#smOut .sm-node').forEach(n=>n.classList.remove('hot','dead','unknown'));
+  const map = { INIT:'sm-init', MAPPING:'sm-mapping', SENDING:'sm-sending', RETRYING:'sm-retrying', COMPENSATING:'sm-compensating', SUCCESS:'sm-success', DEAD_LETTER:'sm-deadletter', UNKNOWN:'sm-unknown' };
+  const id = map[state];
+  if(id){
+    const el = $(id);
+    if(el){ el.classList.add('hot'); if(state==='DEAD_LETTER') el.classList.add('dead'); if(state==='UNKNOWN') el.classList.add('unknown'); }
+  }
+}
+
+function setStepA(i, step){
+  document.querySelectorAll('#stepsA .step-item').forEach((el,j)=>el.classList.toggle('active', j===i));
+  setActive(step.node, step.cls);
+  if(step.node==='fa-http' || step.node==='fa-pa') setChainA(3); else if(step.node==='fa-erp') setChainA(1); else if(step.node==='fa-map'||step.node==='fa-auth'||step.node==='fa-state') setChainA(2);
+  renderDetailA(step);
+  setStateSM(step.state);
+}
+
+function resetFlowA(){
+  $('consoleA').innerHTML = '';
+  renderStepsA();
+  setActive(null);
+  $('detailA').innerHTML = '';
+  $('detailSubA').textContent = '选择「▶ 逐步调用」或点击步骤开始演示';
+  document.querySelectorAll('#stepsA .step-item').forEach(el=>el.classList.remove('active'));
+  setChainA(-1);
+  setStateSM(null);
+  $('btnPlayA').disabled = false;
+}
+
+async function playFlowA(){
+  if($('btnPlayA').disabled) return;
+  $('btnPlayA').disabled = true;
+  resetFlowA();
+  const sc = $('scenarioSel').value;
+  const steps = buildStepsA(sc);
+  for(let i=0;i<steps.length;i++){
+    const step = steps[i];
+    if(step.retryPills){
+      // retry backoff animation
+      setStepA(i, step);
+      await wait(800);
+      const box = $('retryBox');
+      const pills = box ? box.children : [];
+      for(let k=0;k<pills.length;k++){
+        if(k===pills.length-1){ pills[k].classList.replace('retry','ok'); consoleA([{cls:'green', t:'ac→pa', text:'重试 #'+(k+2)+' 成功 200'}]);
+        } else { consoleA([{cls:'amber', t:'ac→pa', text:'重试 #'+(k+2)+' · 退避 '+[200,400,800][k]+'ms → 请求 PARTNER_A'}]); }
+        await wait(700);
+      }
+      continue;
+    }
+    setStepA(i, step);
+    consoleA(step.logs || []);
+    await wait(step.node==='fa-http'?1600:1100);
+  }
+  $('btnPlayA').disabled = false;
+}
+
+function jumpA(i){
+  if($('btnPlayA').disabled) return;
+  const sc = $('scenarioSel').value;
+  const steps = buildStepsA(sc);
+  if(i>=steps.length) return;
+  const step = steps[i];
+  setStepA(i, step);
+  consoleA(step.logs||[]);
+}
+
+function onScenarioChange(){
+  resetFlowA();
+}
+
+function setScenario(sc){
+  $('scenarioSel').value = sc;
+  resetFlowA();
+}
+
+/* ============================ Flow B ============================ */
+const LANES_B = [
+  { key:'pa', name:'PARTNER_A（回调方）', nodes:[
+    { id:'fb-pa', nt:'回调发送', nd:'POST /callback/PARTNER_A/order-status' }
+  ]},
+  { key:'ac', name:'apicenter 组件', nodes:[
+    { id:'fb-verify', nt:'验签', nd:'HMAC-SHA256 · 容差300s' },
+    { id:'fb-map',    nt:'字段映射', nd:'回调 DTO → ERP 事件 DTO' },
+    { id:'fb-deliver',nt:'送达 ERP', nd:'@HttpExchange → :8103' },
+    { id:'fb-state',  nt:'持久化 · 送达记录', nd:'callback_delivery' }
+  ]},
+  { key:'erp', name:'ERP（回调接收方）', nodes:[
+    { id:'fb-erp', nt:'ERP 回调端点', nd:'POST /api/erp/order-status' }
+  ]}
+];
+
+const STEPS_B_BASE = [
+  { label:'第三方回调组件端点', node:'fb-pa', cls:'', state:'RECEIVED',
+    detail:`<div class="dl-h">PARTNER_A 回调（订单状态变更）</div>
+      <pre class="json">POST /callback/PARTNER_A/order-status
+X-Partner-Signature: 9f8e7d6c...
+X-Timestamp: 2026-08-17T10:31:00+08:00
+
+{ <span class="k">"event"</span>: <span class="s">"order.status.changed"</span>, <span class="k">"orderNo"</span>: <span class="s">"SO202608170001"</span>, <span class="k">"status"</span>: <span class="s">"SHIPPED"</span> }</pre>`,
+    logs:[{cls:'blue', t:'pa→ac', text:'收到第三方回调 /callback/PARTNER_A/order-status'}]},
+  { label:'组件验签', node:'fb-verify', cls:'', state:'VERIFIED',
+    detail:`<div class="dl-h">验签通过</div>
+      <div class="kv"><span class="k">时间戳容差 300s</span><span>✓</span></div>
+      <div class="kv"><span class="k">signature（HMAC-SHA256 + erp-secret）</span><span>✓ 匹配</span></div>
+      <div style="margin-top:8px"><span class="pill ok">验签通过</span><span class="pill grey">验签失败 → DROPPED</span></div>`,
+    logs:[{cls:'green', t:'ac', text:'验签通过，查订阅 callback_subscription'}]},
+  { label:'MapStruct 映射为 ERP 回调事件', node:'fb-map', cls:'', state:'DELIVERING',
+    detail:`<div class="dl-h">渠道回调 DTO → ERP 回调事件 DTO</div>
+      <pre class="json">{
+  <span class="k">"orderId"</span>: <span class="s">"SO202608170001"</span>,
+  <span class="k">"status"</span>: <span class="s">"SHIPPED"</span>,      <span style="color:#475569">// XML/JSON 渠道格式 → ERP 统一枚举</span>
+  <span class="k">"source"</span>: <span class="s">"PARTNER_A"</span>
+}</pre>
+      <span class="pill blue">字段映射</span>`,
+    logs:[{cls:'white', t:'ac', text:'字段映射完成 → ERP 回调事件 DTO'}]},
+  null, /* step4 varies */
+  { label:'回第三方 200 ack', node:'fb-pa', cls:'green', state:'CALLBACK_ACKED',
+    detail:`<div class="dl-h">组件回 ack 第三方</div>
+      <pre class="json">HTTP/1.1 <span class="n">200</span> OK
+{ <span class="k">"code"</span>: <span class="n">0</span>, <span class="k">"msg"</span>: <span class="s">"ok"</span> }</pre>
+      <span class="pill ok">callback_delivery → ERP_ACKED → CALLBACK_ACKED</span>`,
+    logs:[{cls:'green', t:'ac→pa', text:'回第三方 200 ack，送达链路闭环'}]}
+];
+
+function buildStepsB(){
+  const down = $('erpDown').checked;
+  const s = STEPS_B_BASE.map(x=>x);
+  if(down){
+    s[3] = { label:'送达 ERP → 失败(502)', node:'fb-deliver', cls:'red', state:'RETRYING',
+      detail:`<div class="dl-h">送达 ERP（第一次）→ 失败</div>
+        <pre class="json">POST http://localhost:8103/api/erp/order-status
+
+→ HTTP/1.1 <span class="n">502</span> Bad Gateway</pre>
+        <span class="pill err">送达失败</span><span class="pill purple">状态 PENDING → 补偿</span>`,
+      logs:[{cls:'red', t:'ac→erp', text:'送达 ERP 502，callback_delivery → PENDING，待补偿'}]};
+    s.splice(4,0,{ label:'补偿 worker 重发 → ack', node:'fb-state', cls:'purple', state:'ERP_ACKED',
+      detail:`<div class="dl-h">补偿 worker 按 retry-worker-fixed-delay-ms(3000ms) 重发</div>
+        <pre class="json">retry #2 → HTTP/1.1 <span class="n">200</span> OK { <span class="k">"ack"</span>: <span class="n">true</span> }</pre>
+        <span class="pill purple">补偿重发成功</span><span class="pill ok">ERP_ACKED</span>`,
+      logs:[{cls:'purple', t:'comp-worker', text:'补偿重发成功，callback_delivery → ERP_ACKED'}]});
+  } else {
+    s[3] = { label:'送达 ERP → ack', node:'fb-deliver', cls:'green', state:'ERP_ACKED',
+      detail:`<div class="dl-h">组件送达 ERP 回调 URL</div>
+        <pre class="json">POST http://localhost:8103/api/erp/order-status
+Authorization: Bearer erp-token
+
+→ HTTP/1.1 <span class="n">200</span> OK { <span class="k">"ack"</span>: <span class="n">true</span> }</pre>
+        <span class="pill ok">ERP 回 ack → ERP_ACKED</span>`,
+      logs:[{cls:'green', t:'ac→erp', text:'送达 ERP 成功，收到 ack 200，callback_delivery → ERP_ACKED'}]};
+  }
+  return s;
+}
+
+function renderLanesB(){
+  renderLanes('lanesB', LANES_B);
+}
+function renderChainB(){
+  $('chainB').innerHTML = `<div class="chain"><span>W3C traceparent 传播：</span><span class="seg" data-chain="0">PARTNER_A · span-1</span><span class="arr">→</span><span class="seg" data-chain="1">组件 · span-2</span><span class="arr">→</span><span class="seg" data-chain="2">ERP · span-3</span></div>`;
+}
+function renderStepsB(){
+  const steps = buildStepsB();
+  $('stepsB').innerHTML = steps.map((s,i)=>`
+    <li class="step-item" id="stepB${i}" onclick="jumpB(${i})">
+      <span class="n">${i+1}</span><span>${esc(s.label)}</span>
+    </li>`).join('');
+}
+function consoleB(entries){
+  const c = $('consoleB');
+  entries.forEach(e=>{
+    const line = document.createElement('div');
+    line.className = 'ln '+e.cls;
+    line.innerHTML = `<span class="t">[${logNow()}]</span><span style="color:#60a5fa">${TRACE_ID.slice(0,8)}</span> [${esc(e.t)}] ${esc(e.text)}`;
+    c.appendChild(line);
+  });
+  c.scrollTop = c.scrollHeight;
+}
+function setStateSMB(state){
+  document.querySelectorAll('#smIn .sm-node').forEach(n=>n.classList.remove('hot','dead','unknown'));
+  const map = { RECEIVED:'in-received', VERIFIED:'in-verified', DELIVERING:'in-delivering', ERP_ACKED:'in-erpacked', CALLBACK_ACKED:'in-cbcked', RETRYING:'in-retrying' };
+  const id = map[state];
+  if(id){ const el=$(id); if(el) el.classList.add('hot'); }
+}
+function setStepB(i, step){
+  document.querySelectorAll('#stepsB .step-item').forEach((el,j)=>el.classList.toggle('active', j===i));
+  setActive(step.node, step.cls);
+  if(step.node==='fb-pa') setChainB(0);
+  else if(step.node==='fb-deliver'||step.node==='fb-state') setChainB(2);
+  else if(step.node==='fb-verify'||step.node==='fb-map') setChainB(1);
+  $('detailSubB').textContent = step.label;
+  $('detailB').innerHTML = step.detail;
+  setStateSMB(step.state);
+}
+function resetFlowB(){
+  $('consoleB').innerHTML = '';
+  renderStepsB();
+  setActive(null);
+  $('detailB').innerHTML = '';
+  $('detailSubB').textContent = '勾选「ERP 暂不可用」可看补偿重发分支';
+  document.querySelectorAll('#stepsB .step-item').forEach(el=>el.classList.remove('active'));
+  setStateSMB(null);
+  setChainB(-1);
+}
+async function playFlowB(){
+  resetFlowB();
+  const steps = buildStepsB();
+  for(let i=0;i<steps.length;i++){
+    const step = steps[i];
+    setStepB(i, step);
+    consoleB(step.logs||[]);
+    await wait(step.node==='fb-deliver' ? 1600 : 1100);
+  }
+}
+function jumpB(i){
+  const steps = buildStepsB();
+  if(i>=steps.length) return;
+  const step = steps[i];
+  setStepB(i, step);
+  consoleB(step.logs||[]);
+}
+
+/* ============================ Mapping tab ============================ */
+function buildSamples(){
+  const json = `{
+  <span class="k">"orderNo"</span>: <span class="s">"SO202608170001"</span>,
+  <span class="k">"orderType"</span>: <span class="s">"PUSH"</span>,
+  <span class="k">"orderStatus"</span>: <span class="s">"PAID"</span>,
+  <span class="k">"totalAmountCent"</span>: <span class="n">19900</span>,
+  <span class="k">"currency"</span>: <span class="s">"CNY"</span>,
+  <span class="k">"buyer"</span>: { <span class="k">"name"</span>: <span class="s">"张三"</span>, <span class="k">"mobile"</span>: <span class="s">"138****1234"</span> },
+  <span class="k">"createdAt"</span>: <span class="s">"2026-08-17T10:30:00"</span>,
+  <span class="k">"items"</span>: [
+    { <span class="k">"skuCode"</span>: <span class="s">"SKU-001"</span>, <span class="k">"quantity"</span>: <span class="n">1</span>, <span class="k">"unitPriceCent"</span>: <span class="n">9900</span>, <span class="k">"amountCent"</span>: <span class="n">9900</span> },
+    { <span class="k">"skuCode"</span>: <span class="s">"SKU-002"</span>, <span class="k">"quantity"</span>: <span class="n">1</span>, <span class="k">"unitPriceCent"</span>: <span class="n">10000</span>, <span class="k">"amountCent"</span>: <span class="n">10000</span> }
+  ],
+  <span class="k">"receiver"</span>: { <span class="k">"province"</span>: <span class="s">"浙江"</span>, <span class="k">"city"</span>: <span class="s">"杭州"</span>, <span class="k">"detail"</span>: <span class="s">"西湖区 xxxx"</span> },
+  <span class="k">"note"</span>: <span class="s">"618 大促订单"</span>
+}`;
+  const xml = `&lt;OrderPushRequest&gt;
+  &lt;OrderNo&gt;SO202608170001&lt;/OrderNo&gt;
+  &lt;OrderType&gt;PUSH&lt;/OrderType&gt;
+  &lt;Status&gt;2&lt;/Status&gt;
+  &lt;TotalAmount&gt;19900&lt;/TotalAmount&gt;
+  &lt;Currency&gt;CNY&lt;/Currency&gt;
+  &lt;Buyer&gt;&lt;Name&gt;张三&lt;/Name&gt;&lt;Phone&gt;138****1234&lt;/Phone&gt;&lt;/Buyer&gt;
+  &lt;CreatedTime&gt;20260817103000&lt;/CreatedTime&gt;
+  &lt;Item&gt;&lt;SkuCode&gt;SKU-001&lt;/SkuCode&gt;&lt;Quantity&gt;1&lt;/Quantity&gt;&lt;UnitPrice&gt;9900&lt;/UnitPrice&gt;&lt;Amount&gt;9900&lt;/Amount&gt;&lt;/Item&gt;
+  &lt;Item&gt;&lt;SkuCode&gt;SKU-002&lt;/SkuCode&gt;&lt;Quantity&gt;1&lt;/Quantity&gt;&lt;UnitPrice&gt;10000&lt;/UnitPrice&gt;&lt;Amount&gt;10000&lt;/Amount&gt;&lt;/Item&gt;
+  &lt;Receiver&gt;&lt;Province&gt;浙江&lt;/Province&gt;&lt;City&gt;杭州&lt;/City&gt;&lt;Detail&gt;西湖区 xxxx&lt;/Detail&gt;&lt;/Receiver&gt;
+  &lt;Remark&gt;618 大促订单&lt;/Remark&gt;
+&lt;/OrderPushRequest&gt;`;
+  $('sampleJson').innerHTML = json;
+  $('sampleXml').innerHTML = xml;
+
+  // hover 联动：表行 data-m ↔ 样例文本高亮
+  const fieldMap = {
+    orderNo:['orderNo','OrderNo'], orderType:['orderType','OrderType'], orderStatus:['orderStatus','Status'],
+    totalAmount:['totalAmountCent','TotalAmount'], currency:['currency','Currency'], buyer:['buyer','Buyer'],
+    createdTime:['createdAt','CreatedTime'], items:['items','Item'], address:['receiver','Receiver'], remark:['note','Remark']
+  };
+  document.querySelectorAll('#pane-mapping tr[data-m]').forEach(tr=>{
+    tr.addEventListener('mouseenter', ()=>{
+      const keys = fieldMap[tr.dataset.m]||[];
+      document.querySelectorAll('#pane-mapping pre .hl').forEach(el=>el.classList.remove('hl'));
+      document.querySelectorAll('#pane-mapping pre').forEach(pre=>{
+        let html = pre.innerHTML;
+        keys.forEach(k=>{
+          const re = new RegExp('(&lt;|"|\')( *)'+k.replace(/\$/g,'\\$')+'( *)(&gt;|")', 'g');
+          html = html.replace(re, (m,p1,sp1,kname,sp2,p2)=> p1+sp1+'<span class="hl">'+kname+'</span>'+sp2+p2);
+        });
+        pre.innerHTML = html;
+      });
+    });
+    tr.addEventListener('mouseleave', ()=>{
+      document.querySelectorAll('#pane-mapping pre').forEach(pre=>{
+        pre.innerHTML = pre.dataset.orig || pre.innerHTML;
+      });
+    });
+  });
+  document.querySelectorAll('#pane-mapping pre').forEach(pre=> pre.dataset.orig = pre.innerHTML);
+}
+
+/* ============================ Sync tab ============================ */
+let syncState = { wm: 0, pulled: [], running: false };
+function resetSync(){
+  syncState = { wm: 0, pulled: [], running: false };
+  $('wmCur').textContent = '0';
+  $('wmFill').style.width = '0%';
+  $('wmCursor').style.left = '0%';
+  $('syncList').innerHTML = '';
+  $('consoleSync').innerHTML = '';
+}
+async function runSync(){
+  if(syncState.running) return;
+  syncState.running = true;
+  const start = syncState.wm;
+  // 模拟第三方返回的批次：含一条重复记录（同窗口内重复投递 → 防重命中）
+  const batch = [ 'ORD-'+(start+1), 'ORD-'+(start+1), 'ORD-'+(start+2) ];
+  // 同批次已见 + 历史已拉过 → 均判重（本批去重后再入 pulled）
+  const seen = new Set(syncState.pulled.map(x=>x.id));
+  const rows = [];
+  for(const id of batch){
+    const dup = seen.has(id);
+    rows.push({ id, dup });
+    if(!dup) seen.add(id);
+  }
+  const list = $('syncList');
+  for(const r of rows){
+    const row = document.createElement('div');
+    row.className = 'sync-row' + (r.dup ? ' dedup' : '');
+    row.innerHTML = `<span class="id">${r.id}</span><span class="st">${r.dup ? '<span class="pill retry">dedup 防重命中，跳过</span>' : '<span class="pill blue">拉取 → 入库</span>'}</span>`;
+    list.appendChild(row);
+    await wait(420);
+  }
+  // 推进游标（按去重后的新 ID 数）
+  const fresh = rows.filter(r=>!r.dup).map(r=>r.id);
+  syncState.pulled.push(...fresh.map(id=>({id})));
+  const end = start + fresh.length;
+  $('wmCur').textContent = end;
+  $('wmFill').style.width = (end/12*100) + '%';
+  $('wmCursor').style.left = (end/12*100) + '%';
+  syncState.wm = end;
+  // append job log line（写到同步 Tab 控制台）
+  const c = $('consoleSync');
+  const line = document.createElement('div');
+  line.className = 'ln purple';
+  line.innerHTML = `<span class="t">[${logNow()}]</span><span style="color:#60a5fa">${TRACE_ID.slice(0,8)}</span> [sync-job] 增量拉取 ${start}→${end}，batch=${batch.length}，dedup=${rows.filter(r=>r.dup).length}，sync_job_log 已落库`;
+  c.appendChild(line);
+  c.scrollTop = c.scrollHeight;
+  syncState.running = false;
+}
+
+/* ============================ State machine render ============================ */
+function renderSM(){
+  const out = `
+    <div class="sm-flow">
+      <div class="sm-node" id="sm-init">INIT</div><span class="sm-arr">→</span>
+      <div class="sm-node" id="sm-mapping">MAPPING</div><span class="sm-arr">→</span>
+      <div class="sm-node" id="sm-sending">SENDING</div>
+    </div>
+    <div class="sm-branch">
+      <span class="lbl">500/429/连接异常</span>
+      <div class="sm-node" id="sm-retrying">RETRYING</div><span class="sm-arr">↺ 未达 max-attempts → SENDING</span>
+    </div>
+    <div class="sm-branch">
+      <span class="lbl">达到上限</span>
+      <div class="sm-node" id="sm-compensating">COMPENSATING</div><span class="sm-arr">→ 补偿成功 → SUCCESS</span>
+    </div>
+    <div class="sm-flow">
+      <span class="sm-arr">正常</span><span class="sm-arr">→</span>
+      <div class="sm-node" id="sm-success">SUCCESS</div>
+    </div>
+    <div class="sm-branch">
+      <span class="lbl">4xx 业务错误</span>
+      <div class="sm-node" id="sm-deadletter">DEAD_LETTER</div>
+    </div>
+    <div class="sm-branch">
+      <span class="lbl">读超时/不确定</span>
+      <div class="sm-node" id="sm-unknown">UNKNOWN</div><span class="sm-arr">→ 对账 → SUCCESS | DEAD_LETTER | COMPENSATING</span>
+    </div>`;
+  $('smOut').innerHTML = out;
+  const inn = `
+    <div class="sm-flow">
+      <div class="sm-node" id="in-received">RECEIVED</div><span class="sm-arr">→</span>
+      <div class="sm-node" id="in-verified">VERIFIED</div><span class="sm-arr">→</span>
+      <div class="sm-node" id="in-delivering">DELIVERING</div><span class="sm-arr">→</span>
+      <div class="sm-node" id="in-erpacked">ERP_ACKED</div><span class="sm-arr">→</span>
+      <div class="sm-node" id="in-cbcked">CALLBACK_ACKED</div>
+    </div>
+    <div class="sm-branch">
+      <span class="lbl">送达失败</span>
+      <div class="sm-node" id="in-retrying">RETRYING</div><span class="sm-arr">→ 重发</span>
+      <span class="lbl" style="margin-left:8px">验签失败 → DROPPED</span>
+    </div>`;
+  $('smIn').innerHTML = inn;
+}
+
+/* ============================ Init ============================ */
+function init(){
+  TRACE_ID = genTrace();
+  $('traceIdText').textContent = TRACE_ID;
+  renderLanes('lanesA', LANES_A);
+  renderLanesB();
+  renderChainA();
+  renderChainB();
+  renderStepsA();
+  renderStepsB();
+  buildSamples();
+  renderSM();
+  setStateSM(null);
+  setStateSMB(null);
+}
+init();
+</script>
+</body>
+</html>

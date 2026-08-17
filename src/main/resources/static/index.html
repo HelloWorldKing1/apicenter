@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>apicenter · Vue3 前端调用后端接口</title>
+  <!-- 视觉对齐 src/main/resources/api演示 demo.html -->
+  <link rel="stylesheet" href="./css/style.css">
+  <!-- Vue3 CDN（运行时需外网；可替换为本地 vendor/vue.global.prod.js） -->
+  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+</head>
+<body>
+
+<div id="app">
+  <!-- ======================= 顶部栏 ======================= -->
+  <header class="topbar">
+    <div class="logo">API <span>·</span> 三方接口统一调用平台组件 <span style="font-size:12px;color:#94a3b8">Vue3 前端</span></div>
+    <div class="trace" title="前端演示用 traceId（生产由后端 OTel 透传）">
+      traceId: <b>{{ traceId }}</b>
+    </div>
+    <button @click="copyTrace()">复制 traceId</button>
+    <button @click="resetTrace()">重置</button>
+    <div class="spacer"></div>
+    <div class="hint">真实调用后端接口 · Flow A 出站 / Flow B 回调</div>
+  </header>
+
+  <!-- ======================= TABS ======================= -->
+  <nav class="tabs">
+    <div class="tab" :class="{ active: currentTab === 'flowa' }" @click="goto('flowa')">Flow A · 出站（ERP→组件→第三方）</div>
+    <div class="tab" :class="{ active: currentTab === 'flowb' }" @click="goto('flowb')">Flow B · 入站回调（第三方→组件→ERP）</div>
+    <div class="tab" :class="{ active: currentTab === 'mapping' }" @click="goto('mapping')">字段映射</div>
+    <div class="tab" :class="{ active: currentTab === 'sync' }" @click="goto('sync')">定时增量拉取 · 对账</div>
+    <div class="tab" :class="{ active: currentTab === 'sm' }" @click="goto('sm')">状态机 · 数据模型</div>
+  </nav>
+
+  <div class="panes">
+
+    <!-- ======================= TAB1 · Flow A 出站 ======================= -->
+    <div class="pane" :class="{ active: currentTab === 'flowa' }">
+      <div class="card">
+        <h2 class="sec">Flow A · 出站（ERP → 组件 → 第三方）</h2>
+        <div class="sub">前端扮演 ERP，调 <code>POST /api/orders</code>，自动计算 HMAC-SHA256 签名头（密钥 erp-secret）</div>
+
+        <!-- 订单表单 -->
+        <div class="form-grid">
+          <div class="field"><label>orderId *</label><input v-model="flowA.order.orderId" placeholder="SO202608170001"></div>
+          <div class="field"><label>orderType</label>
+            <select v-model="flowA.order.orderType"><option>PUSH</option><option>PULL</option></select></div>
+          <div class="field"><label>orderStatus</label>
+            <select v-model="flowA.order.orderStatus"><option>NEW</option><option>PAID</option><option>SHIPPED</option></select></div>
+          <div class="field"><label>totalAmount（元）</label><input v-model="flowA.order.totalAmount" type="number" step="0.01"></div>
+          <div class="field"><label>currency</label><input v-model="flowA.order.currency"></div>
+          <div class="field"><label>buyerName</label><input v-model="flowA.order.buyerName"></div>
+          <div class="field"><label>buyerPhone</label><input v-model="flowA.order.buyerPhone"></div>
+          <div class="field"><label>createdTime</label><input v-model="flowA.order.createdTime" type="datetime-local"></div>
+          <div class="field"><label>remark</label><input v-model="flowA.order.remark"></div>
+        </div>
+
+        <!-- 明细 -->
+        <div style="margin-top:14px">
+          <div class="res-h">明细 items</div>
+          <div v-for="(item, i) in flowA.order.items" :key="i" class="item-row">
+            <input v-model="item.skuCode" placeholder="skuCode">
+            <input v-model.number="item.qty" type="number" min="1">
+            <input v-model="item.unitPrice" type="number" step="0.01" placeholder="单价(元)">
+            <button class="del" @click="removeItem(i)">×</button>
+          </div>
+          <button class="btn ghost sm" @click="addItem()">+ 添加明细</button>
+        </div>
+
+        <!-- 地址 -->
+        <div class="form-grid">
+          <div class="field"><label>省</label><input v-model="flowA.order.address.province"></div>
+          <div class="field"><label>市</label><input v-model="flowA.order.address.city"></div>
+          <div class="field"><label>详细地址</label><input v-model="flowA.order.address.detail"></div>
+        </div>
+
+        <div class="controls" style="margin-top:14px">
+          <button class="btn" @click="pushOrder()" :disabled="flowA.submitting">{{ flowA.submitting ? '推送中…' : '▶ 推送订单' }}</button>
+          <button class="btn ghost" @click="fillSampleOrder()">填充示例订单</button>
+          <button class="btn ghost" @click="flowA.logs=[]; flowA.response=null; flowA.error=null; flowA.request=null">清空结果</button>
+        </div>
+
+        <!-- 请求 / 响应 -->
+        <div class="results">
+          <div>
+            <div class="res-h">请求（含签名头）</div>
+            <pre v-if="flowA.request" class="json">{{ pretty(flowA.request) }}</pre>
+            <pre v-else class="json" style="color:#475569">（填写订单后点击「推送订单」）</pre>
+          </div>
+          <div>
+            <div class="res-h">后端响应 ErpOrderResponse</div>
+            <pre v-if="flowA.response" class="json">{{ pretty(flowA.response) }}</pre>
+            <div v-else-if="flowA.error" class="err-box">{{ pretty(flowA.error) }}</div>
+            <pre v-else class="json" style="color:#475569">（待响应）</pre>
+          </div>
+        </div>
+
+        <!-- 日志 -->
+        <div class="console">
+          <div v-for="(ln, i) in flowA.logs" :key="i" class="ln" :class="ln.cls">
+            <span class="t">[{{ ln.time }}]</span><span style="color:#60a5fa">{{ traceId.slice(0,8) }}</span> [{{ ln.tag }}] {{ ln.text }}
+          </div>
+          <div v-if="flowA.logs.length === 0" class="ln grey">（尚无调用）</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======================= TAB2 · Flow B 入站回调 ======================= -->
+    <div class="pane" :class="{ active: currentTab === 'flowb' }">
+      <div class="card">
+        <h2 class="sec">Flow B · 入站回调（第三方 → 组件 → ERP）</h2>
+        <div class="sub">前端扮演第三方，调 <code>POST /callback/{channel}/order-status</code>，自动计算渠道签名</div>
+        <table class="mt" style="margin-top:10px">
+          <tr><th>channelCode</th><th>callbackPath</th><th>erpCallbackUrl</th><th>签名密钥</th></tr>
+          <tr>
+            <td><code>{{ flowB.channel }}</code></td>
+            <td><code>/callback/{{ flowB.channel }}/order-status</code></td>
+            <td><code>http://localhost:8103/api/erp/order-status</code></td>
+            <td><code>{{ secretOf(flowB.channel) }}</code></td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="form-grid">
+          <div class="field"><label>渠道 channel</label>
+            <select v-model="flowB.channel"><option>PARTNER_A</option><option>PARTNER_B</option></select></div>
+          <div class="field"><label>event</label><input v-model="flowB.event"></div>
+          <div class="field"><label>orderNo</label><input v-model="flowB.orderNo"></div>
+          <div class="field"><label>status</label><input v-model="flowB.status"></div>
+        </div>
+
+        <div class="controls" style="margin-top:14px">
+          <button class="btn" @click="sendCallback()" :disabled="flowB.submitting">{{ flowB.submitting ? '发送中…' : '▶ 模拟第三方回调' }}</button>
+          <button class="btn ghost" @click="flowB.logs=[]; flowB.response=null; flowB.error=null">清空结果</button>
+        </div>
+
+        <div class="results">
+          <div>
+            <div class="res-h">请求</div>
+            <pre class="json">{{ pretty({ event: flowB.event, orderNo: flowB.orderNo, status: flowB.status }) }}</pre>
+          </div>
+          <div>
+            <div class="res-h">后端 ack</div>
+            <pre v-if="flowB.response" class="json">{{ pretty(flowB.response) }}</pre>
+            <div v-else-if="flowB.error" class="err-box">{{ pretty(flowB.error) }}</div>
+            <pre v-else class="json" style="color:#475569">（待回调）</pre>
+          </div>
+        </div>
+
+        <div class="console">
+          <div v-for="(ln, i) in flowB.logs" :key="i" class="ln" :class="ln.cls">
+            <span class="t">[{{ ln.time }}]</span><span style="color:#60a5fa">{{ traceId.slice(0,8) }}</span> [{{ ln.tag }}] {{ ln.text }}
+          </div>
+          <div v-if="flowB.logs.length === 0" class="ln grey">（尚无调用）</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======================= TAB3 · 字段映射 ======================= -->
+    <div class="pane" :class="{ active: currentTab === 'mapping' }">
+      <div class="card">
+        <h2 class="sec">3.1 字段映射（后端由 MapStruct + Jackson 实现）</h2>
+        <div class="sub">同一 <code>OrderDto</code> 映射为 PARTNER_A（JSON）与 PARTNER_B（XML）</div>
+        <div style="overflow:auto;margin-top:10px">
+          <table class="mt">
+            <thead><tr><th>语义</th><th>ERP 字段</th><th>PARTNER_A JSON 键</th><th>PARTNER_B XML 键</th><th>转换规则</th></tr></thead>
+            <tbody>
+              <tr><td>订单号</td><td><code>orderId</code></td><td><code>orderNo</code></td><td><code>&lt;OrderNo&gt;</code></td><td>命名差异（camel ↔ Pascal）</td></tr>
+              <tr><td>业务类型</td><td><code>orderType</code></td><td><code>orderType</code></td><td><code>&lt;OrderType&gt;</code></td><td>直传</td></tr>
+              <tr><td>状态</td><td><code>orderStatus</code></td><td><code>orderStatus</code></td><td><code>&lt;Status&gt;</code></td><td>值映射 NEW→1 / PAID→2 / SHIPPED→3</td></tr>
+              <tr><td>总金额</td><td><code>totalAmount</code>（元）</td><td><code>totalAmountCent</code>（分）</td><td><code>&lt;TotalAmount&gt;</code>（分）</td><td>元 ×100 → 分</td></tr>
+              <tr><td>买家</td><td><code>buyerName</code> + <code>buyerPhone</code></td><td><code>buyer.name</code> / <code>buyer.mobile</code></td><td><code>&lt;Buyer&gt;&lt;Name&gt;</code> / <code>&lt;Phone&gt;</code></td><td>平铺 → 嵌套聚合</td></tr>
+              <tr><td>创建时间</td><td><code>createdTime</code></td><td><code>createdAt</code>（ISO-8601）</td><td><code>&lt;CreatedTime&gt;</code>（yyyyMMddHHmmss）</td><td>时间格式差异</td></tr>
+              <tr><td>明细</td><td><code>items[]</code></td><td><code>items[]</code></td><td><code>&lt;Item&gt;</code> 平铺</td><td>嵌套列表；金额同 ×100</td></tr>
+              <tr><td>收货地址</td><td><code>shippingAddress</code></td><td><code>receiver</code></td><td><code>&lt;Receiver&gt;</code></td><td>字段重命名 + 嵌套</td></tr>
+              <tr><td>备注</td><td><code>remark</code></td><td><code>note</code></td><td><code>&lt;Remark&gt;</code></td><td>命名差异</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="results">
+          <div>
+            <div class="res-h">PARTNER_A · JSON（@JsonProperty）</div>
+            <pre class="json">{
+  "orderNo": "SO202608170001",
+  "orderType": "PUSH",
+  "orderStatus": "PAID",
+  "totalAmountCent": 19900,
+  "currency": "CNY",
+  "buyer": { "name": "张三", "mobile": "138****1234" },
+  "createdAt": "2026-08-17T10:30:00",
+  "items": [
+    { "skuCode": "SKU-001", "quantity": 1, "unitPriceCent": 9900, "amountCent": 9900 }
+  ],
+  "receiver": { "province": "浙江", "city": "杭州", "detail": "西湖区 xxxx" },
+  "note": "618 大促订单"
+}</pre>
+          </div>
+          <div>
+            <div class="res-h">PARTNER_B · XML（@JacksonXmlRootElement / @JacksonXmlProperty）</div>
+            <pre class="json">&lt;OrderPushRequest&gt;
+  &lt;OrderNo&gt;SO202608170001&lt;/OrderNo&gt;
+  &lt;OrderType&gt;PUSH&lt;/OrderType&gt;
+  &lt;Status&gt;2&lt;/Status&gt;
+  &lt;TotalAmount&gt;19900&lt;/TotalAmount&gt;
+  &lt;Currency&gt;CNY&lt;/Currency&gt;
+  &lt;Buyer&gt;&lt;Name&gt;张三&lt;/Name&gt;&lt;Phone&gt;138****1234&lt;/Phone&gt;&lt;/Buyer&gt;
+  &lt;CreatedTime&gt;20260817103000&lt;/CreatedTime&gt;
+  &lt;Item&gt;&lt;SkuCode&gt;SKU-001&lt;/SkuCode&gt;&lt;Quantity&gt;1&lt;/Quantity&gt;&lt;UnitPrice&gt;9900&lt;/UnitPrice&gt;&lt;Amount&gt;9900&lt;/Amount&gt;&lt;/Item&gt;
+  &lt;Receiver&gt;&lt;Province&gt;浙江&lt;/Province&gt;&lt;City&gt;杭州&lt;/City&gt;&lt;Detail&gt;西湖区 xxxx&lt;/Detail&gt;&lt;/Receiver&gt;
+  &lt;Remark&gt;618 大促订单&lt;/Remark&gt;
+&lt;/OrderPushRequest&gt;</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======================= TAB4 · 定时增量拉取 · 对账 ======================= -->
+    <div class="pane" :class="{ active: currentTab === 'sync' }">
+      <div class="card">
+        <h2 class="sec">3.4 定时增量拉取 · 对账查询</h2>
+        <div class="sub">增量拉取由后端 <code>@Scheduled</code> 定时执行（无手动触发接口）；此处演示对账查询 <code>POST /api/orders/query</code></div>
+        <div class="controls" style="margin-top:10px">
+          <div class="field" style="min-width:220px"><label>orderId</label><input v-model="query.orderId" placeholder="SO202608170001"></div>
+          <button class="btn" @click="queryOrder()" :disabled="query.submitting">{{ query.submitting ? '查询中…' : '▶ 查询订单状态（对账）' }}</button>
+          <button class="btn ghost" @click="query.logs=[]; query.response=null; query.error=null">清空结果</button>
+        </div>
+        <div class="results">
+          <div>
+            <div class="res-h">请求</div>
+            <pre class="json">{{ pretty({ orderId: query.orderId }) }}</pre>
+          </div>
+          <div>
+            <div class="res-h">后端响应</div>
+            <pre v-if="query.response" class="json">{{ pretty(query.response) }}</pre>
+            <div v-else-if="query.error" class="err-box">{{ pretty(query.error) }}</div>
+            <pre v-else class="json" style="color:#475569">（待查询）</pre>
+          </div>
+        </div>
+        <div class="console">
+          <div v-for="(ln, i) in query.logs" :key="i" class="ln" :class="ln.cls">
+            <span class="t">[{{ ln.time }}]</span><span style="color:#60a5fa">{{ traceId.slice(0,8) }}</span> [{{ ln.tag }}] {{ ln.text }}
+          </div>
+          <div v-if="query.logs.length === 0" class="ln grey">（尚无调用）</div>
+        </div>
+        <div class="note">生产由 XXL-JOB 定时拉取：读高水位游标 → 拉增量 → <code>idempotency_key</code> 防重 → 推进游标并写 <code>sync_job_log</code>（设计文档 §8）。</div>
+      </div>
+    </div>
+
+    <!-- ======================= TAB5 · 状态机 · 数据模型 ======================= -->
+    <div class="pane" :class="{ active: currentTab === 'sm' }">
+      <div class="card">
+        <h2 class="sec">出站状态机（§6.1）</h2>
+        <div class="sm-flow">
+          <div class="sm-node">INIT</div><span class="sm-arr">→</span>
+          <div class="sm-node">MAPPING</div><span class="sm-arr">→</span>
+          <div class="sm-node">SENDING</div>
+        </div>
+        <div class="sm-branch">
+          <span class="lbl">200 成功</span><span class="sm-arr">→</span><div class="sm-node">SUCCESS</div>
+        </div>
+        <div class="sm-branch">
+          <span class="lbl">500/429/连接异常</span><div class="sm-node">RETRYING</div><span class="sm-arr">↺ 未达 max-attempts → SENDING</span>
+        </div>
+        <div class="sm-branch">
+          <span class="lbl">达到上限</span><div class="sm-node">COMPENSATING</div><span class="sm-arr">→ 补偿成功 → SUCCESS</span>
+        </div>
+        <div class="sm-branch">
+          <span class="lbl">4xx 业务错误</span><div class="sm-node">DEAD_LETTER</div>
+        </div>
+        <div class="sm-branch">
+          <span class="lbl">读超时/不确定</span><div class="sm-node">UNKNOWN</div><span class="sm-arr">→ 对账 → SUCCESS | DEAD_LETTER | COMPENSATING</span>
+        </div>
+      </div>
+      <div class="card">
+        <h2 class="sec">入站送达状态机（§6.2）</h2>
+        <div class="sm-flow">
+          <div class="sm-node">RECEIVED</div><span class="sm-arr">→</span>
+          <div class="sm-node">VERIFIED</div><span class="sm-arr">→</span>
+          <div class="sm-node">DELIVERING</div><span class="sm-arr">→</span>
+          <div class="sm-node">ERP_ACKED</div><span class="sm-arr">→</span>
+          <div class="sm-node">CALLBACK_ACKED</div>
+        </div>
+        <div class="sm-branch">
+          <span class="lbl">送达失败</span><div class="sm-node">RETRYING</div><span class="sm-arr">→ 重发</span>
+          <span class="lbl" style="margin-left:8px">验签失败 → DROPPED</span>
+        </div>
+      </div>
+      <div class="card">
+        <h2 class="sec">核心数据表（§9）</h2>
+        <div style="overflow:auto">
+          <table class="core">
+            <thead><tr><th>表</th><th>关键列</th><th>用途 / 关联</th></tr></thead>
+            <tbody>
+              <tr><td><code>integration_channel</code></td><td>channel_code PK、base_url、auth_token、signature_secret</td><td>渠道配置，对齐 application.yaml</td></tr>
+              <tr><td><code>integration_request</code></td><td>status、attempt_count、next_retry_at、trace_id</td><td>出站请求主记录（outbox），status 即状态机载体</td></tr>
+              <tr><td><code>integration_call_log</code></td><td>trace_id、span_id、direction、req_headers(脱敏)</td><td>AOP 写入，日志可查</td></tr>
+              <tr><td><code>dead_letter</code></td><td>request_id、reason、status</td><td>400 死信</td></tr>
+              <tr><td><code>callback_subscription</code></td><td>channel_code、callback_path、erp_callback_url</td><td>Flow B 入站渠道配置</td></tr>
+              <tr><td><code>callback_delivery</code></td><td>subscription_id、delivery_status、attempt_count</td><td>送达 / 补偿记录</td></tr>
+              <tr><td><code>sync_watermark</code></td><td>sync_job、channel_code、watermark_value</td><td>高水位游标</td></tr>
+              <tr><td><code>sync_job_log</code></td><td>pulled_count、dedup_count、status</td><td>定时拉取执行审计</td></tr>
+              <tr><td><code>idempotency_key</code></td><td>(biz_type, channel_code, biz_id) 唯一</td><td>同窗口防重</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    apicenter · Vue3 前端 ｜ 界面参考 <a href="/api演示 demo.html">api演示 demo.html</a> ｜ 后端接口见示例代码
+  </div>
+</div>
+
+<script src="./js/app.js"></script>
+</body>
+</html>

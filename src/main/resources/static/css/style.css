@@ -1,0 +1,182 @@
+/* ============================================================
+   apicenter · Vue3 前端样式
+   视觉对齐 src/main/resources/api演示 demo.html（复用其配色与组件风格）
+   ============================================================ */
+
+:root {
+  --bg: #f3f5f9;
+  --card: #ffffff;
+  --line: #e3e8f0;
+  --ink: #1e293b;
+  --muted: #64748b;
+  --primary: #2563eb;
+  --primary-soft: #eff6ff;
+  --green: #16a34a;
+  --green-soft: #f0fdf4;
+  --amber: #d97706;
+  --amber-soft: #fffbeb;
+  --red: #dc2626;
+  --red-soft: #fef2f2;
+  --purple: #7c3aed;
+  --purple-soft: #f5f3ff;
+  --grey: #6b7280;
+  --grey-soft: #f9fafb;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.6;
+}
+
+/* ---------- top bar ---------- */
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; gap: 16px;
+  background: #0f172a; color: #e2e8f0;
+  padding: 10px 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.25);
+}
+.topbar .logo { font-weight: 700; font-size: 16px; white-space: nowrap; }
+.topbar .logo span { color: #60a5fa; }
+.topbar .trace {
+  display: flex; align-items: center; gap: 8px;
+  background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 4px 10px;
+  font-family: var(--mono); font-size: 13px; color: #7dd3fc;
+}
+.topbar .trace b { color: #93c5fd; font-weight: 600; }
+.topbar button {
+  background: #334155; color: #e2e8f0; border: 1px solid #475569; border-radius: 6px;
+  padding: 4px 10px; font-size: 12px; cursor: pointer;
+}
+.topbar button:hover { background: #475569; }
+.topbar .spacer { flex: 1; }
+.topbar .hint { font-size: 12px; color: #94a3b8; }
+
+/* ---------- tabs ---------- */
+.tabs { display: flex; gap: 4px; padding: 12px 20px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.tab {
+  padding: 8px 16px; border: 1px solid transparent; border-bottom: none;
+  border-radius: 8px 8px 0 0; cursor: pointer; color: var(--muted); font-size: 14px;
+  background: transparent; user-select: none;
+}
+.tab:hover { color: var(--primary); }
+.tab.active { background: var(--card); border-color: var(--line); color: var(--primary); font-weight: 600; }
+
+.panes { padding: 16px 20px 30px; max-width: 1280px; margin: 0 auto; }
+.pane { display: none; }
+.pane.active { display: block; }
+
+.card {
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.05);
+}
+.card + .card { margin-top: 14px; }
+h2.sec { font-size: 16px; margin-bottom: 4px; }
+.sub { color: var(--muted); font-size: 13px; }
+code {
+  background: var(--grey-soft); border: 1px solid var(--line); border-radius: 4px;
+  padding: 1px 5px; font-family: var(--mono); font-size: 12px;
+}
+
+/* ---------- 表单 ---------- */
+.form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px 16px; margin-top: 12px; }
+@media (max-width: 900px) { .form-grid { grid-template-columns: 1fr 1fr; } }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field.full { grid-column: 1 / -1; }
+.field label { font-size: 12px; color: var(--muted); }
+.field input, .field select, .field textarea {
+  border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font-size: 13px;
+  color: var(--ink); background: var(--card); font-family: inherit;
+}
+.field input:focus, .field select:focus, .field textarea:focus { outline: 2px solid var(--primary-soft); border-color: var(--primary); }
+.field textarea { font-family: var(--mono); font-size: 12px; min-height: 90px; }
+
+/* 明细行 */
+.item-row { display: grid; grid-template-columns: 1fr 90px 120px 34px; gap: 8px; align-items: center; margin-bottom: 6px; }
+.item-row .del { border: 1px solid var(--line); background: var(--card); color: var(--red); border-radius: 6px; cursor: pointer; height: 30px; }
+
+/* ---------- 按钮 ---------- */
+.controls { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.btn {
+  background: var(--primary); color: #fff; border: none; border-radius: 8px;
+  padding: 8px 16px; font-size: 13px; cursor: pointer;
+}
+.btn:hover { filter: brightness(1.08); }
+.btn:disabled { opacity: .55; cursor: not-allowed; }
+.btn.ghost { background: var(--card); color: var(--ink); border: 1px solid var(--line); }
+.btn.ghost:hover { border-color: var(--primary); color: var(--primary); }
+.btn.sm { padding: 4px 10px; font-size: 12px; }
+
+/* ---------- 结果面板 ---------- */
+.results { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
+@media (max-width: 900px) { .results { grid-template-columns: 1fr; } }
+.res-h { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+pre.json {
+  background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 12px 14px;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.55; overflow: auto; white-space: pre-wrap;
+  word-break: break-all; margin: 0;
+}
+pre.json .k { color: #7dd3fc; }
+pre.json .s { color: #86efac; }
+pre.json .n { color: #fca5a5; }
+.err-box {
+  border: 1px solid var(--red); background: var(--red-soft); color: var(--red);
+  border-radius: 8px; padding: 10px 12px; font-family: var(--mono); font-size: 12.5px; margin-top: 8px;
+}
+
+/* ---------- 日志控制台 ---------- */
+.console {
+  background: #0b1120; border-radius: 10px; padding: 12px 14px;
+  font-family: var(--mono); font-size: 12px; color: #cbd5e1; height: 180px; overflow: auto;
+  margin-top: 12px; border: 1px solid #1e293b;
+}
+.console .ln { padding: 1px 0; white-space: pre-wrap; word-break: break-all; }
+.console .ln .t { color: #475569; margin-right: 6px; }
+.console .ln.blue   { color: #7dd3fc; }
+.console .ln.green  { color: #4ade80; }
+.console .ln.amber  { color: #fbbf24; }
+.console .ln.red    { color: #f87171; }
+.console .ln.purple { color: #c4b5fd; }
+.console .ln.grey   { color: #94a3b8; }
+.console .ln.white  { color: #e2e8f0; }
+
+/* ---------- 徽章 / pill ---------- */
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--card);
+  padding: 6px 14px; cursor: pointer; font-size: 13px;
+}
+.badge:hover { border-color: var(--primary); color: var(--primary); }
+.badge .dot { width: 8px; height: 8px; border-radius: 50%; }
+.pill { display: inline-block; border-radius: 999px; padding: 1px 9px; font-size: 11px; font-weight: 600; margin: 2px 4px 2px 0; }
+.pill.ok    { background: var(--green-soft);  color: var(--green); }
+.pill.retry { background: var(--amber-soft);  color: var(--amber); }
+.pill.err   { background: var(--red-soft);    color: var(--red); }
+.pill.comp  { background: var(--purple-soft); color: var(--purple); }
+.pill.grey  { background: var(--grey-soft);   color: var(--grey); }
+.pill.blue  { background: var(--primary-soft);color: var(--primary); }
+
+/* ---------- 表格 ---------- */
+table.mt, table.core { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.mt th, table.mt td, table.core th, table.core td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+table.mt th, table.core th { background: var(--grey-soft); font-weight: 600; }
+
+/* ---------- 状态机 ---------- */
+.sm-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 14px 0; }
+.sm-node {
+  border: 2px solid var(--line); background: var(--card); border-radius: 8px;
+  padding: 8px 14px; font-size: 13px; font-weight: 600; color: var(--muted);
+}
+.sm-arr { color: #94a3b8; font-size: 12px; }
+.sm-branch { margin-left: 26px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; opacity: .9; }
+.sm-branch .lbl { font-size: 11px; color: var(--muted); background: var(--grey-soft); border-radius: 4px; padding: 1px 6px; }
+
+.note {
+  font-size: 12.5px; color: var(--muted); background: var(--grey-soft);
+  border-left: 3px solid var(--primary); padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 10px 0;
+}
+
+.foot { text-align: center; color: var(--muted); font-size: 12px; padding: 18px 0 26px; }
+.foot a { color: var(--primary); }
