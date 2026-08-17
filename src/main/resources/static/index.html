@@ -39,7 +39,7 @@
     <div class="pane" :class="{ active: currentTab === 'flowa' }">
       <div class="card">
         <h2 class="sec">Flow A · 出站（ERP → 组件 → 第三方）</h2>
-        <div class="sub">前端扮演 ERP，调 <code>POST /api/orders</code>，自动计算 HMAC-SHA256 签名头（密钥 erp-secret）</div>
+        <div class="sub">前端扮演 ERP，调 <code>POST /api/orders</code>，自动计算 HMAC-SHA256 签名头（密钥 erp-secret）。字段映射与第三方返回信息打印到下方日志控制台</div>
 
         <!-- 订单表单 -->
         <div class="form-grid">
@@ -78,7 +78,7 @@
         <div class="controls" style="margin-top:14px">
           <button class="btn" @click="pushOrder()" :disabled="flowA.submitting">{{ flowA.submitting ? '推送中…' : '▶ 推送订单' }}</button>
           <button class="btn ghost" @click="fillSampleOrder()">填充示例订单</button>
-          <button class="btn ghost" @click="flowA.logs=[]; flowA.response=null; flowA.error=null; flowA.request=null">清空结果</button>
+          <button class="btn ghost" @click="flowA.logs=[]; flowA.response=null; flowA.error=null; flowA.request=null; flowA.mappedA=null">清空结果</button>
         </div>
 
         <!-- 请求 / 响应 -->
@@ -94,6 +94,15 @@
             <div v-else-if="flowA.error" class="err-box">{{ pretty(flowA.error) }}</div>
             <pre v-else class="json" style="color:#475569">（待响应）</pre>
           </div>
+        </div>
+
+        <!-- 字段映射预览（前端模拟 MapStruct 输出，设计文档 §5） -->
+        <div v-if="flowA.mappedA" style="margin-top:12px">
+          <div class="collapse-head" @click="flowA.mapOpen = !flowA.mapOpen">
+            <span class="arrow">{{ flowA.mapOpen ? '▼' : '▶' }}</span>
+            字段映射 · PARTNER_A JSON（MapStruct → @JsonProperty）
+          </div>
+          <pre v-show="flowA.mapOpen" class="json" style="margin-top:6px">{{ pretty(flowA.mappedA) }}</pre>
         </div>
 
         <!-- 日志 -->

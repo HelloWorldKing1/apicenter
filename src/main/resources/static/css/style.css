@@ -113,6 +113,15 @@ code {
 .results { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
 @media (max-width: 900px) { .results { grid-template-columns: 1fr; } }
 .res-h { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+
+/* 可折叠标题（字段映射预览收缩/展开） */
+.collapse-head {
+  display: flex; align-items: center; gap: 6px;
+  cursor: pointer; user-select: none;
+  font-size: 12px; font-weight: 600; color: var(--muted);
+}
+.collapse-head:hover { color: var(--primary); }
+.collapse-head .arrow { color: var(--primary); }
 pre.json {
   background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 12px 14px;
   font-family: var(--mono); font-size: 12.5px; line-height: 1.55; overflow: auto; white-space: pre-wrap;
@@ -129,7 +138,7 @@ pre.json .n { color: #fca5a5; }
 /* ---------- 日志控制台 ---------- */
 .console {
   background: #0b1120; border-radius: 10px; padding: 12px 14px;
-  font-family: var(--mono); font-size: 12px; color: #cbd5e1; height: 180px; overflow: auto;
+  font-family: var(--mono); font-size: 12px; color: #cbd5e1; height: 260px; overflow: auto;
   margin-top: 12px; border: 1px solid #1e293b;
 }
 .console .ln { padding: 1px 0; white-space: pre-wrap; word-break: break-all; }

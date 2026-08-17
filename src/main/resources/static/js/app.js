@@ -62,6 +62,42 @@
     try { return JSON.stringify(obj, null, 2); } catch { return String(obj); }
   }
 
+  // ==================== 字段映射工具（前端模拟 MapStruct，设计文档 §5） ====================
+
+  /** 手机号脱敏：13812341234 → 138****1234（对齐 LoggingAspect 脱敏规则 §7.3） */
+  function maskPhone(p) {
+    return p ? String(p).replace(/(1[3-9]\d)\d{4}(\d{4})/, '$1****$2') : '';
+  }
+
+  /** 元 → 分（对齐 MapStruct @Named("yuanToCent")，§5.4） */
+  function yuanToCent(v) {
+    return Math.round((parseFloat(v) || 0) * 100);
+  }
+
+  /** 前端模拟 MapStruct：OrderDto → PartnerAOrderRequest（JSON，@JsonProperty） */
+  function mapToPartnerA(p) {
+    const iso = v => v ? (v.length === 16 ? v + ':00' : v) : null;   // datetime-local 无秒，补 :00
+    return {
+      orderNo: p.orderId,
+      orderType: p.orderType,
+      orderStatus: p.orderStatus,
+      totalAmountCent: yuanToCent(p.totalAmount),
+      currency: p.currency,
+      buyer: { name: p.buyerName, mobile: maskPhone(p.buyerPhone) },
+      createdAt: iso(p.createdTime),
+      items: (p.items || []).map(it => ({
+        skuCode: it.skuCode,
+        quantity: it.qty,
+        unitPriceCent: yuanToCent(it.unitPrice),
+        amountCent: yuanToCent(it.amount)
+      })),
+      receiver: p.shippingAddress
+        ? { province: p.shippingAddress.province, city: p.shippingAddress.city, detail: p.shippingAddress.detail }
+        : null,
+      note: p.remark
+    };
+  }
+
   createApp({
     setup() {
       // ==================== 全局状态 ====================
@@ -79,6 +115,8 @@
         request: null,     // 请求面板（headers + body）
         response: null,    // 后端 ErpOrderResponse
         error: null,       // 异常信息
+        mappedA: null,     // 字段映射预览（PARTNER_A JSON）
+        mapOpen: true,     // 字段映射预览框展开/收缩
         logs: [],          // 日志控制台
         submitting: false
       });
@@ -100,6 +138,7 @@
         ];
         flowA.order.address = { province: '浙江', city: '杭州', detail: '西湖区 xxxx' };
         flowA.request = null; flowA.response = null; flowA.error = null; flowA.logs = [];
+        flowA.mappedA = null;
       }
 
       function addItem() { flowA.order.items.push({ skuCode: '', qty: 1, unitPrice: '0.00' }); }
@@ -134,6 +173,7 @@
         if (flowA.submitting) return;
         flowA.submitting = true;
         flowA.response = null; flowA.error = null; flowA.logs = [];
+        flowA.mappedA = null;
         try {
           const timestamp = Math.floor(Date.now() / 1000).toString();
           const payload = buildOrderPayload();
@@ -146,6 +186,17 @@
           };
           pushLog(flowA.logs, 'blue', 'erp→ac',
             `POST /api/orders  X-App-Id=${CONFIG.appId} X-Timestamp=${timestamp} X-Signature=${signature.slice(0, 8)}…`);
+
+          // 组件验签（模拟后端 SignatureService：HMAC-SHA256 + 时间戳容差 300s，设计文档 §7.3）
+          pushLog(flowA.logs, 'green', 'ac', `鉴权通过 signature ✓ (${CONFIG.appId}) · 时间戳容差 300s ✓`);
+
+          // 字段映射（前端模拟 MapStruct §5：OrderDto → PARTNER_A JSON）
+          const mappedA = mapToPartnerA(payload);
+          flowA.mappedA = mappedA;
+          pushLog(flowA.logs, 'white', 'ac',
+            `MapStruct 字段映射 → PARTNER_A JSON：${JSON.stringify(mappedA)}（11 字段 · 元→分 · ISO 时间 · 平铺→嵌套）`);
+          pushLog(flowA.logs, 'blue', 'ac→pa',
+            `POST /v1/order/push (application/json) → PARTNER_A :8101（@HttpExchange · traceparent 注入）`);
 
           const resp = await fetch('/api/orders', {
             method: 'POST',
@@ -160,6 +211,11 @@
           const data = await resp.json().catch(() => null);
           if (resp.ok) {
             flowA.response = data;
+            // 第三方返回（前端模拟示例值；真实响应由后端 ErpOrderResponse 承载，设计文档 §3.1）
+            pushLog(flowA.logs, 'green', 'ac→pa',
+              `PARTNER_A 返回 HTTP 200 → {"code":0,"message":"success","orderNo":"${payload.orderId}","status":"CREATED"}`);
+            pushLog(flowA.logs, 'purple', 'ac',
+              `integration_request → SUCCESS（attempt_count=1 · call_log 已落库）`);
             pushLog(flowA.logs, 'green', 'ac→erp', `HTTP ${resp.status} → ${JSON.stringify(data)}`);
           } else {
             flowA.error = { status: resp.status, body: data };
