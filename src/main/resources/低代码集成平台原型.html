@@ -180,6 +180,7 @@
     <div class="menu-item" data-menu="mapping" onclick="gotoMenu('mapping')">🔀 字段映射管理</div>
     <div class="menu-item" data-menu="fn" onclick="gotoMenu('fn')">⚙️ 函数管理</div>
     <div class="menu-item" data-menu="log" onclick="gotoMenu('log')">📜 日志管理</div>
+    <div class="menu-item" data-menu="sec" onclick="gotoMenu('sec')">🛡 安全设置</div>
   </aside>
   <main class="content">
   <div class="panes">
@@ -315,6 +316,52 @@
       </table>
     </div>
   </div>
+
+  <!-- ======================= 安全设置 ======================= -->
+  <div class="pane" id="pane-sec">
+    <div class="card">
+      <h2 class="sec">平台校验（验签）</h2>
+      <div class="sub">复用 SignatureService：HMAC-SHA256 验签 + 时间戳容差防重放 + 恒定时间比较</div>
+      <div class="form-grid" style="margin-top:10px">
+        <div class="field"><label>验签开关</label>
+          <select id="secVerify"><option value="on" selected>开启</option><option value="off">关闭</option></select>
+        </div>
+        <div class="field"><label>时间戳容差（秒）</label><input id="secTolerance" value="300" type="number"></div>
+        <div class="field"><label>签名算法</label>
+          <select id="secAlgo"><option selected>HMAC-SHA256</option><option>HMAC-SHA1</option></select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="sec">IP 白名单 / 黑名单</h2>
+      <div class="sub">白名单优先：命中白名单且未命中黑名单才放行</div>
+      <div class="controls" style="margin-top:10px">
+        <input id="ipInput" placeholder="如 10.0.0.8 或 10.0.0.0/24" style="flex:1;min-width:200px">
+        <select id="ipType"><option value="white">白名单</option><option value="black">黑名单</option></select>
+        <button class="btn" onclick="addIpRule()">＋ 添加</button>
+      </div>
+      <table class="mt">
+        <thead><tr><th>类型</th><th>IP / 网段</th><th style="width:60px"></th></tr></thead>
+        <tbody id="ipBody"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2 class="sec">调用方白名单（AppId / 渠道）</h2>
+      <div class="sub">只允许登记的应用调用 / 登记的渠道回调，未登记 → 401</div>
+      <div class="controls" style="margin-top:10px">
+        <input id="appInput" placeholder="如 erp-app" style="flex:1;min-width:160px">
+        <button class="btn ghost" onclick="addAppWhitelist()">＋ 添加 AppId</button>
+        <input id="channelInput" placeholder="如 PARTNER_A" style="flex:1;min-width:160px">
+        <button class="btn ghost" onclick="addChannelWhitelist()">＋ 添加渠道</button>
+      </div>
+      <table class="mt">
+        <thead><tr><th>类型</th><th>标识</th><th style="width:60px"></th></tr></thead>
+        <tbody id="callerBody"></tbody>
+      </table>
+    </div>
+  </div>
 </div>
   </main>
 </div>
@@ -378,6 +425,7 @@
       <div class="field"><label>协议</label>
         <select id="napiProto"><option value="JSON" selected>JSON</option><option value="XML">XML</option></select>
       </div>
+      <div class="field full"><label>API Key</label><input id="napiKey" placeholder="如 sk-xxxx..."></div>
     </div>
     <div class="foot">
       <button class="btn" onclick="createApi()">创建接口</button>
@@ -456,12 +504,24 @@ const DATASOURCES = [
 ];
 
 const APIS = [
-  { id:'api1', name:'PARTNER_A', desc:'订单推送',     url:'/v1/order/push',       proto:'JSON', auth:'Bearer' },
-  { id:'api2', name:'PARTNER_B', desc:'订单推送',     url:'/v1/order/push',       proto:'XML',  auth:'Bearer' },
-  { id:'api3', name:'ERP',       desc:'订单状态回调', url:'/api/erp/order-status', proto:'JSON', auth:'Bearer' }
+  { id:'api1', name:'PARTNER_A', desc:'订单推送',     url:'/v1/order/push',       proto:'JSON', auth:'Bearer', apiKey:'sk-a1b2c3d4e5f6' },
+  { id:'api2', name:'PARTNER_B', desc:'订单推送',     url:'/v1/order/push',       proto:'XML',  auth:'Bearer', apiKey:'sk-b2c3d4e5f6a7' },
+  { id:'api3', name:'ERP',       desc:'订单状态回调', url:'/api/erp/order-status', proto:'JSON', auth:'Bearer', apiKey:'sk-erp-9f8e7d6c' }
 ];
 
 let LOGS = [];   // 执行日志（模拟执行后生成）
+
+/* ============================ 安全设置（白名单/黑名单 + 平台校验） ============================ */
+const SECURITY_CONFIG = { verifyEnabled: true, toleranceSeconds: 300, algorithm: 'HMAC-SHA256' };
+let IP_RULES = [
+  { id:'ip1', type:'white', value:'10.0.0.0/24' },
+  { id:'ip2', type:'black', value:'192.168.1.99' }
+];
+let APP_WHITELIST = [ { id:'app1', value:'erp-app' } ];
+let CHANNEL_WHITELIST = [
+  { id:'ch1', value:'PARTNER_A' },
+  { id:'ch2', value:'PARTNER_B' }
+];
 
 /* ============================ 源类型（HTTP / JSON / SQL / Function） ============================ */
 const SQL_SAMPLE = `SELECT order_id AS orderId, order_type AS orderType, order_status AS orderStatus,
@@ -615,6 +675,12 @@ function renderDatasources(){
     </div>`).join('');
 }
 
+function maskApiKey(k){
+  if(!k) return '未配置';
+  const s = String(k);
+  return s.length <= 8 ? s.slice(0,2) + '****' : s.slice(0,4) + '****' + s.slice(-4);
+}
+
 function renderApis(){
   const tb = $('apiBody');
   if(!tb) return;
@@ -624,7 +690,7 @@ function renderApis(){
       <td><code>POST ${esc(a.url)}</code></td>
       <td>${esc(a.proto)}</td>
       <td>POST</td>
-      <td>${esc(a.auth)}</td>
+      <td>${esc(a.auth)} · ${esc(maskApiKey(a.apiKey))}</td>
     </tr>`).join('');
 }
 
@@ -640,6 +706,67 @@ function renderLogs(){
       <td>${l.ms}ms</td>
       <td><span class="pill ok">${esc(l.status)}</span></td>
     </tr>`).join('');
+}
+
+/* ============================ 安全设置渲染 ============================ */
+function renderSecurity(){
+  const ipBody = $('ipBody');
+  if(ipBody){
+    ipBody.innerHTML = IP_RULES.map(r => `
+      <tr>
+        <td><span class="pill ${r.type==='white'?'ok':'off'}">${r.type==='white'?'白名单':'黑名单'}</span></td>
+        <td><code>${esc(r.value)}</code></td>
+        <td><button class="btn ghost" onclick="delIpRule('${r.id}')">×</button></td>
+      </tr>`).join('');
+  }
+  const callers = [
+    ...APP_WHITELIST.map(a => ({ id:a.id, type:'AppId', value:a.value })),
+    ...CHANNEL_WHITELIST.map(c => ({ id:c.id, type:'渠道', value:c.value }))
+  ];
+  const cb = $('callerBody');
+  if(cb){
+    cb.innerHTML = callers.map(c => `
+      <tr>
+        <td><span class="pill blue">${c.type}</span></td>
+        <td><code>${esc(c.value)}</code></td>
+        <td><button class="btn ghost" onclick="delCaller('${c.id}','${c.type}')">×</button></td>
+      </tr>`).join('');
+  }
+}
+
+function addIpRule(){
+  const val = $('ipInput').value.trim();
+  if(!val){ flash('请填写 IP 或网段'); return; }
+  IP_RULES.push({ id:'ip'+Date.now(), type:$('ipType').value, value:val });
+  $('ipInput').value = '';
+  renderSecurity();
+}
+
+function delIpRule(id){
+  IP_RULES = IP_RULES.filter(r => r.id !== id);
+  renderSecurity();
+}
+
+function addAppWhitelist(){
+  const val = $('appInput').value.trim();
+  if(!val){ flash('请填写 AppId'); return; }
+  APP_WHITELIST.push({ id:'app'+Date.now(), value:val });
+  $('appInput').value = '';
+  renderSecurity();
+}
+
+function addChannelWhitelist(){
+  const val = $('channelInput').value.trim();
+  if(!val){ flash('请填写渠道'); return; }
+  CHANNEL_WHITELIST.push({ id:'ch'+Date.now(), value:val });
+  $('channelInput').value = '';
+  renderSecurity();
+}
+
+function delCaller(id, type){
+  if(type === 'AppId'){ APP_WHITELIST = APP_WHITELIST.filter(a => a.id !== id); }
+  else { CHANNEL_WHITELIST = CHANNEL_WHITELIST.filter(c => c.id !== id); }
+  renderSecurity();
 }
 
 function renderMappingSets(){
@@ -680,14 +807,14 @@ function createDatasource(){
 }
 
 function openNewApi(){
-  $('napiName').value = ''; $('napiUrl').value = '';
+  $('napiName').value = ''; $('napiUrl').value = ''; $('napiKey').value = '';
   $('newApiModal').style.display = 'flex';
 }
 function closeNewApi(){ $('newApiModal').style.display = 'none'; }
 function createApi(){
   const name = $('napiName').value.trim();
   if(!name){ flash('请填写接口名称'); return; }
-  APIS.push({ id:'api'+Date.now(), name, desc:'自定义接口', url:$('napiUrl').value.trim()||'/api', proto:$('napiProto').value, auth:'Bearer' });
+  APIS.push({ id:'api'+Date.now(), name, desc:'自定义接口', url:$('napiUrl').value.trim()||'/api', proto:$('napiProto').value, auth:'Bearer', apiKey: $('napiKey').value.trim() || '未配置' });
   renderApis();
   closeNewApi();
   flash('已创建接口「' + name + '」');
@@ -1000,6 +1127,7 @@ function init(){
   renderApis();
   renderLogs();
   renderMappingSets();
+  renderSecurity();
   selectJob('http_a');
 }
 init();
