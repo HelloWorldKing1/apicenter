@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>apicenter · 低代码集成配置平台（原型）</title>
+<style>
+  :root {
+    --bg: #f3f5f9; --card: #ffffff; --line: #e3e8f0; --ink: #1e293b; --muted: #64748b;
+    --primary: #2563eb; --primary-soft: #eff6ff;
+    --green: #16a34a; --green-soft: #f0fdf4;
+    --amber: #d97706; --amber-soft: #fffbeb;
+    --red: #dc2626; --red-soft: #fef2f2;
+    --purple: #7c3aed; --purple-soft: #f5f3ff;
+    --grey: #6b7280; --grey-soft: #f9fafb;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.6; }
+
+  /* ---------- top bar ---------- */
+  .topbar { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 16px; background: #0f172a; color: #e2e8f0; padding: 10px 20px; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+  .topbar .logo { font-weight: 700; font-size: 16px; white-space: nowrap; }
+  .topbar .logo span { color: #60a5fa; }
+  .topbar .trace { display: flex; align-items: center; gap: 8px; background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 4px 10px; font-family: var(--mono); font-size: 13px; color: #7dd3fc; }
+  .topbar .trace b { color: #93c5fd; font-weight: 600; }
+  .topbar .spacer { flex: 1; }
+  .topbar .hint { font-size: 12px; color: #94a3b8; }
+
+  /* ---------- badges ---------- */
+  .badges { display: flex; gap: 10px; padding: 14px 20px 0; flex-wrap: wrap; }
+  .badge { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); padding: 6px 14px; font-size: 13px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+  .badge .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* ---------- tabs ---------- */
+  .tabs { display: flex; gap: 4px; padding: 12px 20px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .tab { padding: 8px 16px; border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0; cursor: pointer; color: var(--muted); font-size: 14px; background: transparent; user-select: none; }
+  .tab:hover { color: var(--primary); }
+  .tab.active { background: var(--card); border-color: var(--line); color: var(--primary); font-weight: 600; }
+
+  .panes { padding: 16px 20px 30px; max-width: 1280px; margin: 0 auto; }
+  .pane { display: none; }
+  .pane.active { display: block; }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+  .card + .card { margin-top: 14px; }
+  h2.sec { font-size: 16px; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 13px; }
+  code { background: var(--grey-soft); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; font-family: var(--mono); font-size: 12px; }
+
+  /* ---------- 控件 ---------- */
+  .controls { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .btn { background: var(--primary); color: #fff; border: none; border-radius: 8px; padding: 8px 16px; font-size: 13px; cursor: pointer; }
+  .btn:hover { filter: brightness(1.08); }
+  .btn.ghost { background: var(--card); color: var(--ink); border: 1px solid var(--line); }
+  .btn.ghost:hover { border-color: var(--primary); color: var(--primary); }
+  .btn.sm { padding: 4px 10px; font-size: 12px; }
+  select, input, textarea { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font-size: 13px; color: var(--ink); font-family: inherit; }
+  select:focus, input:focus, textarea:focus { outline: 2px solid var(--primary-soft); border-color: var(--primary); }
+  .form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px 16px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 12px; color: var(--muted); }
+  .field.full { grid-column: 1 / -1; }
+
+  /* ---------- 任务卡片 ---------- */
+  .job-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+  .job { border: 1px solid var(--line); border-radius: 10px; padding: 14px; background: var(--card); box-shadow: 0 1px 2px rgba(0,0,0,.03); }
+  .job h3 { font-size: 14px; margin-bottom: 2px; }
+  .job .route { font-family: var(--mono); font-size: 12px; color: var(--muted); margin: 6px 0 10px; }
+  .job .route b { color: var(--primary); }
+  .job .foot { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+  .pill { display: inline-block; border-radius: 999px; padding: 1px 9px; font-size: 11px; font-weight: 600; margin: 2px 4px 2px 0; }
+  .pill.ok { background: var(--green-soft); color: var(--green); }
+  .pill.off { background: var(--grey-soft); color: var(--grey); }
+  .pill.blue { background: var(--primary-soft); color: var(--primary); }
+  .pill.purple { background: var(--purple-soft); color: var(--purple); }
+  .pill.amber { background: var(--amber-soft); color: var(--amber); }
+
+  /* ---------- 流程设计 ---------- */
+  .flow-wrap { display: grid; grid-template-columns: 200px 1fr 360px; gap: 14px; }
+  @media (max-width: 1100px) { .flow-wrap { grid-template-columns: 1fr; } }
+  .steps { list-style: none; }
+  .step-item { display: flex; gap: 10px; padding: 9px 10px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; color: var(--muted); }
+  .step-item:hover { background: var(--grey-soft); }
+  .step-item.active { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); font-weight: 600; }
+  .step-item .n { flex: 0 0 22px; height: 22px; border-radius: 50%; background: var(--line); color: var(--muted); text-align: center; font-size: 12px; line-height: 22px; font-weight: 600; }
+  .step-item.active .n { background: var(--primary); color: #fff; }
+
+  .pipe { display: flex; flex-direction: column; gap: 10px; }
+  .node { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 12px 14px; cursor: pointer; transition: all .2s; }
+  .node:hover { border-color: var(--primary); }
+  .node.active { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+  .node .nt { font-weight: 600; font-size: 13px; }
+  .node .nd { color: var(--muted); font-size: 12px; font-family: var(--mono); margin-top: 2px; }
+  .node .tag { display: inline-block; margin-top: 6px; }
+  .node.grp { border-style: dashed; background: var(--grey-soft); }
+  .arr { text-align: center; color: #94a3b8; font-size: 18px; line-height: 1; }
+
+  .kv { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed var(--line); font-family: var(--mono); font-size: 12.5px; }
+  .kv:last-child { border-bottom: none; }
+  .kv .k { color: var(--muted); }
+  .dl-h { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+  pre.json, pre.xml {
+    background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 12px 14px;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.55; overflow: auto;
+    white-space: pre-wrap; word-break: break-all; margin: 0;
+  }
+  .detail { font-size: 13px; }
+
+  /* ---------- 表格 ---------- */
+  table.mt { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.mt th, table.mt td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: middle; }
+  table.mt th { background: var(--grey-soft); font-weight: 600; }
+  table.mt td input, table.mt td select { width: 100%; padding: 5px 8px; }
+  table.mt .prev { font-family: var(--mono); font-size: 12px; color: var(--primary); }
+  .add-row { margin-top: 10px; }
+
+  /* ---------- 函数库 ---------- */
+  .fn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+  .fn-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--card); }
+  .fn-card h4 { font-size: 13px; display: flex; align-items: center; gap: 8px; }
+  .fn-card .sig { font-family: var(--mono); font-size: 11px; color: var(--purple); background: var(--purple-soft); border-radius: 4px; padding: 1px 6px; }
+  .fn-card p { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .fn-card .kv { font-size: 12px; margin-top: 6px; }
+  .fn-card .btn { margin-top: 8px; }
+
+  /* ---------- 执行预览 ---------- */
+  .run-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 900px) { .run-grid { grid-template-columns: 1fr; } }
+  .res-h { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+  .console { background: #0b1120; border-radius: 10px; padding: 12px 14px; font-family: var(--mono); font-size: 12px; color: #cbd5e1; height: 260px; overflow: auto; margin-top: 12px; border: 1px solid #1e293b; }
+  .console .ln { padding: 1px 0; white-space: pre-wrap; word-break: break-all; }
+  .console .ln .t { color: #475569; margin-right: 6px; }
+  .console .ln.blue { color: #7dd3fc; }
+  .console .ln.green { color: #4ade80; }
+  .console .ln.amber { color: #fbbf24; }
+  .console .ln.red { color: #f87171; }
+  .console .ln.purple { color: #c4b5fd; }
+  .console .ln.grey { color: #94a3b8; }
+  .console .ln.white { color: #e2e8f0; }
+
+  .note { font-size: 12.5px; color: var(--muted); background: var(--grey-soft); border-left: 3px solid var(--primary); padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 10px 0; }
+
+  /* ---------- 模态框 ---------- */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.5); display: flex; align-items: center; justify-content: center; z-index: 100; }
+  .modal { background: var(--card); border-radius: 12px; padding: 20px; width: 580px; max-width: 92vw; max-height: 88vh; overflow: auto; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+  .modal h3 { font-size: 15px; margin-bottom: 12px; }
+  .modal .foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+  .foot { text-align: center; color: var(--muted); font-size: 12px; padding: 18px 0 26px; }
+  .foot a { color: var(--primary); }
+  .empty { color: #475569; }
+</style>
+</head>
+<body>
+
+<!-- ======================= TOP BAR ======================= -->
+<header class="topbar">
+  <div class="logo">API <span>·</span> 低代码集成配置平台 <span style="font-size:12px;color:#94a3b8">原型 v0.1</span></div>
+  <div class="trace" title="原型 traceId（生产由后端 OTel 透传）">traceId: <b id="traceIdText">…………</b></div>
+  <div class="spacer"></div>
+  <div class="hint">配置驱动 · 类 ETL · 源 / 目标 / 字段映射 / 函数处理</div>
+</header>
+
+<!-- ======================= CAPABILITY BADGES ======================= -->
+<div class="badges">
+  <div class="badge"><span class="dot" style="background:#2563eb"></span>配置驱动</div>
+  <div class="badge"><span class="dot" style="background:#16a34a"></span>字段映射</div>
+  <div class="badge"><span class="dot" style="background:#7c3aed"></span>函数处理</div>
+  <div class="badge"><span class="dot" style="background:#d97706"></span>流程编排</div>
+  <div class="badge"><span class="dot" style="background:#0ea5e9"></span>全链路可观测</div>
+</div>
+
+<!-- ======================= TABS ======================= -->
+<nav class="tabs">
+  <div class="tab active" data-tab="jobs" onclick="gotoTab('jobs')">任务总览</div>
+  <div class="tab" data-tab="design" onclick="gotoTab('design')">流程设计</div>
+  <div class="tab" data-tab="mapping" onclick="gotoTab('mapping')">字段映射</div>
+  <div class="tab" data-tab="fn" onclick="gotoTab('fn')">函数处理</div>
+  <div class="tab" data-tab="run" onclick="gotoTab('run')">执行预览</div>
+</nav>
+
+<div class="panes">
+
+  <!-- ======================= TAB1 · 任务总览 ======================= -->
+  <div class="pane active" id="pane-jobs">
+    <div class="controls">
+      <button class="btn" onclick="openNewJob()">＋ 新建任务</button>
+      <span class="sub">配置源 / 目标 / 字段映射，系统即按配置执行 API 中转（类 ETL）</span>
+    </div>
+    <div class="job-grid" id="jobGrid"></div>
+    <div class="note">原型概念：每个「集成任务」= <b>源 + 处理步骤（字段映射/函数处理）+ 目标</b> 的配置；运行时引擎按配置执行，复用 apicenter 的验签、重试补偿、日志链路能力。</div>
+  </div>
+
+  <!-- ======================= TAB2 · 流程设计 ======================= -->
+  <div class="pane" id="pane-design">
+    <div class="flow-wrap">
+      <!-- steps -->
+      <div class="card">
+        <h2 class="sec">配置向导</h2>
+        <div class="sub">点击可跳转</div>
+        <ul class="steps" id="stepsDesign">
+          <li class="step-item active" data-step="src" onclick="pickNode('src')"><span class="n">1</span><span>配置源</span></li>
+          <li class="step-item" data-step="trans" onclick="pickNode('trans')"><span class="n">2</span><span>处理步骤</span></li>
+          <li class="step-item" data-step="tgt" onclick="pickNode('tgt')"><span class="n">3</span><span>配置目标</span></li>
+          <li class="step-item" data-step="save" onclick="saveFlow()"><span class="n">4</span><span>保存 / 发布</span></li>
+        </ul>
+      </div>
+
+      <!-- pipeline -->
+      <div class="card">
+        <h2 class="sec">流程管线</h2>
+        <div class="sub">点击节点查看 / 编辑配置</div>
+        <div class="pipe" style="margin-top:10px">
+          <div class="node active" id="node-src" onclick="pickNode('src')">
+            <div class="nt">源 · ERP 接口</div>
+            <div class="nd">POST /api/orders · application/json</div>
+            <span class="pill blue">鉴权：HMAC 签名</span>
+          </div>
+          <div class="arr">▼</div>
+          <div class="node grp" id="node-trans" onclick="pickNode('trans')">
+            <div class="nt">处理步骤</div>
+            <div class="nd">字段映射 · 元→分 · 时间格式化 · 脱敏 · 嵌套聚合</div>
+            <span class="pill purple">已配置 4 类处理</span>
+          </div>
+          <div class="arr">▼</div>
+          <div class="node" id="node-tgt" onclick="pickNode('tgt')">
+            <div class="nt">目标 · PARTNER_A</div>
+            <div class="nd">POST /v1/order/push · application/json</div>
+            <span class="pill amber">读超时 3000ms · 重试 5 次</span>
+          </div>
+        </div>
+        <div class="note" style="margin-top:12px">把「代码写死的映射/路由」变成「可视化配置」；运行引擎按此配置执行（复用 apicenter 出站状态机 / 补偿 / 日志）。</div>
+      </div>
+
+      <!-- detail panel -->
+      <div class="card">
+        <h2 class="sec">配置详情 <span style="color:var(--muted);font-weight:400;font-size:12px">（原型示意 · 简略）</span></h2>
+        <div class="detail" id="detailPanel"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= TAB3 · 字段映射 ======================= -->
+  <div class="pane" id="pane-mapping">
+    <div class="card">
+      <h2 class="sec">字段映射配置（配置驱动 · 类 MapStruct）</h2>
+      <div class="sub">源类型（HTTP/JSON/SQL/Function）不影响映射规则，获取后统一为源数据对象。源数据示例：<code>{"orderId":"SO202608170001","totalAmount":199.00,...}</code> · 预览列实时计算</div>
+      <div style="overflow:auto;margin-top:10px">
+        <table class="mt">
+          <thead><tr><th style="width:22%">源字段</th><th style="width:22%">目标字段</th><th style="width:22%">转换函数</th><th>预览值</th><th style="width:40px"></th></tr></thead>
+          <tbody id="mapBody"></tbody>
+        </table>
+      </div>
+      <button class="btn ghost add-row" onclick="addMapping()">＋ 添加映射</button>
+      <button class="btn" onclick="gotoTab('run'); setTimeout(runPipeline, 200)" style="margin-left:8px">保存并执行预览</button>
+    </div>
+  </div>
+
+  <!-- ======================= TAB4 · 函数处理 ======================= -->
+  <div class="pane" id="pane-fn">
+    <div class="card">
+      <h2 class="sec">函数库（内置 · 元数据驱动 UI）</h2>
+      <div class="sub">运行时引擎按函数名反射调用 Java 方法；「添加到流程」即把函数挂到当前处理步骤（原型示意）</div>
+      <div class="fn-grid" id="fnGrid" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+  <!-- ======================= TAB5 · 执行预览 ======================= -->
+  <div class="pane" id="pane-run">
+    <div class="controls">
+      <button class="btn" id="btnRun" onclick="runPipeline()">▶ 模拟执行</button>
+      <button class="btn ghost" onclick="resetRun()">清空</button>
+      <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)">
+        源类型：
+        <select id="srcType" onchange="onSrcTypeChange()">
+          <option value="http" selected>HTTP 接口</option>
+          <option value="json">JSON 源</option>
+          <option value="sql">SQL 源</option>
+          <option value="fn">Function 源</option>
+        </select>
+      </label>
+      <span class="sub">源类型只决定「数据如何获取」，获取后统一为源数据对象 → 映射 → 目标</span>
+    </div>
+
+    <!-- 源配置（按源类型切换） -->
+    <div class="card" id="srcConfig" style="margin-bottom:14px"></div>
+
+    <div class="run-grid">
+      <div class="card">
+        <div class="res-h">源数据（获取后 · 统一源数据对象）</div>
+        <pre class="json" id="runBefore">（点击「▶ 模拟执行」）</pre>
+      </div>
+      <div class="card">
+        <div class="res-h">映射处理后 · 目标数据（→ PARTNER_A）</div>
+        <pre class="json" id="runAfter">（待执行）</pre>
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="res-h">执行日志（traceId 串联 · 每步一条）</div>
+      <div class="console" id="runConsole"><div class="ln grey">（尚无执行）</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="foot">
+  apicenter 组件设计演示 ｜ 原型基于 <a href="api演示 demo.html">api演示 demo.html</a> 技术架构 ｜ 可行性分析见 <a href="doc/低代码集成平台可行性分析.md">低代码集成平台可行性分析.md</a>
+</div>
+
+<!-- ======================= 新建任务模态框 ======================= -->
+<div class="modal-overlay" id="newJobModal" style="display:none">
+  <div class="modal">
+    <h3>新建集成任务</h3>
+    <div class="sub" style="margin-bottom:12px">填写基本信息创建任务，源/目标/字段映射可在「流程设计」「字段映射」中继续配置</div>
+    <div class="form-grid">
+      <div class="field full"><label>任务名称 *</label><input id="njTitle" placeholder="如：ERP 订单 → PARTNER_C"></div>
+      <div class="field"><label>源类型 *</label>
+        <select id="njSrcType">
+          <option value="http" selected>HTTP 接口</option>
+          <option value="json">JSON 源</option>
+          <option value="sql">SQL 源</option>
+          <option value="fn">Function 源</option>
+        </select>
+      </div>
+      <div class="field"><label>源标签</label><input id="njSrcLabel" placeholder="如 ERP 接口"></div>
+      <div class="field"><label>源说明</label><input id="njSrcUrl" placeholder="如 /api/orders 或 SELECT ..."></div>
+      <div class="field"><label>目标 *</label><input id="njTarget" placeholder="如 PARTNER_C"></div>
+      <div class="field"><label>目标协议</label>
+        <select id="njProto"><option value="JSON" selected>JSON</option><option value="XML">XML</option></select>
+      </div>
+      <div class="field"><label>目标 URL</label><input id="njTargetUrl" placeholder="/v1/order/push"></div>
+      <div class="field"><label>字段映射集</label>
+        <select id="njMapping"><option value="order" selected>订单（13 条）</option><option value="callback">回调（4 条）</option></select>
+      </div>
+    </div>
+    <div class="foot">
+      <button class="btn" onclick="createJob()">创建任务</button>
+      <button class="btn ghost" onclick="closeNewJob()">取消</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ============================ helpers ============================ */
+const $ = id => document.getElementById(id);
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+let TRACE_ID = '';
+function genTrace() { const h='0123456789abcdef'; let s=''; for(let i=0;i<32;i++) s+=h[Math.floor(Math.random()*16)]; return s; }
+function flash(msg){ const t=$('traceIdText'); const old=t.textContent; t.textContent='✓ '+msg; setTimeout(()=>t.textContent=old,1400); }
+function logNow(){ const d=new Date(); const p=n=>String(n).padStart(2,'0'); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3,'0')}`; }
+
+function gotoTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===name));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active', p.id==='pane-'+name));
+}
+
+function consoleLog(cls, tag, text){
+  const c = $('runConsole');
+  if (c.firstChild && c.firstChild.classList.contains('grey')) c.innerHTML = '';
+  const line = document.createElement('div');
+  line.className = 'ln '+cls;
+  line.innerHTML = `<span class="t">[${logNow()}]</span><span style="color:#60a5fa">${TRACE_ID.slice(0,8)}</span> [${esc(tag)}] ${esc(text)}`;
+  c.appendChild(line);
+  c.scrollTop = c.scrollHeight;
+}
+
+/* ============================ 示例源数据 ============================ */
+const SAMPLE_SOURCE = {
+  orderId: 'SO202608170001', orderType: 'PUSH', orderStatus: 'PAID', totalAmount: 199.00,
+  currency: 'CNY', buyerName: '张三', buyerPhone: '13812341234', createdTime: '2026-08-17T10:30',
+  remark: '618 大促订单',
+  items: [
+    { skuCode: 'SKU-001', qty: 1, unitPrice: 99.00, amount: 99.00 },
+    { skuCode: 'SKU-002', qty: 1, unitPrice: 100.00, amount: 100.00 }
+  ],
+  shippingAddress: { province: '浙江', city: '杭州', detail: '西湖区 xxxx' }
+};
+
+/* ============================ 任务数据模型（任务驱动 · 回环联动） ============================ */
+const CALLBACK_SOURCE = {
+  event: 'order.status.changed',
+  orderNo: 'SO202608170001',
+  status: 'SHIPPED',
+  channel: 'PARTNER_B'
+};
+
+const SOURCE_SAMPLES = { order: SAMPLE_SOURCE, callback: CALLBACK_SOURCE };
+
+const SRC_TYPE_LABEL = { http:'HTTP 源', json:'JSON 源', sql:'SQL 源', fn:'Function 源' };
+
+const JOBS = [
+  { id:'http_a',  title:'ERP 订单推送 → PARTNER_A',      srcType:'http', srcLabel:'ERP 接口',      srcUrl:'/api/orders',                       target:'PARTNER_A', targetProto:'JSON', targetUrl:'/v1/order/push',      mappingKey:'order',    enabled:true  },
+  { id:'http_cb', title:'PARTNER_B 回调 → ERP',           srcType:'http', srcLabel:'PARTNER_B 回调', srcUrl:'/callback/PARTNER_B/order-status',  target:'ERP',       targetProto:'JSON', targetUrl:'/api/erp/order-status', mappingKey:'callback', enabled:true  },
+  { id:'json',    title:'JSON 静态数据清洗 → PARTNER_A',  srcType:'json', srcLabel:'JSON 文本',     srcUrl:'内联 JSON 文本',                        target:'PARTNER_A', targetProto:'JSON', targetUrl:'/v1/order/push',      mappingKey:'order',    enabled:true  },
+  { id:'sql',     title:'数据库订单同步 → PARTNER_B',      srcType:'sql',  srcLabel:'SQL 查询',     srcUrl:'SELECT t_order（JdbcTemplate）',         target:'PARTNER_B', targetProto:'XML',  targetUrl:'/v1/order/push',      mappingKey:'order',    enabled:true  },
+  { id:'fn',      title:'函数生成订单 → ERP',              srcType:'fn',   srcLabel:'Function',    srcUrl:'generateOrder()',                       target:'ERP',       targetProto:'JSON', targetUrl:'/api/erp/order-status', mappingKey:'order',    enabled:true  },
+  { id:'http_b',  title:'ERP 订单 → PARTNER_B',           srcType:'http', srcLabel:'ERP 接口',      srcUrl:'/api/orders',                       target:'PARTNER_B', targetProto:'XML',  targetUrl:'/v1/order/push',      mappingKey:'order',    enabled:false }
+];
+
+/* ============================ 源类型（HTTP / JSON / SQL / Function） ============================ */
+const SQL_SAMPLE = `SELECT order_id AS orderId, order_type AS orderType, order_status AS orderStatus,
+       total_amount AS totalAmount, currency,
+       buyer_name AS buyerName, buyer_phone AS buyerPhone,
+       created_time AS createdTime, remark
+FROM t_order
+WHERE id = 1001;`;
+const FN_SAMPLE = `generateOrder('SO202608170001')   // 函数库函数：返回 OrderDto 对象`;
+
+/** 执行预览：切换源类型 → 渲染对应源配置 */
+function onSrcTypeChange(){
+  const t = $('srcType').value;
+  const cfg = $('srcConfig');
+  if(t === 'http'){
+    cfg.innerHTML = `<div class="dl-h">源 · HTTP 接口</div>
+      <div class="kv"><span class="k">接收入口</span><span>POST ${esc(currentJob.srcUrl)}（application/json）</span></div>
+      <div class="kv"><span class="k">鉴权</span><span>HMAC 签名</span></div>
+      <div class="note" style="margin:8px 0 0">请求方推送 → 组件接收 → 统一源数据对象</div>`;
+  } else if(t === 'json'){
+    cfg.innerHTML = `<div class="dl-h">源 · JSON 文本</div>
+      <div class="sub">粘贴一段 JSON 作为源数据（可编辑，执行时解析）</div>
+      <textarea id="jsonSrc" style="width:100%;min-height:130px;margin-top:8px;font-family:var(--mono);font-size:12px;line-height:1.5">${esc(JSON.stringify(SOURCE_SAMPLES[currentJob.mappingKey], null, 2))}</textarea>`;
+  } else if(t === 'sql'){
+    cfg.innerHTML = `<div class="dl-h">源 · SQL 查询</div>
+      <div class="sub">JdbcTemplate 执行 SELECT，结果集映射为源数据对象（列名用 AS 别名转 camelCase）</div>
+      <pre class="json" style="margin-top:8px">${esc(SQL_SAMPLE)}</pre>
+      <div class="kv" style="margin-top:8px"><span class="k">数据源</span><span>H2（生产 MySQL 8）</span></div>`;
+  } else if(t === 'fn'){
+    cfg.innerHTML = `<div class="dl-h">源 · Function</div>
+      <div class="sub">调用函数库函数产出源数据对象（复用 §6 函数库 / SpEL）</div>
+      <pre class="json" style="margin-top:8px">${esc(FN_SAMPLE)}</pre>
+      <div class="kv" style="margin-top:8px"><span class="k">返回</span><span>OrderDto（JSON 对象）</span></div>`;
+  }
+}
+
+/** 联动：设置源类型下拉并渲染源配置（任务卡片「模拟执行」跳转时调用） */
+function setSrcType(type){
+  const sel = $('srcType');
+  if(sel){ sel.value = type; onSrcTypeChange(); }
+}
+
+/* ============================ 当前任务（回环联动核心） ============================ */
+let currentJob = JOBS[0];
+
+/** 选中任务 → 同步流程设计 / 字段映射 / 执行预览 */
+function selectJob(id){
+  currentJob = JOBS.find(j => j.id === id) || JOBS[0];
+  mappings = MAPPING_SETS[currentJob.mappingKey].slice();
+  renderMapping();
+  renderPipeline();
+  setSrcType(currentJob.srcType);
+  pickNode('src');
+}
+
+/** 流程设计管线节点随当前任务渲染 */
+function renderPipeline(){
+  const srcNode = $('node-src'), tgtNode = $('node-tgt');
+  if(srcNode){
+    const srcDesc = currentJob.srcType === 'http' ? 'POST ' + currentJob.srcUrl : currentJob.srcUrl;
+    srcNode.innerHTML = `<div class="nt">源 · ${esc(currentJob.srcLabel)}</div>
+      <div class="nd">${esc(srcDesc)}</div>
+      <span class="pill blue">${esc(SRC_TYPE_LABEL[currentJob.srcType])}</span>`;
+  }
+  if(tgtNode){
+    tgtNode.innerHTML = `<div class="nt">目标 · ${esc(currentJob.target)}</div>
+      <div class="nd">POST ${esc(currentJob.targetUrl)} · application/${currentJob.targetProto.toLowerCase()}</div>
+      <span class="pill amber">读超时 3000ms · 重试 5 次</span>`;
+  }
+}
+
+/* ============================ 任务总览（数据驱动渲染） ============================ */
+const SRC_TYPE_PILL = { http:'blue', json:'purple', sql:'amber', fn:'ok' };
+
+function renderJobs(){
+  const grid = $('jobGrid');
+  if(!grid) return;
+  grid.innerHTML = JOBS.map(j => `
+    <div class="job">
+      <h3>${esc(j.title)}</h3>
+      <div class="route"><b>${esc(j.srcLabel)}</b> · ${esc(j.srcUrl)} → <b>${esc(j.target)}</b> · POST ${esc(j.targetUrl)} (${esc(j.targetProto)})</div>
+      <span class="pill ${SRC_TYPE_PILL[j.srcType]}">${esc(SRC_TYPE_LABEL[j.srcType])}</span>
+      <span class="pill grey">字段映射 ${MAPPING_SETS[j.mappingKey].length} 条</span>
+      <span class="pill ${j.enabled ? 'ok' : 'off'}">${j.enabled ? '已启用' : '已停用'}</span>
+      <div class="foot">
+        <button class="btn ghost" onclick="selectJob('${j.id}'); gotoTab('design')">编辑</button>
+        <button class="btn ghost" onclick="selectJob('${j.id}'); gotoTab('run'); setTimeout(runPipeline, 200)">模拟执行</button>
+      </div>
+    </div>`).join('');
+}
+
+/* ============================ 新建任务 ============================ */
+function openNewJob(){
+  $('njTitle').value = ''; $('njSrcLabel').value = ''; $('njSrcUrl').value = '';
+  $('njTarget').value = ''; $('njTargetUrl').value = '';
+  $('newJobModal').style.display = 'flex';
+}
+function closeNewJob(){ $('newJobModal').style.display = 'none'; }
+
+function createJob(){
+  const title = $('njTitle').value.trim();
+  const target = $('njTarget').value.trim();
+  if(!title || !target){ flash('请填写任务名称与目标'); return; }
+  const srcType = $('njSrcType').value;
+  const job = {
+    id: 'job_' + Date.now(),
+    title,
+    srcType,
+    srcLabel: $('njSrcLabel').value.trim() || SRC_TYPE_LABEL[srcType],
+    srcUrl: $('njSrcUrl').value.trim() || '待配置',
+    target,
+    targetProto: $('njProto').value,
+    targetUrl: $('njTargetUrl').value.trim() || '/api/order/push',
+    mappingKey: $('njMapping').value,
+    enabled: true
+  };
+  JOBS.push(job);
+  renderJobs();
+  closeNewJob();
+  selectJob(job.id);
+  flash('已创建任务「' + title + '」');
+}
+
+/** 按源类型取「源数据对象」：四类源最终统一为同一 JSON 结构 */
+function getSource(){
+  const t = $('srcType').value;
+  if(t === 'json'){
+    const ta = $('jsonSrc');
+    if(ta && ta.value.trim()){
+      try { return JSON.parse(ta.value); }
+      catch(e){ consoleLog('amber','source', `JSON 解析失败（${e.message}），回退示例数据`); }
+    }
+  }
+  // HTTP / SQL / Function 源在此原型中均用示例数据模拟执行结果
+  return SOURCE_SAMPLES[currentJob.mappingKey];
+}
+
+const SRC_FETCH_LOG = {
+  http: '接收 HTTP 接口请求（验签/鉴权）→ 源数据对象',
+  json: '解析 JSON 文本 → 源数据对象',
+  sql:  '执行 SQL 查询（JdbcTemplate）→ 返回 1 行 → 源数据对象',
+  fn:   '调用 generateOrder() 返回订单对象'
+};
+
+/* ============================ 字段映射状态（按 mappingKey 分组，随任务切换） ============================ */
+const MAPPING_SETS = {
+  order: [
+    { src: 'orderId', target: 'orderNo', fn: 'pass' },
+    { src: 'orderType', target: 'orderType', fn: 'pass' },
+    { src: 'orderStatus', target: 'orderStatus', fn: 'pass' },
+    { src: 'totalAmount', target: 'totalAmountCent', fn: 'yuanToCent' },
+    { src: 'currency', target: 'currency', fn: 'pass' },
+    { src: 'items', target: 'items', fn: 'mapItems' },
+    { src: 'buyerName', target: 'buyer.name', fn: 'nest' },
+    { src: 'buyerPhone', target: 'buyer.mobile', fn: 'maskPhone' },
+    { src: 'createdTime', target: 'createdAt', fn: 'dateFormat' },
+    { src: 'shippingAddress.province', target: 'receiver.province', fn: 'pass' },
+    { src: 'shippingAddress.city', target: 'receiver.city', fn: 'pass' },
+    { src: 'shippingAddress.detail', target: 'receiver.detail', fn: 'pass' },
+    { src: 'remark', target: 'note', fn: 'pass' }
+  ],
+  callback: [
+    { src: 'orderNo', target: 'orderId', fn: 'pass' },
+    { src: 'event', target: 'event', fn: 'pass' },
+    { src: 'status', target: 'status', fn: 'pass' },
+    { src: 'channel', target: 'source', fn: 'pass' }
+  ]
+};
+let mappings = MAPPING_SETS.order.slice();
+
+/* ============================ 函数库（元数据） ============================ */
+const FUNCTIONS = {
+  pass:         { name: '直传',   sig: 'pass(v)',      ret: '原值',   desc: '源字段原样复制到目标字段' },
+  yuanToCent:   { name: '元→分',  sig: 'yuanToCent(v)', ret: 'long',   desc: '金额 元 ×100 转分（BigDecimal→long）' },
+  centToYuan:   { name: '分→元',  sig: 'centToYuan(v)', ret: 'number', desc: '金额 分 ÷100 转元' },
+  dateFormat:   { name: '时间格式化', sig: 'dateFormat(v, ISO)', ret: 'string', desc: 'ISO-8601 ↔ yyyyMMddHHmmss 转换' },
+  maskPhone:    { name: '手机号脱敏', sig: 'maskPhone(v)', ret: 'string', desc: '13812341234 → 138****1234' },
+  enumMap:      { name: '枚举映射', sig: 'enumMap(v, map)', ret: 'value', desc: 'NEW→1 / PAID→2 / SHIPPED→3' },
+  nest:         { name: '嵌套写入', sig: 'nest(v)', ret: 'value', desc: '源值写入点号目标路径，自动建父对象（buyer.name）' },
+  mapItems:     { name: '明细列表映射', sig: 'mapItems(items[])', ret: 'array', desc: '对明细 items[] 逐项映射（qty→quantity、金额元→分）' },
+  defaultValue: { name: '默认值', sig: 'defaultValue(v, d)', ret: 'value', desc: '空值时返回默认值' },
+  jsonPath:     { name: '路径取值', sig: 'jsonPath(src)', ret: 'value', desc: '按点号路径从源数据取值（src 即路径）' },
+  trim:         { name: '去空格', sig: 'trim(v)', ret: 'string', desc: '去掉首尾空白' }
+};
+const FN_LIST = ['pass','yuanToCent','centToYuan','dateFormat','maskPhone','enumMap','nest','mapItems','defaultValue','jsonPath','trim'];
+
+/* ============================ 取值 / 写值 / 函数执行 ============================ */
+function getPath(obj, path){
+  return path.split('.').reduce((o,k)=> (o==null ? undefined : o[k]), obj);
+}
+function setPath(obj, path, value){
+  const keys = path.split('.');
+  let cur = obj;
+  for(let i=0;i<keys.length-1;i++){ if(cur[keys[i]]==null) cur[keys[i]]={}; cur=cur[keys[i]]; }
+  cur[keys[keys.length-1]] = value;
+}
+function applyFn(fn, value, src, all){
+  switch(fn){
+    case 'yuanToCent': return Math.round((parseFloat(value) || 0) * 100);
+    case 'centToYuan': return parseFloat(value) / 100;
+    case 'dateFormat': return value ? (String(value).length===16 ? value+':00' : value) : null;
+    case 'maskPhone':  return value ? String(value).replace(/(1[3-9]\d)\d{4}(\d{4})/, '$1****$2') : '';
+    case 'enumMap':    return ({ NEW:1, PAID:2, SHIPPED:3 })[value] ?? value;
+    case 'mapItems':   return (value || []).map(it => ({
+      skuCode: it.skuCode,
+      quantity: it.qty,
+      unitPriceCent: Math.round((parseFloat(it.unitPrice) || 0) * 100),
+      amountCent: Math.round((parseFloat(it.amount) || 0) * 100)
+    }));
+    case 'defaultValue': return (value==null || value==='') ? 'N/A' : value;
+    case 'trim':       return String(value || '').trim();
+    case 'jsonPath':   return getPath(all, src);   // src 即点号路径，从源数据取值
+    case 'nest':       return value;               // 嵌套由 setPath 按 target 点号路径自动建父对象
+    case 'pass':
+    default:           return value;
+  }
+}
+
+/* ============================ Tab3 · 字段映射表 ============================ */
+function fnOptions(sel){
+  return FN_LIST.map(f=>`<option value="${f}" ${f===sel?'selected':''}>${FUNCTIONS[f].name}</option>`).join('');
+}
+function preview(i){
+  const r = mappings[i];
+  const src = SOURCE_SAMPLES[currentJob.mappingKey];
+  const v = getPath(src, r.src);
+  return applyFn(r.fn, v, r.src, src);
+}
+function renderMapping(){
+  const tb = $('mapBody');
+  tb.innerHTML = mappings.map((r,i)=>`
+    <tr>
+      <td><input value="${esc(r.src)}" onchange="setMapping(${i},'src',this.value)"></td>
+      <td><input value="${esc(r.target)}" onchange="setMapping(${i},'target',this.value)"></td>
+      <td><select onchange="setMapping(${i},'fn',this.value)">${fnOptions(r.fn)}</select></td>
+      <td class="prev" id="prev${i}">${esc(JSON.stringify(preview(i)))}</td>
+      <td><button class="btn ghost" onclick="delMapping(${i})" title="删除">×</button></td>
+    </tr>`).join('');
+}
+function setMapping(i, key, val){ mappings[i][key] = val; $('prev'+i).textContent = JSON.stringify(preview(i)); }
+function addMapping(){ mappings.push({src:'', target:'', fn:'pass'}); renderMapping(); }
+function delMapping(i){ mappings.splice(i,1); renderMapping(); }
+
+/* ============================ Tab4 · 函数库 ============================ */
+function renderFns(){
+  $('fnGrid').innerHTML = FN_LIST.map(f=>{
+    const fn = FUNCTIONS[f];
+    return `<div class="fn-card">
+      <h4>${esc(fn.name)} <span class="sig">${esc(fn.sig)}</span></h4>
+      <p>${esc(fn.desc)}</p>
+      <div class="kv"><span class="k">返回</span><span>${esc(fn.ret)}</span></div>
+      <button class="btn ghost sm" onclick="addFnToFlow('${f}')">＋ 添加到流程</button>
+    </div>`;
+  }).join('');
+}
+function addFnToFlow(f){
+  consoleLog('purple','fn', `函数「${FUNCTIONS[f].name}」已挂到当前流程的处理步骤（原型示意）`);
+  flash(`已添加 ${FUNCTIONS[f].name}`);
+}
+
+/* ============================ Tab2 · 流程设计配置面板 ============================ */
+const CFG = {
+  trans:{ used: '直传 / 元→分 / 时间格式化 / 脱敏 / 嵌套写入 / 明细列表映射' }
+};
+function pickNode(which){
+  document.querySelectorAll('#stepsDesign .step-item').forEach(el=>el.classList.remove('active'));
+  document.querySelectorAll('#pane-design .node').forEach(n=>n.classList.remove('active'));
+  const stepEl = document.querySelector(`#stepsDesign .step-item[data-step="${which}"]`);
+  if(stepEl) stepEl.classList.add('active');
+  const nodeEl = $('node-'+which); if(nodeEl) nodeEl.classList.add('active');
+
+  const d = $('detailPanel');
+  if(which === 'src'){
+    const opts = ['http','json','sql','fn'].map(v =>
+      `<option value="${v}" ${v===currentJob.srcType?'selected':''}>${esc(SRC_TYPE_LABEL[v])}</option>`).join('');
+    d.innerHTML = `
+      <div class="dl-h">源配置 · ${esc(currentJob.srcLabel)}</div>
+      <div class="form-grid">
+        <div class="field"><label>源类型</label>
+          <select onchange="renderSrcFields(this.value)">${opts}</select>
+        </div>
+      </div>
+      <div id="srcFields" style="margin-top:10px"></div>
+      <div style="margin-top:10px"><span class="pill blue">配置落表 flow_source（source.type）</span></div>`;
+    renderSrcFields(currentJob.srcType);
+  } else if(which === 'tgt'){
+    d.innerHTML = `
+      <div class="dl-h">目标配置 · ${esc(currentJob.target)}</div>
+      <div class="form-grid">
+        <div class="field"><label>类型</label><select><option>HTTP 接口</option></select></div>
+        <div class="field"><label>协议</label><select><option>${esc(currentJob.targetProto)}</option><option>${esc(currentJob.targetProto==='XML'?'JSON':'XML')}</option></select></div>
+        <div class="field"><label>方法</label><select><option>POST</option><option>GET</option></select></div>
+        <div class="field full"><label>URL</label><input value="${esc(currentJob.targetUrl)}"></div>
+        <div class="field"><label>鉴权</label><select><option>Bearer token</option><option>无</option></select></div>
+        <div class="field"><label>读超时（ms）</label><input value="3000" type="number"></div>
+        <div class="field"><label>重试次数</label><input value="5" type="number"></div>
+      </div>
+      <div style="margin-top:10px"><span class="pill blue">配置落表 flow_target</span></div>`;
+  } else if(which === 'trans'){
+    d.innerHTML = `
+      <div class="dl-h">处理步骤（Transform Steps）</div>
+      <div class="kv"><span class="k">字段映射规则</span><span>${mappings.length} 条</span></div>
+      <div class="kv"><span class="k">已用函数</span><span>${esc(CFG.trans.used)}</span></div>
+      <div style="margin-top:8px">
+        <span class="pill purple">transform_step</span><span class="pill purple">field_mapping_rule</span><span class="pill purple">function_lib</span>
+      </div>
+      <div class="note" style="margin-top:10px">原型示意：处理步骤可在「字段映射」「函数处理」Tab 中增删改；引擎按顺序执行。</div>`;
+  }
+}
+
+function saveFlow(){
+  document.querySelectorAll('#stepsDesign .step-item').forEach(el=>el.classList.remove('active'));
+  document.querySelectorAll('#pane-design .node').forEach(n=>n.classList.remove('active'));
+  consoleLog('green','flow', '流程配置已保存（version v1）→ integration_flow 落库，可发布');
+  flash('已保存版本 v1');
+}
+
+/* 源节点配置：按源类型渲染专属字段 */
+function renderSrcFields(type){
+  const el = $('srcFields');
+  if(!el) return;
+  if(type === 'http'){
+    el.innerHTML = `<div class="form-grid">
+      <div class="field"><label>协议</label><select><option>JSON</option><option>XML</option></select></div>
+      <div class="field"><label>方法</label><select><option>POST</option><option>GET</option></select></div>
+      <div class="field"><label>接收入口 URL</label><input value="${esc(currentJob.srcUrl)}"></div>
+      <div class="field"><label>鉴权</label><select><option>HMAC 签名</option><option>无</option></select></div>
+      <div class="field"><label>读超时（ms）</label><input value="3000" type="number"></div>
+      <div class="field"><label>重试次数</label><input value="5" type="number"></div>
+    </div>`;
+  } else if(type === 'json'){
+    el.innerHTML = `<div class="form-grid">
+      <div class="field full"><label>JSON 文本（源数据）</label><textarea style="min-height:130px;font-family:var(--mono)">${esc(JSON.stringify(SOURCE_SAMPLES[currentJob.mappingKey], null, 2))}</textarea></div>
+    </div>`;
+  } else if(type === 'sql'){
+    el.innerHTML = `<div class="form-grid">
+      <div class="field"><label>数据源</label><select><option>H2（生产 MySQL 8）</option></select></div>
+      <div class="field full"><label>SQL 查询（只读 SELECT）</label><textarea style="min-height:110px;font-family:var(--mono)">${esc(SQL_SAMPLE)}</textarea></div>
+    </div>`;
+  } else if(type === 'fn'){
+    el.innerHTML = `<div class="form-grid">
+      <div class="field full"><label>函数名</label><input value="generateOrder"></div>
+      <div class="field full"><label>脚本 / 参数</label><textarea style="min-height:80px;font-family:var(--mono)">${esc(FN_SAMPLE)}</textarea></div>
+    </div>`;
+  }
+}
+
+/* ============================ Tab5 · 执行预览 ============================ */
+let running = false;
+function resetRun(){
+  $('runConsole').innerHTML = '<div class="ln grey">（尚无执行）</div>';
+  $('runBefore').textContent = '（点击「▶ 模拟执行」）';
+  $('runAfter').textContent = '（待执行）';
+  onSrcTypeChange();
+}
+async function runPipeline(){
+  if(running) return;
+  running = true;
+  $('btnRun').disabled = true;
+  $('runConsole').innerHTML = '';
+
+  const source = getSource();
+  $('runBefore').textContent = JSON.stringify(source, null, 2);
+
+  consoleLog('purple','engine', `启动集成任务：${currentJob.title}（配置驱动）`);
+  await wait(450);
+  consoleLog('blue','source', `读取源数据 → ${SRC_FETCH_LOG[$('srcType').value]}`);
+  await wait(450);
+
+  const target = {};
+  for(let i=0;i<mappings.length;i++){
+    const r = mappings[i];
+    const val = getPath(source, r.src);
+    const out = applyFn(r.fn, val, r.src, source);
+    setPath(target, r.target, out);
+    consoleLog('blue','map', `字段映射 ${r.src} → ${r.target}（函数：${FUNCTIONS[r.fn].name}）= ${JSON.stringify(out)}`);
+    await wait(240);
+  }
+
+  consoleLog('amber','transform', '数据清洗完成：元→分 · 时间格式化 · 脱敏 · 嵌套写入 · 明细列表映射 已应用');
+  await wait(400);
+  consoleLog('green','target', `送达目标 → ${currentJob.target} POST ${currentJob.targetUrl}（application/${currentJob.targetProto.toLowerCase()}，携带签名头）`);
+  await wait(400);
+  $('runAfter').textContent = JSON.stringify(target, null, 2);
+  consoleLog('green','engine', '执行成功 ✅ integration_request → SUCCESS，call_log 已落库');
+  running = false;
+  $('btnRun').disabled = false;
+}
+
+/* ============================ Init ============================ */
+function init(){
+  TRACE_ID = genTrace();
+  $('traceIdText').textContent = TRACE_ID;
+  renderFns();
+  renderJobs();
+  selectJob('http_a');
+}
+init();
+</script>
+</body>
+</html>
