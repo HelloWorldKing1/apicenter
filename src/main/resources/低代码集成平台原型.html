@@ -38,6 +38,15 @@
   .tab:hover { color: var(--primary); }
   .tab.active { background: var(--card); border-color: var(--line); color: var(--primary); font-weight: 600; }
 
+  /* ---------- 布局：侧边栏 + 内容区 ---------- */
+  .layout { display: flex; min-height: calc(100vh - 48px); }
+  .sidebar { flex: 0 0 200px; background: #0f172a; color: #cbd5e1; padding: 12px 0; border-right: 1px solid #1e293b; }
+  .sidebar .menu-title { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: #64748b; padding: 4px 18px 10px; }
+  .menu-item { padding: 10px 18px; cursor: pointer; font-size: 13.5px; color: #cbd5e1; user-select: none; border-left: 3px solid transparent; }
+  .menu-item:hover { background: #1e293b; color: #fff; }
+  .menu-item.active { background: #1e293b; color: #fff; border-left-color: var(--primary); font-weight: 600; }
+  .content { flex: 1; min-width: 0; }
+
   .panes { padding: 16px 20px 30px; max-width: 1280px; margin: 0 auto; }
   .pane { display: none; }
   .pane.active { display: block; }
@@ -161,90 +170,69 @@
   <div class="hint">配置驱动 · 类 ETL · 源 / 目标 / 字段映射 / 函数处理</div>
 </header>
 
-<!-- ======================= CAPABILITY BADGES ======================= -->
-<div class="badges">
-  <div class="badge"><span class="dot" style="background:#2563eb"></span>配置驱动</div>
-  <div class="badge"><span class="dot" style="background:#16a34a"></span>字段映射</div>
-  <div class="badge"><span class="dot" style="background:#7c3aed"></span>函数处理</div>
-  <div class="badge"><span class="dot" style="background:#d97706"></span>流程编排</div>
-  <div class="badge"><span class="dot" style="background:#0ea5e9"></span>全链路可观测</div>
-</div>
+<!-- ======================= LAYOUT ======================= -->
+<div class="layout">
+  <aside class="sidebar">
+    <div class="menu-title">资源与编排</div>
+    <div class="menu-item active" data-menu="jobs" onclick="gotoMenu('jobs')">📋 任务管理</div>
+    <div class="menu-item" data-menu="ds" onclick="gotoMenu('ds')">🗄 数据源管理</div>
+    <div class="menu-item" data-menu="api" onclick="gotoMenu('api')">🔌 API 接口管理</div>
+    <div class="menu-item" data-menu="mapping" onclick="gotoMenu('mapping')">🔀 字段映射管理</div>
+    <div class="menu-item" data-menu="fn" onclick="gotoMenu('fn')">⚙️ 函数管理</div>
+    <div class="menu-item" data-menu="log" onclick="gotoMenu('log')">📜 日志管理</div>
+  </aside>
+  <main class="content">
+  <div class="panes">
 
-<!-- ======================= TABS ======================= -->
-<nav class="tabs">
-  <div class="tab active" data-tab="jobs" onclick="gotoTab('jobs')">任务总览</div>
-  <div class="tab" data-tab="design" onclick="gotoTab('design')">流程设计</div>
-  <div class="tab" data-tab="mapping" onclick="gotoTab('mapping')">字段映射</div>
-  <div class="tab" data-tab="fn" onclick="gotoTab('fn')">函数处理</div>
-  <div class="tab" data-tab="run" onclick="gotoTab('run')">执行预览</div>
-</nav>
-
-<div class="panes">
-
-  <!-- ======================= TAB1 · 任务总览 ======================= -->
+  <!-- ======================= 任务管理 ======================= -->
   <div class="pane active" id="pane-jobs">
     <div class="controls">
       <button class="btn" onclick="openNewJob()">＋ 新建任务</button>
-      <span class="sub">配置源 / 目标 / 字段映射，系统即按配置执行 API 中转（类 ETL）</span>
+      <span class="sub">从数据源 / API 接口 / 字段映射规则集中引用资源，编排集成任务</span>
     </div>
     <div class="job-grid" id="jobGrid"></div>
-    <div class="note">原型概念：每个「集成任务」= <b>源 + 处理步骤（字段映射/函数处理）+ 目标</b> 的配置；运行时引擎按配置执行，复用 apicenter 的验签、重试补偿、日志链路能力。</div>
+    <div class="note">每个「集成任务」= <b>源数据源 + 处理步骤（字段映射/函数）+ 目标接口</b>；新建任务从左侧管理模块引用资源。</div>
   </div>
 
-  <!-- ======================= TAB2 · 流程设计 ======================= -->
-  <div class="pane" id="pane-design">
-    <div class="flow-wrap">
-      <!-- steps -->
-      <div class="card">
-        <h2 class="sec">配置向导</h2>
-        <div class="sub">点击可跳转</div>
-        <ul class="steps" id="stepsDesign">
-          <li class="step-item active" data-step="src" onclick="pickNode('src')"><span class="n">1</span><span>配置源</span></li>
-          <li class="step-item" data-step="trans" onclick="pickNode('trans')"><span class="n">2</span><span>处理步骤</span></li>
-          <li class="step-item" data-step="tgt" onclick="pickNode('tgt')"><span class="n">3</span><span>配置目标</span></li>
-          <li class="step-item" data-step="save" onclick="saveFlow()"><span class="n">4</span><span>保存 / 发布</span></li>
-        </ul>
-      </div>
+  <!-- ======================= 任务编排（子视图） ======================= -->
+  <div class="pane" id="pane-edit">
+    <div class="controls">
+      <button class="btn ghost" onclick="gotoMenu('jobs')">← 返回任务列表</button>
+      <h2 class="sec" id="editJobTitle" style="margin:0"></h2>
+      <span style="flex:1"></span>
+      <button class="btn ghost" onclick="saveFlow()">保存 / 发布</button>
+    </div>
 
-      <!-- pipeline -->
-      <div class="card">
-        <h2 class="sec">流程管线</h2>
-        <div class="sub">点击节点查看 / 编辑配置</div>
-        <div class="pipe" style="margin-top:10px">
-          <div class="node active" id="node-src" onclick="pickNode('src')">
-            <div class="nt">源 · ERP 接口</div>
-            <div class="nd">POST /api/orders · application/json</div>
-            <span class="pill blue">鉴权：HMAC 签名</span>
-          </div>
-          <div class="arr">▼</div>
-          <div class="node grp" id="node-trans" onclick="pickNode('trans')">
-            <div class="nt">处理步骤</div>
-            <div class="nd">字段映射 · 元→分 · 时间格式化 · 脱敏 · 嵌套聚合</div>
-            <span class="pill purple">已配置 4 类处理</span>
-          </div>
-          <div class="arr">▼</div>
-          <div class="node" id="node-tgt" onclick="pickNode('tgt')">
-            <div class="nt">目标 · PARTNER_A</div>
-            <div class="nd">POST /v1/order/push · application/json</div>
-            <span class="pill amber">读超时 3000ms · 重试 5 次</span>
-          </div>
-        </div>
-        <div class="note" style="margin-top:12px">把「代码写死的映射/路由」变成「可视化配置」；运行引擎按此配置执行（复用 apicenter 出站状态机 / 补偿 / 日志）。</div>
-      </div>
-
-      <!-- detail panel -->
-      <div class="card">
-        <h2 class="sec">配置详情 <span style="color:var(--muted);font-weight:400;font-size:12px">（原型示意 · 简略）</span></h2>
-        <div class="detail" id="detailPanel"></div>
+    <div class="card">
+      <h2 class="sec">资源配置（从管理模块引用）</h2>
+      <div class="sub">源数据源 / 目标接口 / 字段映射规则集 均来自左侧管理模块</div>
+      <div class="form-grid" style="margin-top:10px">
+        <div class="field"><label>源数据源</label><select id="editDs" onchange="onEditDsChange()"></select></div>
+        <div class="field"><label>目标接口</label><select id="editApi" onchange="onEditApiChange()"></select></div>
+        <div class="field"><label>字段映射规则集</label><select id="editMapping" onchange="onEditMappingChange()"></select></div>
       </div>
     </div>
-  </div>
 
-  <!-- ======================= TAB3 · 字段映射 ======================= -->
-  <div class="pane" id="pane-mapping">
     <div class="card">
-      <h2 class="sec">字段映射配置（配置驱动 · 类 MapStruct）</h2>
-      <div class="sub">源类型（HTTP/JSON/SQL/Function）不影响映射规则，获取后统一为源数据对象。源数据示例：<code>{"orderId":"SO202608170001","totalAmount":199.00,...}</code> · 预览列实时计算</div>
+      <h2 class="sec">流程管线</h2>
+      <div class="sub">点击节点查看配置</div>
+      <div class="pipe" style="margin-top:10px">
+        <div class="node" id="node-src" onclick="pickNode('src')"></div>
+        <div class="arr">▼</div>
+        <div class="node grp" id="node-trans" onclick="pickNode('trans')">
+          <div class="nt">处理步骤</div>
+          <div class="nd">字段映射 · 函数处理</div>
+          <span class="pill purple">可配置</span>
+        </div>
+        <div class="arr">▼</div>
+        <div class="node" id="node-tgt" onclick="pickNode('tgt')"></div>
+      </div>
+      <div class="detail" id="detailPanel" style="margin-top:12px;padding-top:12px;border-top:1px dashed var(--line)"></div>
+    </div>
+
+    <div class="card">
+      <h2 class="sec">字段映射（处理步骤）</h2>
+      <div class="sub">当前任务使用的映射规则，可增删改</div>
       <div style="overflow:auto;margin-top:10px">
         <table class="mt">
           <thead><tr><th style="width:22%">源字段</th><th style="width:22%">目标字段</th><th style="width:22%">转换函数</th><th>预览值</th><th style="width:40px"></th></tr></thead>
@@ -252,54 +240,83 @@
         </table>
       </div>
       <button class="btn ghost add-row" onclick="addMapping()">＋ 添加映射</button>
-      <button class="btn" onclick="gotoTab('run'); setTimeout(runPipeline, 200)" style="margin-left:8px">保存并执行预览</button>
+    </div>
+
+    <div class="card">
+      <h2 class="sec">执行预览</h2>
+      <div class="controls" style="margin-top:8px">
+        <button class="btn" id="btnRun" onclick="runPipeline()">▶ 模拟执行</button>
+        <button class="btn ghost" onclick="resetRun()">清空</button>
+        <span class="sub">按当前配置执行，生成目标数据 + 日志</span>
+      </div>
+      <div id="srcConfig" style="margin-bottom:12px"></div>
+      <div class="run-grid">
+        <div class="card"><div class="res-h">源数据（获取后 · 统一源数据对象）</div><pre class="json" id="runBefore">（点击「▶ 模拟执行」）</pre></div>
+        <div class="card"><div class="res-h">映射处理后 · 目标数据</div><pre class="json" id="runAfter">（待执行）</pre></div>
+      </div>
+      <div class="console" id="runConsole" style="margin-top:12px"><div class="ln grey">（尚无执行）</div></div>
     </div>
   </div>
 
-  <!-- ======================= TAB4 · 函数处理 ======================= -->
+  <!-- ======================= 数据源管理 ======================= -->
+  <div class="pane" id="pane-ds">
+    <div class="controls">
+      <button class="btn" onclick="openNewDatasource()">＋ 新建数据源</button>
+      <span class="sub">四类数据源：HTTP 接口 / JSON / SQL / Function，供任务引用</span>
+    </div>
+    <div class="job-grid" id="dsGrid"></div>
+  </div>
+
+  <!-- ======================= API 接口管理 ======================= -->
+  <div class="pane" id="pane-api">
+    <div class="controls">
+      <button class="btn" onclick="openNewApi()">＋ 新建接口</button>
+      <span class="sub">第三方 / ERP 的 HTTP 接口，供任务作为目标引用</span>
+    </div>
+    <div style="overflow:auto">
+      <table class="mt">
+        <thead><tr><th>接口名称</th><th>URL</th><th>协议</th><th>方法</th><th>鉴权</th></tr></thead>
+        <tbody id="apiBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ======================= 字段映射管理 ======================= -->
+  <div class="pane" id="pane-mapping">
+    <div class="controls"><span class="sub">可复用字段映射规则集，供任务引用；点击规则集查看映射明细</span></div>
+    <div class="job-grid" id="mappingSetGrid"></div>
+    <div class="card" id="mappingPreview" style="display:none;margin-top:14px">
+      <h2 class="sec" id="mappingPreviewTitle"></h2>
+      <div style="overflow:auto;margin-top:10px">
+        <table class="mt">
+          <thead><tr><th>源字段</th><th>目标字段</th><th>转换函数</th></tr></thead>
+          <tbody id="mappingPreviewBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= 函数管理 ======================= -->
   <div class="pane" id="pane-fn">
     <div class="card">
       <h2 class="sec">函数库（内置 · 元数据驱动 UI）</h2>
-      <div class="sub">运行时引擎按函数名反射调用 Java 方法；「添加到流程」即把函数挂到当前处理步骤（原型示意）</div>
+      <div class="sub">运行时引擎按函数名反射调用 Java 方法；函数供字段映射规则引用</div>
       <div class="fn-grid" id="fnGrid" style="margin-top:12px"></div>
     </div>
   </div>
 
-  <!-- ======================= TAB5 · 执行预览 ======================= -->
-  <div class="pane" id="pane-run">
-    <div class="controls">
-      <button class="btn" id="btnRun" onclick="runPipeline()">▶ 模拟执行</button>
-      <button class="btn ghost" onclick="resetRun()">清空</button>
-      <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)">
-        源类型：
-        <select id="srcType" onchange="onSrcTypeChange()">
-          <option value="http" selected>HTTP 接口</option>
-          <option value="json">JSON 源</option>
-          <option value="sql">SQL 源</option>
-          <option value="fn">Function 源</option>
-        </select>
-      </label>
-      <span class="sub">源类型只决定「数据如何获取」，获取后统一为源数据对象 → 映射 → 目标</span>
-    </div>
-
-    <!-- 源配置（按源类型切换） -->
-    <div class="card" id="srcConfig" style="margin-bottom:14px"></div>
-
-    <div class="run-grid">
-      <div class="card">
-        <div class="res-h">源数据（获取后 · 统一源数据对象）</div>
-        <pre class="json" id="runBefore">（点击「▶ 模拟执行」）</pre>
-      </div>
-      <div class="card">
-        <div class="res-h">映射处理后 · 目标数据（→ PARTNER_A）</div>
-        <pre class="json" id="runAfter">（待执行）</pre>
-      </div>
-    </div>
-    <div class="card" style="margin-top:14px">
-      <div class="res-h">执行日志（traceId 串联 · 每步一条）</div>
-      <div class="console" id="runConsole"><div class="ln grey">（尚无执行）</div></div>
+  <!-- ======================= 日志管理 ======================= -->
+  <div class="pane" id="pane-log">
+    <div class="controls"><span class="sub">执行日志（模拟执行后生成，traceId 全链路串联）</span></div>
+    <div style="overflow:auto">
+      <table class="mt">
+        <thead><tr><th>traceId</th><th>任务</th><th>时间</th><th>耗时</th><th>状态</th></tr></thead>
+        <tbody id="logBody"></tbody>
+      </table>
     </div>
   </div>
+</div>
+  </main>
 </div>
 
 <div class="foot">
@@ -310,31 +327,61 @@
 <div class="modal-overlay" id="newJobModal" style="display:none">
   <div class="modal">
     <h3>新建集成任务</h3>
-    <div class="sub" style="margin-bottom:12px">填写基本信息创建任务，源/目标/字段映射可在「流程设计」「字段映射」中继续配置</div>
+    <div class="sub" style="margin-bottom:12px">从数据源 / API 接口 / 字段映射规则集中引用资源</div>
     <div class="form-grid">
       <div class="field full"><label>任务名称 *</label><input id="njTitle" placeholder="如：ERP 订单 → PARTNER_C"></div>
-      <div class="field"><label>源类型 *</label>
-        <select id="njSrcType">
-          <option value="http" selected>HTTP 接口</option>
-          <option value="json">JSON 源</option>
-          <option value="sql">SQL 源</option>
-          <option value="fn">Function 源</option>
-        </select>
-      </div>
-      <div class="field"><label>源标签</label><input id="njSrcLabel" placeholder="如 ERP 接口"></div>
-      <div class="field"><label>源说明</label><input id="njSrcUrl" placeholder="如 /api/orders 或 SELECT ..."></div>
-      <div class="field"><label>目标 *</label><input id="njTarget" placeholder="如 PARTNER_C"></div>
-      <div class="field"><label>目标协议</label>
-        <select id="njProto"><option value="JSON" selected>JSON</option><option value="XML">XML</option></select>
-      </div>
-      <div class="field"><label>目标 URL</label><input id="njTargetUrl" placeholder="/v1/order/push"></div>
-      <div class="field"><label>字段映射集</label>
+      <div class="field"><label>源数据源</label><select id="njDs"></select></div>
+      <div class="field"><label>目标接口</label><select id="njApi"></select></div>
+      <div class="field"><label>字段映射规则集</label>
         <select id="njMapping"><option value="order" selected>订单（13 条）</option><option value="callback">回调（4 条）</option></select>
       </div>
     </div>
     <div class="foot">
       <button class="btn" onclick="createJob()">创建任务</button>
       <button class="btn ghost" onclick="closeNewJob()">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 新建数据源模态框 ======================= -->
+<div class="modal-overlay" id="newDatasourceModal" style="display:none">
+  <div class="modal">
+    <h3>新建数据源</h3>
+    <div class="sub" style="margin-bottom:12px">定义数据从哪来，供任务作为源引用</div>
+    <div class="form-grid">
+      <div class="field full"><label>数据源名称 *</label><input id="ndsName" placeholder="如：ERP 订单接口"></div>
+      <div class="field"><label>类型 *</label>
+        <select id="ndsType">
+          <option value="http" selected>HTTP 接口</option>
+          <option value="json">JSON 源</option>
+          <option value="sql">SQL 源</option>
+          <option value="fn">Function 源</option>
+        </select>
+      </div>
+      <div class="field"><label>说明 / URL</label><input id="ndsUrl" placeholder="如 /api/orders 或 SELECT ..."></div>
+    </div>
+    <div class="foot">
+      <button class="btn" onclick="createDatasource()">创建数据源</button>
+      <button class="btn ghost" onclick="closeNewDatasource()">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 新建 API 接口模态框 ======================= -->
+<div class="modal-overlay" id="newApiModal" style="display:none">
+  <div class="modal">
+    <h3>新建 API 接口</h3>
+    <div class="sub" style="margin-bottom:12px">定义接口，供任务作为目标引用</div>
+    <div class="form-grid">
+      <div class="field full"><label>接口名称 *</label><input id="napiName" placeholder="如：PARTNER_C"></div>
+      <div class="field"><label>URL</label><input id="napiUrl" placeholder="/v1/order/push"></div>
+      <div class="field"><label>协议</label>
+        <select id="napiProto"><option value="JSON" selected>JSON</option><option value="XML">XML</option></select>
+      </div>
+    </div>
+    <div class="foot">
+      <button class="btn" onclick="createApi()">创建接口</button>
+      <button class="btn ghost" onclick="closeNewApi()">取消</button>
     </div>
   </div>
 </div>
@@ -351,8 +398,8 @@ function genTrace() { const h='0123456789abcdef'; let s=''; for(let i=0;i<32;i++
 function flash(msg){ const t=$('traceIdText'); const old=t.textContent; t.textContent='✓ '+msg; setTimeout(()=>t.textContent=old,1400); }
 function logNow(){ const d=new Date(); const p=n=>String(n).padStart(2,'0'); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3,'0')}`; }
 
-function gotoTab(name){
-  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===name));
+function gotoMenu(name){
+  document.querySelectorAll('.menu-item').forEach(m=>m.classList.toggle('active', m.dataset.menu===name));
   document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active', p.id==='pane-'+name));
 }
 
@@ -399,6 +446,23 @@ const JOBS = [
   { id:'http_b',  title:'ERP 订单 → PARTNER_B',           srcType:'http', srcLabel:'ERP 接口',      srcUrl:'/api/orders',                       target:'PARTNER_B', targetProto:'XML',  targetUrl:'/v1/order/push',      mappingKey:'order',    enabled:false }
 ];
 
+/* ============================ 资源模型（数据源 / API 接口 / 日志） ============================ */
+const DATASOURCES = [
+  { id:'ds1', name:'ERP 接口',       type:'http', srcUrl:'/api/orders' },
+  { id:'ds2', name:'JSON 文本',      type:'json', srcUrl:'内联 JSON 文本' },
+  { id:'ds3', name:'SQL 查询',       type:'sql',  srcUrl:'SELECT t_order（JdbcTemplate）' },
+  { id:'ds4', name:'Function',       type:'fn',   srcUrl:'generateOrder()' },
+  { id:'ds5', name:'PARTNER_B 回调', type:'http', srcUrl:'/callback/PARTNER_B/order-status' }
+];
+
+const APIS = [
+  { id:'api1', name:'PARTNER_A', desc:'订单推送',     url:'/v1/order/push',       proto:'JSON', auth:'Bearer' },
+  { id:'api2', name:'PARTNER_B', desc:'订单推送',     url:'/v1/order/push',       proto:'XML',  auth:'Bearer' },
+  { id:'api3', name:'ERP',       desc:'订单状态回调', url:'/api/erp/order-status', proto:'JSON', auth:'Bearer' }
+];
+
+let LOGS = [];   // 执行日志（模拟执行后生成）
+
 /* ============================ 源类型（HTTP / JSON / SQL / Function） ============================ */
 const SQL_SAMPLE = `SELECT order_id AS orderId, order_type AS orderType, order_status AS orderStatus,
        total_amount AS totalAmount, currency,
@@ -409,8 +473,10 @@ WHERE id = 1001;`;
 const FN_SAMPLE = `generateOrder('SO202608170001')   // 函数库函数：返回 OrderDto 对象`;
 
 /** 执行预览：切换源类型 → 渲染对应源配置 */
+let previewSrcType = 'http';   // 执行预览源类型（由源数据源决定）
+
 function onSrcTypeChange(){
-  const t = $('srcType').value;
+  const t = previewSrcType;
   const cfg = $('srcConfig');
   if(t === 'http'){
     cfg.innerHTML = `<div class="dl-h">源 · HTTP 接口</div>
@@ -434,10 +500,10 @@ function onSrcTypeChange(){
   }
 }
 
-/** 联动：设置源类型下拉并渲染源配置（任务卡片「模拟执行」跳转时调用） */
+/** 联动：设置执行预览源类型并渲染源配置 */
 function setSrcType(type){
-  const sel = $('srcType');
-  if(sel){ sel.value = type; onSrcTypeChange(); }
+  previewSrcType = type;
+  onSrcTypeChange();
 }
 
 /* ============================ 当前任务（回环联动核心） ============================ */
@@ -451,6 +517,53 @@ function selectJob(id){
   renderPipeline();
   setSrcType(currentJob.srcType);
   pickNode('src');
+}
+
+/* ============================ 任务编排（子视图） ============================ */
+const MAPPING_SET_NAME = { order:'订单映射规则集', callback:'回调映射规则集' };
+
+function openEditJob(id){
+  selectJob(id);
+  fillEditSelects();
+  $('editJobTitle').textContent = currentJob.title;
+  gotoMenu('edit');
+}
+
+function fillEditSelects(){
+  $('editDs').innerHTML = DATASOURCES.map(d =>
+    `<option value="${d.id}" ${d.name===currentJob.srcLabel?'selected':''}>${esc(d.name)}（${esc(SRC_TYPE_LABEL[d.type])}）</option>`).join('');
+  $('editApi').innerHTML = APIS.map(a =>
+    `<option value="${a.id}" ${a.name===currentJob.target?'selected':''}>${esc(a.name)} · ${esc(a.desc)}（${esc(a.proto)}）</option>`).join('');
+  $('editMapping').innerHTML = Object.keys(MAPPING_SETS).map(k =>
+    `<option value="${k}" ${k===currentJob.mappingKey?'selected':''}>${esc(MAPPING_SET_NAME[k])}（${MAPPING_SETS[k].length} 条）</option>`).join('');
+}
+
+function onEditDsChange(){
+  const ds = DATASOURCES.find(d => d.id === $('editDs').value);
+  if(!ds) return;
+  currentJob.srcType = ds.type;
+  currentJob.srcLabel = ds.name;
+  currentJob.srcUrl = ds.srcUrl;
+  renderPipeline();
+  setSrcType(ds.type);
+  pickNode('src');
+}
+
+function onEditApiChange(){
+  const api = APIS.find(a => a.id === $('editApi').value);
+  if(!api) return;
+  currentJob.target = api.name;
+  currentJob.targetProto = api.proto;
+  currentJob.targetUrl = api.url;
+  renderPipeline();
+  pickNode('tgt');
+}
+
+function onEditMappingChange(){
+  currentJob.mappingKey = $('editMapping').value;
+  mappings = MAPPING_SETS[currentJob.mappingKey].slice();
+  renderMapping();
+  pickNode('trans');
 }
 
 /** 流程设计管线节点随当前任务渲染 */
@@ -483,34 +596,126 @@ function renderJobs(){
       <span class="pill grey">字段映射 ${MAPPING_SETS[j.mappingKey].length} 条</span>
       <span class="pill ${j.enabled ? 'ok' : 'off'}">${j.enabled ? '已启用' : '已停用'}</span>
       <div class="foot">
-        <button class="btn ghost" onclick="selectJob('${j.id}'); gotoTab('design')">编辑</button>
-        <button class="btn ghost" onclick="selectJob('${j.id}'); gotoTab('run'); setTimeout(runPipeline, 200)">模拟执行</button>
+        <button class="btn ghost" onclick="openEditJob('${j.id}')">编辑</button>
+        <button class="btn ghost" onclick="openEditJob('${j.id}'); setTimeout(runPipeline, 200)">模拟执行</button>
       </div>
     </div>`).join('');
 }
 
+/* ============================ 资源管理渲染 ============================ */
+function renderDatasources(){
+  const grid = $('dsGrid');
+  if(!grid) return;
+  grid.innerHTML = DATASOURCES.map(d => `
+    <div class="job">
+      <h3>${esc(d.name)}</h3>
+      <div class="route"><b>${esc(SRC_TYPE_LABEL[d.type])}</b> · ${esc(d.srcUrl)}</div>
+      <span class="pill ${SRC_TYPE_PILL[d.type]}">${esc(SRC_TYPE_LABEL[d.type])}</span>
+      <span class="pill grey">供任务引用</span>
+    </div>`).join('');
+}
+
+function renderApis(){
+  const tb = $('apiBody');
+  if(!tb) return;
+  tb.innerHTML = APIS.map(a => `
+    <tr>
+      <td>${esc(a.name)} · ${esc(a.desc)}</td>
+      <td><code>POST ${esc(a.url)}</code></td>
+      <td>${esc(a.proto)}</td>
+      <td>POST</td>
+      <td>${esc(a.auth)}</td>
+    </tr>`).join('');
+}
+
+function renderLogs(){
+  const tb = $('logBody');
+  if(!tb) return;
+  if(LOGS.length === 0){ tb.innerHTML = '<tr><td colspan="5" style="color:#94a3b8">（尚无执行日志）</td></tr>'; return; }
+  tb.innerHTML = LOGS.map(l => `
+    <tr>
+      <td><code>${esc(l.traceId)}</code></td>
+      <td>${esc(l.job)}</td>
+      <td>${esc(l.time)}</td>
+      <td>${l.ms}ms</td>
+      <td><span class="pill ok">${esc(l.status)}</span></td>
+    </tr>`).join('');
+}
+
+function renderMappingSets(){
+  const grid = $('mappingSetGrid');
+  if(!grid) return;
+  grid.innerHTML = Object.keys(MAPPING_SETS).map(k => `
+    <div class="job">
+      <h3>${esc(MAPPING_SET_NAME[k])}</h3>
+      <div class="route">${MAPPING_SETS[k].length} 条字段映射规则</div>
+      <span class="pill purple">可复用</span>
+      <div class="foot">
+        <button class="btn ghost" onclick="previewMappingSet('${k}')">查看明细</button>
+      </div>
+    </div>`).join('');
+}
+
+function previewMappingSet(key){
+  const rules = MAPPING_SETS[key];
+  $('mappingPreviewTitle').textContent = MAPPING_SET_NAME[key] + ' · 映射明细';
+  $('mappingPreviewBody').innerHTML = rules.map(r =>
+    `<tr><td><code>${esc(r.src)}</code></td><td><code>${esc(r.target)}</code></td><td>${esc(FUNCTIONS[r.fn].name)}</td></tr>`).join('');
+  $('mappingPreview').style.display = 'block';
+}
+
+/* ============================ 新建数据源 / 接口 ============================ */
+function openNewDatasource(){
+  $('ndsName').value = ''; $('ndsUrl').value = '';
+  $('newDatasourceModal').style.display = 'flex';
+}
+function closeNewDatasource(){ $('newDatasourceModal').style.display = 'none'; }
+function createDatasource(){
+  const name = $('ndsName').value.trim();
+  if(!name){ flash('请填写数据源名称'); return; }
+  DATASOURCES.push({ id:'ds'+Date.now(), name, type:$('ndsType').value, srcUrl:$('ndsUrl').value.trim() || '待配置' });
+  renderDatasources();
+  closeNewDatasource();
+  flash('已创建数据源「' + name + '」');
+}
+
+function openNewApi(){
+  $('napiName').value = ''; $('napiUrl').value = '';
+  $('newApiModal').style.display = 'flex';
+}
+function closeNewApi(){ $('newApiModal').style.display = 'none'; }
+function createApi(){
+  const name = $('napiName').value.trim();
+  if(!name){ flash('请填写接口名称'); return; }
+  APIS.push({ id:'api'+Date.now(), name, desc:'自定义接口', url:$('napiUrl').value.trim()||'/api', proto:$('napiProto').value, auth:'Bearer' });
+  renderApis();
+  closeNewApi();
+  flash('已创建接口「' + name + '」');
+}
+
 /* ============================ 新建任务 ============================ */
 function openNewJob(){
-  $('njTitle').value = ''; $('njSrcLabel').value = ''; $('njSrcUrl').value = '';
-  $('njTarget').value = ''; $('njTargetUrl').value = '';
+  $('njTitle').value = '';
+  $('njDs').innerHTML = DATASOURCES.map(d => `<option value="${d.id}">${esc(d.name)}（${esc(SRC_TYPE_LABEL[d.type])}）</option>`).join('');
+  $('njApi').innerHTML = APIS.map(a => `<option value="${a.id}">${esc(a.name)} · ${esc(a.desc)}（${esc(a.proto)}）</option>`).join('');
   $('newJobModal').style.display = 'flex';
 }
 function closeNewJob(){ $('newJobModal').style.display = 'none'; }
 
 function createJob(){
   const title = $('njTitle').value.trim();
-  const target = $('njTarget').value.trim();
-  if(!title || !target){ flash('请填写任务名称与目标'); return; }
-  const srcType = $('njSrcType').value;
+  if(!title){ flash('请填写任务名称'); return; }
+  const ds = DATASOURCES.find(d => d.id === $('njDs').value) || DATASOURCES[0];
+  const api = APIS.find(a => a.id === $('njApi').value) || APIS[0];
   const job = {
     id: 'job_' + Date.now(),
     title,
-    srcType,
-    srcLabel: $('njSrcLabel').value.trim() || SRC_TYPE_LABEL[srcType],
-    srcUrl: $('njSrcUrl').value.trim() || '待配置',
-    target,
-    targetProto: $('njProto').value,
-    targetUrl: $('njTargetUrl').value.trim() || '/api/order/push',
+    srcType: ds.type,
+    srcLabel: ds.name,
+    srcUrl: ds.srcUrl,
+    target: api.name,
+    targetProto: api.proto,
+    targetUrl: api.url,
     mappingKey: $('njMapping').value,
     enabled: true
   };
@@ -523,7 +728,7 @@ function createJob(){
 
 /** 按源类型取「源数据对象」：四类源最终统一为同一 JSON 结构 */
 function getSource(){
-  const t = $('srcType').value;
+  const t = previewSrcType;
   if(t === 'json'){
     const ta = $('jsonSrc');
     if(ta && ta.value.trim()){
@@ -663,10 +868,7 @@ const CFG = {
   trans:{ used: '直传 / 元→分 / 时间格式化 / 脱敏 / 嵌套写入 / 明细列表映射' }
 };
 function pickNode(which){
-  document.querySelectorAll('#stepsDesign .step-item').forEach(el=>el.classList.remove('active'));
-  document.querySelectorAll('#pane-design .node').forEach(n=>n.classList.remove('active'));
-  const stepEl = document.querySelector(`#stepsDesign .step-item[data-step="${which}"]`);
-  if(stepEl) stepEl.classList.add('active');
+  document.querySelectorAll('#pane-edit .node').forEach(n=>n.classList.remove('active'));
   const nodeEl = $('node-'+which); if(nodeEl) nodeEl.classList.add('active');
 
   const d = $('detailPanel');
@@ -709,8 +911,7 @@ function pickNode(which){
 }
 
 function saveFlow(){
-  document.querySelectorAll('#stepsDesign .step-item').forEach(el=>el.classList.remove('active'));
-  document.querySelectorAll('#pane-design .node').forEach(n=>n.classList.remove('active'));
+  document.querySelectorAll('#pane-edit .node').forEach(n=>n.classList.remove('active'));
   consoleLog('green','flow', '流程配置已保存（version v1）→ integration_flow 落库，可发布');
   flash('已保存版本 v1');
 }
@@ -764,7 +965,7 @@ async function runPipeline(){
 
   consoleLog('purple','engine', `启动集成任务：${currentJob.title}（配置驱动）`);
   await wait(450);
-  consoleLog('blue','source', `读取源数据 → ${SRC_FETCH_LOG[$('srcType').value]}`);
+  consoleLog('blue','source', `读取源数据 → ${SRC_FETCH_LOG[previewSrcType]}`);
   await wait(450);
 
   const target = {};
@@ -783,6 +984,8 @@ async function runPipeline(){
   await wait(400);
   $('runAfter').textContent = JSON.stringify(target, null, 2);
   consoleLog('green','engine', '执行成功 ✅ integration_request → SUCCESS，call_log 已落库');
+  LOGS.unshift({ traceId: TRACE_ID.slice(0,8), job: currentJob.title, time: logNow(), ms: Math.floor(120 + Math.random()*400), status: '成功' });
+  renderLogs();
   running = false;
   $('btnRun').disabled = false;
 }
@@ -793,6 +996,10 @@ function init(){
   $('traceIdText').textContent = TRACE_ID;
   renderFns();
   renderJobs();
+  renderDatasources();
+  renderApis();
+  renderLogs();
+  renderMappingSets();
   selectJob('http_a');
 }
 init();
