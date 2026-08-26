@@ -433,7 +433,7 @@
     <div class="controls"><span class="sub">执行日志（模拟执行后生成，traceId 全链路串联）</span></div>
     <div style="overflow:auto">
       <table class="mt">
-        <thead><tr><th>traceId</th><th>任务</th><th>时间</th><th>耗时</th><th>状态</th></tr></thead>
+        <thead><tr><th>traceId</th><th>任务</th><th>时间</th><th>耗时</th><th>状态</th><th>操作</th></tr></thead>
         <tbody id="logBody"></tbody>
       </table>
     </div>
@@ -492,6 +492,17 @@
   apicenter 组件设计演示 ｜ 原型基于 <a href="api演示 demo.html">api演示 demo.html</a> 技术架构 ｜ 可行性分析见 <a href="doc/低代码集成平台可行性分析.md">低代码集成平台可行性分析.md</a>
 </div>
 
+<!-- ======================= 日志详情弹框 ======================= -->
+<div class="modal-overlay" id="logDetailModal" style="display:none">
+  <div class="modal" style="width:640px">
+    <h3>日志详情</h3>
+    <div id="logDetailBody"></div>
+    <div class="foot">
+      <button class="btn" onclick="closeLogDetail()">关闭</button>
+    </div>
+  </div>
+</div>
+
 <!-- ======================= 新建定时任务模态框 ======================= -->
 <div class="modal-overlay" id="newJobModal" style="display:none">
   <div class="modal" style="width:760px">
@@ -548,26 +559,23 @@
   </div>
 </div>
 
-<!-- ======================= 新建数据源模态框 ======================= -->
+<!-- ======================= 新建/编辑数据源模态框（类型 tab 联动） ======================= -->
 <div class="modal-overlay" id="newDatasourceModal" style="display:none">
-  <div class="modal">
+  <div class="modal" style="width:680px">
     <h3>新建数据源</h3>
-    <div class="sub" style="margin-bottom:12px">定义数据从哪来，供任务作为源引用</div>
-    <div class="form-grid">
-      <div class="field full"><label>数据源名称 *</label><input id="ndsName" placeholder="如：ERP 订单接口"></div>
-      <div class="field"><label>类型 *</label>
-        <select id="ndsType">
-          <option value="http" selected>HTTP 接口</option>
-          <option value="json">JSON 源</option>
-          <option value="sql">SQL 源</option>
-          <option value="fn">Function 源</option>
-        </select>
-      </div>
-      <div class="field"><label>说明 / URL</label><input id="ndsUrl" placeholder="如 /api/orders 或 SELECT ..."></div>
+    <div class="sub" style="margin-bottom:12px">定义数据从哪来，供任务作为源引用；按类型配置专属字段</div>
+    <div class="field full"><label>数据源名称 *</label><input id="ndsName" placeholder="如：ERP 订单接口"></div>
+    <div class="res-h" style="margin-top:12px">类型</div>
+    <div class="tabs" id="ndsTypeTabs" style="padding:8px 0 0;border-bottom:1px solid var(--line)">
+      <div class="tab active" data-nt="http" onclick="switchDsType('http')">HTTP 接口</div>
+      <div class="tab" data-nt="json" onclick="switchDsType('json')">JSON 源</div>
+      <div class="tab" data-nt="sql" onclick="switchDsType('sql')">SQL 源</div>
+      <div class="tab" data-nt="fn" onclick="switchDsType('fn')">Function 源</div>
     </div>
+    <div id="ndsConfig" style="margin-top:12px"></div>
     <div class="foot">
-      <button class="btn" onclick="createDatasource()">创建数据源</button>
       <button class="btn ghost" onclick="closeNewDatasource()">取消</button>
+      <button class="btn" onclick="createDatasource()">保存</button>
     </div>
   </div>
 </div>
@@ -870,11 +878,11 @@ const JOBS = [
 
 /* ============================ 资源模型（数据源 / API 接口 / 日志） ============================ */
 const DATASOURCES = [
-  { id:'ds1', name:'ERP 接口',       type:'http', srcUrl:'/api/orders' },
-  { id:'ds2', name:'JSON 文本',      type:'json', srcUrl:'内联 JSON 文本' },
-  { id:'ds3', name:'SQL 查询',       type:'sql',  srcUrl:'SELECT t_order（JdbcTemplate）' },
-  { id:'ds4', name:'Function',       type:'fn',   srcUrl:'generateOrder()' },
-  { id:'ds5', name:'PARTNER_B 回调', type:'http', srcUrl:'/callback/PARTNER_B/order-status' }
+  { id:'ds1', name:'ERP 接口',       type:'http', srcUrl:'/api/orders', url:'/api/orders', method:'GET', auth:'Bearer', timeout:3000 },
+  { id:'ds2', name:'JSON 文本',      type:'json', srcUrl:'内联 JSON 文本', jsonText:'{\n  "orderNo": "SO202608170001"\n}' },
+  { id:'ds3', name:'SQL 查询',       type:'sql',  srcUrl:'SELECT t_order', datasourceUrl:'jdbc:h2:mem:apicenter', sqlText:'SELECT order_id, total_amount FROM t_order' },
+  { id:'ds4', name:'Function',       type:'fn',   srcUrl:'generateOrder()', functionName:'generateOrder', script:'return { orderNo: "SO202608170001" };' },
+  { id:'ds5', name:'PARTNER_B 回调', type:'http', srcUrl:'/callback/PARTNER_B/order-status', url:'/callback/PARTNER_B/order-status', method:'POST', auth:'HMAC', timeout:3000 }
 ];
 
 let API_CATEGORIES = [
@@ -936,7 +944,16 @@ function catName(id){
   return c ? c.name : '未分类';
 }
 
-let LOGS = [];   // 执行日志（模拟执行后生成）
+let LOGS = [
+  { traceId:'a1b2c3d4', job:'ERP 订单推送 → PARTNER_A', time:'2026-08-26 02:00:01', ms:342, status:'成功' },
+  { traceId:'e5f6a7b8', job:'数据库订单同步 → PARTNER_B', time:'2026-08-26 06:00:02', ms:518, status:'成功' },
+  { traceId:'c9d0e1f2', job:'JSON 静态数据清洗 → PARTNER_A', time:'2026-08-26 02:30:00', ms:210, status:'成功' },
+  { traceId:'a3b4c5d6', job:'函数生成订单 → ERP', time:'2026-08-26 03:00:00', ms:156, status:'失败' },
+  { traceId:'e7f8a9b0', job:'PARTNER_B 回调 → ERP', time:'2026-08-26 02:00:00', ms:98, status:'成功' },
+  { traceId:'c1d2e3f4', job:'ERP 订单推送 → PARTNER_A', time:'2026-08-25 02:00:01', ms:301, status:'成功' },
+  { traceId:'a5b6c7d8', job:'数据库订单同步 → PARTNER_B', time:'2026-08-25 06:00:03', ms:476, status:'成功' },
+  { traceId:'e9f0a1b2', job:'函数生成订单 → ERP', time:'2026-08-25 03:00:00', ms:189, status:'成功' }
+];   // 定时任务执行日志（模拟）
 
 /* ============================ 安全设置（白名单/黑名单 + 平台校验） ============================ */
 const SECURITY_CONFIG = { verifyEnabled: true, toleranceSeconds: 300, algorithm: 'HMAC-SHA256' };
@@ -1304,6 +1321,7 @@ function renderJobs(){
       <td>
         <button class="btn ghost sm" onclick="openEditJob('${j.id}')">编辑</button>
         <button class="btn ghost sm" onclick="openEditJob('${j.id}'); setTimeout(runPipeline, 200)">模拟执行</button>
+        <button class="btn ghost sm" onclick="viewJobLog('${j.id}')">日志</button>
         <button class="btn danger sm" onclick="delJob('${j.id}')">删除</button>
       </td>
     </tr>`).join('');
@@ -1450,15 +1468,48 @@ function toggleApiEnabled(id, checked){
 function renderLogs(){
   const tb = $('logBody');
   if(!tb) return;
-  if(LOGS.length === 0){ tb.innerHTML = '<tr><td colspan="5" style="color:#94a3b8">（尚无执行日志）</td></tr>'; return; }
+  if(LOGS.length === 0){ tb.innerHTML = '<tr><td colspan="6" style="color:#94a3b8">（尚无执行日志）</td></tr>'; return; }
   tb.innerHTML = LOGS.map(l => `
     <tr>
       <td><code>${esc(l.traceId)}</code></td>
       <td>${esc(l.job)}</td>
       <td>${esc(l.time)}</td>
       <td>${l.ms}ms</td>
-      <td><span class="pill ok">${esc(l.status)}</span></td>
+      <td><span class="pill ${l.status === '成功' ? 'ok' : 'amber'}">${esc(l.status)}</span></td>
+      <td><button class="btn ghost sm" onclick="viewLogDetail('${l.traceId}')">详情</button></td>
     </tr>`).join('');
+}
+
+function viewLogDetail(traceId){
+  const log = LOGS.find(l => l.traceId === traceId);
+  if(!log) return;
+  const job = JOBS.find(j => j.title === log.job);
+  const steps = job && job.steps ? job.steps : [];
+  const stepHtml = steps.map(s => {
+    const st = STEP_TYPES[s.type] || { name:s.type, icon:'▪️' };
+    return `<div class="kv"><span class="k">${st.icon} ${esc(st.name)}</span><span>✓ 完成</span></div>`;
+  }).join('');
+  $('logDetailBody').innerHTML = `
+    <div class="kv"><span class="k">traceId</span><span><code>${esc(log.traceId)}</code></span></div>
+    <div class="kv"><span class="k">任务</span><span>${esc(log.job)}</span></div>
+    <div class="kv"><span class="k">执行时间</span><span>${esc(log.time)}</span></div>
+    <div class="kv"><span class="k">耗时</span><span>${log.ms}ms</span></div>
+    <div class="kv"><span class="k">状态</span><span>${esc(log.status)}</span></div>
+    ${job ? `<div class="kv"><span class="k">调度</span><span>${esc(scheduleLabel(job))}</span></div>
+      <div class="kv"><span class="k">源 → 目标</span><span>${esc(job.srcLabel || '无源')} → ${esc(job.target || '未选')}</span></div>` : ''}
+    <div class="res-h" style="margin-top:12px">步骤日志</div>
+    <div style="margin-top:4px">${stepHtml || '<div class="sub">无处理步骤</div>'}</div>`;
+  $('logDetailModal').style.display = 'flex';
+}
+
+function closeLogDetail(){ $('logDetailModal').style.display = 'none'; }
+
+function viewJobLog(jobId){
+  const job = JOBS.find(j => j.id === jobId);
+  if(!job) return;
+  const log = LOGS.find(l => l.job === job.title);
+  if(!log){ flash('该任务暂无执行日志'); return; }
+  viewLogDetail(log.traceId);
 }
 
 /* ============================ 安全设置渲染 ============================ */
@@ -1547,10 +1598,186 @@ function previewMappingSet(key){
 /* ============================ 新建数据源 / 接口 ============================ */
 let editingDsId = null;
 
+let editingDsType = 'http';
+let dsHttpTab = 'params';     // HTTP 数据源：Params/Body/Headers 子 tab
+let dsParams = [];            // HTTP 数据源请求参数
+let dsHeaders = [];           // HTTP 数据源请求头
+let dsBodyType = 'none';      // HTTP 数据源请求体类型
+let dsBodyRaw = '';           // HTTP 数据源请求体原始文本
+
+function switchDsType(type){
+  editingDsType = type;
+  document.querySelectorAll('#ndsTypeTabs .tab').forEach(t => t.classList.toggle('active', t.dataset.nt === type));
+  renderDsConfig();
+}
+
+function renderDsConfig(){
+  const el = $('ndsConfig');
+  if(!el) return;
+  if(editingDsType === 'http'){
+    el.innerHTML = `<div class="form-grid">
+      <div class="field full"><label>地址 URL</label><input id="ndsUrl" placeholder="/api/orders"></div>
+      <div class="field"><label>请求方式</label><select id="ndsMethod"><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option></select></div>
+      <div class="field"><label>鉴权</label><select id="ndsAuth"><option>Bearer</option><option>API Key</option><option>HMAC</option><option>无</option></select></div>
+      <div class="field"><label>超时（ms）</label><input id="ndsTimeout" type="number" value="3000"></div>
+    </div>
+    <div class="tabs" id="dsHttpTabs" style="padding:12px 0 0;border-bottom:1px solid var(--line)">
+      <div class="tab active" data-tab="params" onclick="switchDsHttpTab('params')">Params</div>
+      <div class="tab" data-tab="body" onclick="switchDsHttpTab('body')">Body</div>
+      <div class="tab" data-tab="headers" onclick="switchDsHttpTab('headers')">Headers</div>
+    </div>
+    <div id="dsHttpBody" style="margin-top:12px"></div>`;
+    renderDsHttpBody();
+  } else if(editingDsType === 'json'){
+    el.innerHTML = `<div class="field full"><label>JSON 文本</label>
+      <div style="margin-top:6px"><button class="btn ghost sm" onclick="formatJson()">✨ 一键美化</button></div>
+      <textarea id="ndsJsonText" style="width:100%;min-height:160px;margin-top:8px;font-family:var(--mono);font-size:12.5px;line-height:1.5" placeholder='{"orderNo":"SO..."}'></textarea></div>`;
+  } else if(editingDsType === 'sql'){
+    el.innerHTML = `<div class="form-grid">
+      <div class="field"><label>数据库类型</label><select id="ndsDbType" onchange="onDsDbTypeChange()"><option>MySQL</option><option>PostgreSQL</option><option>Oracle</option><option>SQL Server</option><option>H2</option></select></div>
+      <div class="field"><label>数据库版本</label><input id="ndsDbVersion" placeholder="如 8.0"></div>
+      <div class="field"><label>数据库驱动</label><input id="ndsDbDriver" placeholder="com.mysql.cj.jdbc.Driver"></div>
+      <div class="field full"><label>连接地址</label><input id="ndsDbUrl" placeholder="jdbc:mysql://localhost:3306/db"></div>
+      <div class="field"><label>用户名</label><input id="ndsDbUser" placeholder="root"></div>
+      <div class="field"><label>密码</label><input id="ndsDbPassword" type="password" placeholder="******"></div>
+      <div class="field full"><label>SQL 查询</label><textarea id="ndsSqlText" style="min-height:100px;font-family:var(--mono)" placeholder="SELECT ... FROM ..."></textarea></div>
+    </div>
+    <div class="controls" style="margin-top:10px">
+      <button class="btn ghost" onclick="testDbConnection()">🔌 连接测试</button>
+      <span class="sub" id="dbTestResult"></span>
+    </div>`;
+  } else if(editingDsType === 'fn'){
+    el.innerHTML = `<div class="form-grid">
+      <div class="field full"><label>函数名</label><input id="ndsFunctionName" placeholder="generateOrder"></div>
+      <div class="field full"><label>脚本</label><textarea id="ndsScript" style="min-height:120px;font-family:var(--mono)" placeholder="return {...}"></textarea></div>
+    </div>`;
+  }
+}
+
+function formatJson(){
+  const ta = $('ndsJsonText');
+  if(!ta) return;
+  try {
+    const obj = JSON.parse(ta.value);
+    ta.value = JSON.stringify(obj, null, 2);
+    flash('JSON 已美化');
+  } catch(e){
+    flash('JSON 格式错误：' + e.message);
+  }
+}
+
+/* ============================ HTTP 数据源：接口信息（Params/Body/Headers） ============================ */
+function switchDsHttpTab(tab){
+  dsHttpTab = tab;
+  document.querySelectorAll('#dsHttpTabs .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  renderDsHttpBody();
+}
+
+function renderDsParamsBody(scope){
+  const tb = $('dsParamsBody');
+  if(!tb) return;
+  const idx = [], list = [];
+  dsParams.forEach((p, i) => {
+    const inScope = scope === 'params' ? (p.location === 'query' || p.location === 'path') : p.location === 'body';
+    if(inScope){ idx.push(i); list.push(p); }
+  });
+  tb.innerHTML = list.map((p, k) => {
+    const i = idx[k];
+    return `<tr>
+      <td><input value="${esc(p.name)}" onchange="setDsParam(${i},'name',this.value)"></td>
+      <td><select onchange="setDsParam(${i},'type',this.value)">${PARAM_TYPES.map(t => `<option ${t===p.type?'selected':''}>${t}</option>`).join('')}</select></td>
+      <td><select onchange="setDsParam(${i},'required',this.value)"><option value="1" ${p.required?'selected':''}>必填</option><option value="0" ${!p.required?'selected':''}>可选</option></select></td>
+      <td><select onchange="setDsParam(${i},'location',this.value)">${PARAM_LOCATIONS.map(l => `<option ${l===p.location?'selected':''}>${l}</option>`).join('')}</select></td>
+      <td><input value="${esc(p.example)}" onchange="setDsParam(${i},'example',this.value)" placeholder="示例值"></td>
+      <td><button class="btn ghost" onclick="delDsParam(${i})">×</button></td>
+    </tr>`;
+  }).join('');
+}
+function setDsParam(i, key, val){ if(key === 'required'){ dsParams[i].required = (val === '1'); } else { dsParams[i][key] = val; } }
+function addDsParam(){ dsParams.push({ id:'dp'+Date.now(), name:'', type:'string', required:false, location:'query', example:'' }); renderDsHttpBody(); }
+function delDsParam(i){ dsParams.splice(i, 1); renderDsHttpBody(); }
+
+function renderDsHeaders(){
+  const tb = $('dsHeadersBody');
+  if(!tb) return;
+  tb.innerHTML = dsHeaders.map((h, i) => `
+    <tr>
+      <td><input value="${esc(h.name)}" onchange="setDsHeader(${i},'name',this.value)" placeholder="如 Content-Type"></td>
+      <td><input value="${esc(h.value)}" onchange="setDsHeader(${i},'value',this.value)" placeholder="如 application/json"></td>
+      <td><button class="btn ghost" onclick="delDsHeader(${i})">×</button></td>
+    </tr>`).join('');
+}
+function setDsHeader(i, key, val){ dsHeaders[i][key] = val; }
+function addDsHeader(){ dsHeaders.push({ id:'dh'+Date.now(), name:'', value:'' }); renderDsHttpBody(); }
+function delDsHeader(i){ dsHeaders.splice(i, 1); renderDsHttpBody(); }
+
+function renderDsBodyTypeArea(){
+  const area = $('dsBodyTypeArea');
+  if(!area) return;
+  if(dsBodyType === 'none'){ area.innerHTML = `<div class="note">无请求体</div>`; }
+  else if(dsBodyType === 'json' || dsBodyType === 'xml'){
+    area.innerHTML = `<textarea id="dsBodyRawText" oninput="dsBodyRaw=this.value" style="width:100%;min-height:150px;font-family:var(--mono);font-size:12.5px;line-height:1.5" placeholder="${dsBodyType === 'json' ? '{\n  "key": "value"\n}' : '<root></root>'}">${esc(dsBodyRaw)}</textarea>`;
+  } else {
+    area.innerHTML = `<div class="note">${dsBodyType === 'form-data' ? 'form-data' : 'x-www-form-urlencoded'} 表单数据（可在接口管理中详细配置）</div>`;
+  }
+}
+
+function renderDsHttpBody(){
+  const el = $('dsHttpBody');
+  if(!el) return;
+  if(dsHttpTab === 'params'){
+    el.innerHTML = `<div class="res-h">Params（查询参数 / 路径参数）</div>
+      <div style="overflow:auto;margin-top:6px">
+        <table class="mt">
+          <thead><tr><th style="width:22%">参数名</th><th style="width:16%">类型</th><th style="width:14%">必填</th><th style="width:14%">位置</th><th>示例值</th><th style="width:40px"></th></tr></thead>
+          <tbody id="dsParamsBody"></tbody>
+        </table>
+      </div>
+      <button class="btn ghost sm" onclick="addDsParam()" style="margin-top:8px">＋ 添加参数</button>`;
+    renderDsParamsBody('params');
+  } else if(dsHttpTab === 'body'){
+    el.innerHTML = `<div class="res-h">Body（请求体）</div>
+      <div class="controls" style="margin-top:6px">
+        <label style="font-size:13px">类型：
+          <select id="dsBodyTypeSel" onchange="dsBodyType=this.value; renderDsHttpBody()">
+            ${['none','json','xml','form-data','x-www-form-urlencoded'].map(b => `<option value="${b}" ${b===dsBodyType?'selected':''}>${b}</option>`).join('')}
+          </select>
+        </label>
+      </div>
+      <div id="dsBodyTypeArea" style="margin-top:8px"></div>`;
+    renderDsBodyTypeArea();
+  } else if(dsHttpTab === 'headers'){
+    el.innerHTML = `<div class="res-h">Headers（请求头）</div>
+      <div style="overflow:auto;margin-top:6px">
+        <table class="mt">
+          <thead><tr><th style="width:30%">名称</th><th>值</th><th style="width:40px"></th></tr></thead>
+          <tbody id="dsHeadersBody"></tbody>
+        </table>
+      </div>
+      <button class="btn ghost sm" onclick="addDsHeader()" style="margin-top:8px">＋ 添加请求头</button>`;
+    renderDsHeaders();
+  }
+}
+
+/* ============================ SQL 数据源：数据库连接 ============================ */
+const DB_DRIVERS = { 'MySQL':'com.mysql.cj.jdbc.Driver', 'PostgreSQL':'org.postgresql.Driver', 'Oracle':'oracle.jdbc.OracleDriver', 'SQL Server':'com.microsoft.sqlserver.jdbc.SQLServerDriver', 'H2':'org.h2.Driver' };
+function onDsDbTypeChange(){ $('ndsDbDriver').value = DB_DRIVERS[$('ndsDbType').value] || ''; }
+function testDbConnection(){
+  const r = $('dbTestResult');
+  if(!r) return;
+  r.textContent = '✓ 连接成功（' + $('ndsDbType').value + ($('ndsDbVersion').value ? ' ' + $('ndsDbVersion').value : '') + '，用户 ' + ($('ndsDbUser').value || '默认') + '）（模拟）';
+}
+
 function openNewDatasource(){
   editingDsId = null;
-  $('ndsName').value = ''; $('ndsUrl').value = '';
-  $('ndsType').value = 'http';
+  $('ndsName').value = '';
+  editingDsType = 'http';
+  dsHttpTab = 'params';
+  dsParams = [ { id:'dp'+Date.now(), name:'', type:'string', required:false, location:'query', example:'' } ];
+  dsHeaders = [ { id:'dh'+Date.now(), name:'Content-Type', value:'application/json' } ];
+  dsBodyType = 'none';
+  dsBodyRaw = '';
+  switchDsType('http');
   $('newDatasourceModal').querySelector('h3').textContent = '新建数据源';
   $('newDatasourceModal').style.display = 'flex';
 }
@@ -1561,8 +1788,34 @@ function editDatasource(id){
   if(!d) return;
   editingDsId = id;
   $('ndsName').value = d.name;
-  $('ndsType').value = d.type;
-  $('ndsUrl').value = d.srcUrl;
+  editingDsType = d.type;
+  if(d.type === 'http'){
+    dsHttpTab = 'params';
+    dsParams = (d.params || []).map(p => ({ ...p }));
+    dsHeaders = (d.headers || []).map(h => ({ ...h }));
+    dsBodyType = d.bodyType || 'none';
+    dsBodyRaw = d.bodyRaw || '';
+  }
+  switchDsType(d.type);
+  if(d.type === 'http'){
+    $('ndsUrl').value = d.url || d.srcUrl || '';
+    $('ndsMethod').value = d.method || 'GET';
+    $('ndsAuth').value = d.auth || 'Bearer';
+    $('ndsTimeout').value = d.timeout || 3000;
+  } else if(d.type === 'json'){
+    $('ndsJsonText').value = d.jsonText || '';
+  } else if(d.type === 'sql'){
+    $('ndsDbType').value = d.dbType || 'MySQL';
+    $('ndsDbVersion').value = d.dbVersion || '';
+    $('ndsDbDriver').value = d.dbDriver || DB_DRIVERS[d.dbType || 'MySQL'] || '';
+    $('ndsDbUrl').value = d.dbUrl || d.datasourceUrl || '';
+    $('ndsDbUser').value = d.dbUser || '';
+    $('ndsDbPassword').value = d.dbPassword || '';
+    $('ndsSqlText').value = d.sqlText || d.srcUrl || '';
+  } else if(d.type === 'fn'){
+    $('ndsFunctionName').value = d.functionName || d.srcUrl || '';
+    $('ndsScript').value = d.script || '';
+  }
   $('newDatasourceModal').querySelector('h3').textContent = '编辑数据源';
   $('newDatasourceModal').style.display = 'flex';
 }
@@ -1570,7 +1823,37 @@ function editDatasource(id){
 function createDatasource(){
   const name = $('ndsName').value.trim();
   if(!name){ flash('请填写数据源名称'); return; }
-  const data = { name, type: $('ndsType').value, srcUrl: $('ndsUrl').value.trim() || '待配置' };
+  const type = editingDsType;
+  const data = { name, type };
+  let srcUrl = '待配置';
+  if(type === 'http'){
+    data.url = $('ndsUrl').value.trim();
+    data.method = $('ndsMethod').value;
+    data.auth = $('ndsAuth').value;
+    data.timeout = parseInt($('ndsTimeout').value, 10) || 3000;
+    data.params = dsParams.map(p => ({ ...p }));
+    data.headers = dsHeaders.map(h => ({ ...h }));
+    data.bodyType = dsBodyType;
+    data.bodyRaw = dsBodyRaw;
+    srcUrl = data.url || '待配置';
+  } else if(type === 'json'){
+    data.jsonText = $('ndsJsonText').value;
+    srcUrl = '内联 JSON 文本';
+  } else if(type === 'sql'){
+    data.dbType = $('ndsDbType').value;
+    data.dbVersion = $('ndsDbVersion').value.trim();
+    data.dbDriver = $('ndsDbDriver').value.trim();
+    data.dbUrl = $('ndsDbUrl').value.trim();
+    data.dbUser = $('ndsDbUser').value.trim();
+    data.dbPassword = $('ndsDbPassword').value;
+    data.sqlText = $('ndsSqlText').value;
+    srcUrl = data.sqlText || '待配置';
+  } else if(type === 'fn'){
+    data.functionName = $('ndsFunctionName').value.trim();
+    data.script = $('ndsScript').value;
+    srcUrl = data.functionName || '待配置';
+  }
+  data.srcUrl = srcUrl;
   if(editingDsId){
     const d = DATASOURCES.find(x => x.id === editingDsId);
     if(d) Object.assign(d, data);
@@ -2190,7 +2473,7 @@ function openNewJob(){
   $('njScheduleType').value = 'cron';
   $('njCron').value = '0 0 2 * * ?';
   $('njFixedSeconds').value = '3600';
-  $('njDs').innerHTML = DATASOURCES.map(d => `<option value="${d.id}">${esc(d.name)}（${esc(SRC_TYPE_LABEL[d.type])}）</option>`).join('');
+  $('njDs').innerHTML = `<option value="none">无源（none）</option>` + DATASOURCES.map(d => `<option value="${d.id}">${esc(d.name)}（${esc(SRC_TYPE_LABEL[d.type])}）</option>`).join('');
   $('njApi').innerHTML = APIS.map(a => `<option value="${a.id}">${esc(a.name)} · ${esc(a.desc)}（${esc(a.proto)}）</option>`).join('');
   newJobSteps = DEFAULT_STEPS.map(s => ({ ...s, id: s.id + '_new' }));
   const m = newJobSteps.find(s => s.type === 'mapping');
@@ -2229,7 +2512,8 @@ function renderNjNextRun(){
 function createJob(){
   const title = $('njTitle').value.trim();
   if(!title){ flash('请填写任务名称'); return; }
-  const ds = DATASOURCES.find(d => d.id === $('njDs').value) || DATASOURCES[0];
+  const dsId = $('njDs').value;
+  const ds = dsId === 'none' ? null : (DATASOURCES.find(d => d.id === dsId) || DATASOURCES[0]);
   const api = APIS.find(a => a.id === $('njApi').value) || APIS[0];
   const id = 'job_' + Date.now();
   const scheduleType = $('njScheduleType').value;
@@ -2243,9 +2527,9 @@ function createJob(){
     fixedSeconds: scheduleType === 'fixed' ? (parseInt($('njFixedSeconds').value, 10) || 0) : 0,
     lastRunAt: '',
     nextRunAt: '',
-    srcType: ds.type,
-    srcLabel: ds.name,
-    srcUrl: ds.srcUrl,
+    srcType: ds ? ds.type : '',
+    srcLabel: ds ? ds.name : '',
+    srcUrl: ds ? ds.srcUrl : '',
     target: api.name,
     targetProto: api.proto,
     targetUrl: api.url,
