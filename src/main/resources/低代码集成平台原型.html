@@ -109,7 +109,7 @@
   .kpi .v { font-size: 26px; font-weight: 700; color: var(--primary); }
   .kpi .l { font-size: 12px; color: var(--muted); margin-top: 4px; }
   .bar { height: 10px; background: var(--grey-soft); border-radius: 999px; overflow: hidden; margin-top: 4px; }
-  .bar .fill { height: 100%; background: linear-gradient(90deg, var(--primary), #60a5fa); }
+  .bar .fill { display: block; height: 100%; background: linear-gradient(90deg, var(--primary), #60a5fa); }
   .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   .dash-item { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12.5px; }
   .dash-item .lbl { flex: 0 0 96px; color: var(--muted); }
@@ -232,6 +232,7 @@
     <div class="menu-item" data-menu="mapping" onclick="gotoMenu('mapping')">🔀 字段映射管理</div>
     <div class="menu-item" data-menu="fn" onclick="gotoMenu('fn')">⚙️ 函数管理</div>
     <div class="menu-item" data-menu="log" onclick="gotoMenu('log')">📜 日志管理</div>
+    <div class="menu-item" data-menu="monitor" onclick="gotoMenu('monitor')">📈 接口监控</div>
     <div class="menu-item" data-menu="sec" onclick="gotoMenu('sec')">🛡 安全设置</div>
   </aside>
   <main class="content">
@@ -262,6 +263,10 @@
           </table>
         </div>
       </div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h2 class="sec">接口请求趋势（近 7 天）</h2>
+      <div id="requestTrend" style="margin-top:10px"></div>
     </div>
   </div>
 
@@ -436,6 +441,32 @@
         <thead><tr><th>traceId</th><th>任务</th><th>时间</th><th>耗时</th><th>状态</th><th>操作</th></tr></thead>
         <tbody id="logBody"></tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- ======================= 接口监控 ======================= -->
+  <div class="pane" id="pane-monitor">
+    <div class="controls">
+      <select id="monitorRange"><option>今日</option><option selected>近 7 天</option><option>近 30 天</option></select>
+      <select id="monitorApi" onchange="currentMonitorApi=this.value; renderMonitor()"><option value="all" selected>全部接口</option></select>
+      <span class="sub">接口运行时指标（流量 / 调用次数 / 响应时长 / 调用日志）</span>
+    </div>
+    <div class="kpi-grid" id="monitorKpi"></div>
+    <div class="card" style="margin-top:14px">
+      <h2 class="sec">① 接口流量统计</h2>
+      <div style="overflow:auto;margin-top:6px"><table class="mt"><thead><tr><th>接口</th><th>请求流量</th><th>响应流量</th><th>总流量</th><th>流量占比</th></tr></thead><tbody id="monitorTraffic"></tbody></table></div>
+    </div>
+    <div class="card">
+      <h2 class="sec">② 接口调用次数</h2>
+      <div style="overflow:auto;margin-top:6px"><table class="mt"><thead><tr><th>接口</th><th>总调用次数</th><th>成功次数</th><th>失败次数</th><th>成功率</th></tr></thead><tbody id="monitorCalls"></tbody></table></div>
+    </div>
+    <div class="card">
+      <h2 class="sec">③ 接口响应时长统计</h2>
+      <div style="overflow:auto;margin-top:6px"><table class="mt"><thead><tr><th>接口</th><th>平均(ms)</th><th>P50</th><th>P95</th><th>P99</th><th>最大</th><th>最小</th></tr></thead><tbody id="monitorLatency"></tbody></table></div>
+    </div>
+    <div class="card">
+      <h2 class="sec">④ 调用日志</h2>
+      <div style="overflow:auto;margin-top:6px"><table class="mt"><thead><tr><th>traceId</th><th>接口</th><th>时间</th><th>状态码</th><th>耗时</th><th>请求方式</th><th>来源</th></tr></thead><tbody id="monitorLogs"></tbody></table></div>
     </div>
   </div>
 
@@ -831,6 +862,31 @@ function renderDashboard(){
       : LOGS.slice(0,5).map(l =>
           `<tr><td><code>${esc(l.traceId)}</code></td><td>${esc(l.job)}</td><td>${esc(l.time)}</td><td>${l.ms}ms</td></tr>`).join('');
   }
+  renderRequestTrend();
+}
+
+function renderRequestTrend(){
+  const el = $('requestTrend');
+  if(!el) return;
+  const w = 800, h = 220, padL = 50, padR = 20, padT = 20, padB = 32;
+  const max = Math.max(...REQUEST_TREND.map(p => p.count));
+  const stepX = (w - padL - padR) / (REQUEST_TREND.length - 1);
+  const pts = REQUEST_TREND.map((p, i) => {
+    const x = padL + i * stepX;
+    const y = padT + (h - padT - padB) * (1 - p.count / max);
+    return { x, y, ...p };
+  });
+  const poly = pts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const circles = pts.map(p => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="#2563eb"/>`).join('');
+  const labels = pts.map(p => `<text x="${p.x.toFixed(1)}" y="${h - 8}" font-size="11" fill="#64748b" text-anchor="middle">${p.t}</text>`).join('');
+  let grid = '';
+  for(let g = 0; g <= 3; g++){
+    const gy = padT + (h - padT - padB) * g / 3;
+    const val = Math.round(max * (1 - g/3));
+    grid += `<line x1="${padL}" y1="${gy}" x2="${w-padR}" y2="${gy}" stroke="#e3e8f0" stroke-width="1"/>`
+      + `<text x="${padL-6}" y="${gy+4}" font-size="10" fill="#94a3b8" text-anchor="end">${val}</text>`;
+  }
+  el.innerHTML = `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto">${grid}<polyline points="${poly}" fill="none" stroke="#2563eb" stroke-width="2"/>${circles}${labels}</svg>`;
 }
 
 function consoleLog(cls, tag, text){
@@ -954,6 +1010,36 @@ let LOGS = [
   { traceId:'a5b6c7d8', job:'数据库订单同步 → PARTNER_B', time:'2026-08-25 06:00:03', ms:476, status:'成功' },
   { traceId:'e9f0a1b2', job:'函数生成订单 → ERP', time:'2026-08-25 03:00:00', ms:189, status:'成功' }
 ];   // 定时任务执行日志（模拟）
+
+/* ============================ 接口监控（流量/调用次数/响应时长/调用日志） ============================ */
+const API_MONITOR = [
+  { apiId:'api1', apiName:'PARTNER_A 订单推送',  reqMB:128.5, respMB:45.2, totalCalls:15234, successCalls:15012, failCalls:222,  avgMs:342, p50Ms:310, p95Ms:680, p99Ms:1200, maxMs:2100, minMs:98 },
+  { apiId:'api2', apiName:'PARTNER_B 订单推送',  reqMB:96.8,  respMB:38.7, totalCalls:12011, successCalls:11890, failCalls:121,  avgMs:398, p50Ms:360, p95Ms:720, p99Ms:1300, maxMs:2400, minMs:110 },
+  { apiId:'api3', apiName:'ERP 订单状态回调',    reqMB:45.3,  respMB:12.1, totalCalls:18230, successCalls:18150, failCalls:80,   avgMs:210, p50Ms:190, p95Ms:400, p99Ms:760,  maxMs:1500, minMs:65 },
+  { apiId:'api4', apiName:'PARTNER_A 订单查询',  reqMB:22.6,  respMB:18.9, totalCalls:8932,  successCalls:8870,  failCalls:62,   avgMs:156, p50Ms:140, p95Ms:320, p99Ms:560,  maxMs:980,  minMs:42 },
+  { apiId:'api5', apiName:'PARTNER_A 库存查询',  reqMB:18.4,  respMB:15.2, totalCalls:7650,  successCalls:7601,  failCalls:49,   avgMs:132, p50Ms:120, p95Ms:280, p99Ms:480,  maxMs:860,  minMs:38 },
+  { apiId:'api6', apiName:'PARTNER_C 物流下单',  reqMB:74.2,  respMB:28.6, totalCalls:6540,  successCalls:6480,  failCalls:60,   avgMs:287, p50Ms:260, p95Ms:540, p99Ms:920,  maxMs:1700, minMs:88 },
+  { apiId:'api7', apiName:'PARTNER_D 用户同步',  reqMB:35.7,  respMB:11.3, totalCalls:4120,  successCalls:4078,  failCalls:42,   avgMs:245, p50Ms:220, p95Ms:480, p99Ms:820,  maxMs:1400, minMs:75 },
+  { apiId:'api8', apiName:'PARTNER_B 状态回调',  reqMB:30.1,  respMB:9.8,  totalCalls:3280,  successCalls:3255,  failCalls:25,   avgMs:268, p50Ms:240, p95Ms:500, p99Ms:850,  maxMs:1550, minMs:80 },
+  { apiId:'api9', apiName:'短信通知',            reqMB:12.9,  respMB:4.6,  totalCalls:9870,  successCalls:9800,  failCalls:70,   avgMs:198, p50Ms:180, p95Ms:380, p99Ms:660,  maxMs:1200, minMs:55 }
+];
+
+let API_CALL_LOGS = [
+  { traceId:'a1b2c3d4', apiName:'PARTNER_A 订单推送', time:'2026-08-27 10:30:01', statusCode:200, ms:342, method:'POST', url:'/v1/order/push', source:'定时任务' },
+  { traceId:'e5f6a7b8', apiName:'ERP 订单状态回调',   time:'2026-08-27 10:28:44', statusCode:200, ms:198, method:'POST', url:'/api/erp/order-status', source:'第三方回调' },
+  { traceId:'c9d0e1f2', apiName:'PARTNER_B 订单推送', time:'2026-08-27 10:25:12', statusCode:200, ms:405, method:'POST', url:'/v1/order/push', source:'定时任务' },
+  { traceId:'a3b4c5d6', apiName:'PARTNER_A 库存查询', time:'2026-08-27 10:22:03', statusCode:500, ms:860, method:'GET',  url:'/v1/stock/query', source:'定时任务' },
+  { traceId:'e7f8a9b0', apiName:'短信通知',           time:'2026-08-27 10:18:31', statusCode:200, ms:156, method:'POST', url:'/v1/sms/send', source:'定时任务' },
+  { traceId:'c1d2e3f4', apiName:'PARTNER_C 物流下单', time:'2026-08-27 10:15:20', statusCode:200, ms:289, method:'POST', url:'/v2/logistics/create', source:'定时任务' },
+  { traceId:'a5b6c7d8', apiName:'PARTNER_D 用户同步', time:'2026-08-27 10:11:09', statusCode:200, ms:241, method:'PUT',  url:'/v1/user/sync', source:'定时任务' },
+  { traceId:'e9f0a1b2', apiName:'PARTNER_A 订单查询', time:'2026-08-27 10:08:55', statusCode:200, ms:152, method:'GET',  url:'/v1/order/query', source:'接口转发' }
+];
+
+const REQUEST_TREND = [
+  { t:'08-21', count:1234 }, { t:'08-22', count:1456 }, { t:'08-23', count:1890 },
+  { t:'08-24', count:1670 }, { t:'08-25', count:2010 }, { t:'08-26', count:2340 },
+  { t:'08-27', count:2150 }
+];
 
 /* ============================ 安全设置（白名单/黑名单 + 平台校验） ============================ */
 const SECURITY_CONFIG = { verifyEnabled: true, toleranceSeconds: 300, algorithm: 'HMAC-SHA256' };
@@ -1510,6 +1596,43 @@ function viewJobLog(jobId){
   const log = LOGS.find(l => l.job === job.title);
   if(!log){ flash('该任务暂无执行日志'); return; }
   viewLogDetail(log.traceId);
+}
+
+/* ============================ 接口监控渲染 ============================ */
+let currentMonitorApi = 'all';
+
+function renderMonitor(){
+  $('monitorApi').innerHTML = '<option value="all">全部接口</option>' + API_MONITOR.map(m => `<option value="${m.apiId}">${esc(m.apiName)}</option>`).join('');
+  $('monitorApi').value = currentMonitorApi;
+  const list = currentMonitorApi === 'all' ? API_MONITOR : API_MONITOR.filter(m => m.apiId === currentMonitorApi);
+
+  const total = list.reduce((s, m) => s + m.totalCalls, 0);
+  const success = list.reduce((s, m) => s + m.successCalls, 0);
+  const avgMs = Math.round(list.reduce((s, m) => s + m.avgMs, 0) / (list.length || 1));
+  const totalMB = list.reduce((s, m) => s + m.reqMB + m.respMB, 0);
+  $('monitorKpi').innerHTML = [
+    { v: total, l: '总调用次数' },
+    { v: (total ? (success/total*100).toFixed(1) : '0.0') + '%', l: '成功率' },
+    { v: avgMs + 'ms', l: '平均响应时长' },
+    { v: totalMB.toFixed(1) + 'MB', l: '总流量' }
+  ].map(k => `<div class="kpi"><div class="v">${k.v}</div><div class="l">${esc(k.l)}</div></div>`).join('');
+
+  const maxMB = Math.max(...list.map(m => m.reqMB + m.respMB), 1);
+  $('monitorTraffic').innerHTML = list.map(m => {
+    const tot = +(m.reqMB + m.respMB).toFixed(1);
+    const pct = Math.round(tot / maxMB * 100);
+    return `<tr><td>${esc(m.apiName)}</td><td>${m.reqMB}MB</td><td>${m.respMB}MB</td><td>${tot}MB</td><td><span class="bar" style="display:inline-block;width:120px"><span class="fill" style="width:${pct}%"></span></span></td></tr>`;
+  }).join('');
+
+  $('monitorCalls').innerHTML = list.map(m => {
+    const rate = (m.successCalls / m.totalCalls * 100).toFixed(1) + '%';
+    return `<tr><td>${esc(m.apiName)}</td><td>${m.totalCalls}</td><td>${m.successCalls}</td><td>${m.failCalls}</td><td>${rate}</td></tr>`;
+  }).join('');
+
+  $('monitorLatency').innerHTML = list.map(m => `<tr><td>${esc(m.apiName)}</td><td>${m.avgMs}</td><td>${m.p50Ms}</td><td>${m.p95Ms}</td><td>${m.p99Ms}</td><td>${m.maxMs}</td><td>${m.minMs}</td></tr>`).join('');
+
+  const logs = currentMonitorApi === 'all' ? API_CALL_LOGS : API_CALL_LOGS.filter(l => l.apiName === (API_MONITOR.find(m => m.apiId === currentMonitorApi) || {}).apiName);
+  $('monitorLogs').innerHTML = logs.map(l => `<tr><td><code>${esc(l.traceId)}</code></td><td>${esc(l.apiName)}</td><td>${esc(l.time)}</td><td>${l.statusCode}</td><td>${l.ms}ms</td><td>${esc(l.method)}</td><td>${esc(l.source)}</td></tr>`).join('');
 }
 
 /* ============================ 安全设置渲染 ============================ */
@@ -2833,6 +2956,7 @@ function init(){
   renderLogs();
   renderMappingSets();
   renderSecurity();
+  renderMonitor();
   renderDashboard();
   selectJob('http_a');
 }
