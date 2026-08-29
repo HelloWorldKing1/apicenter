@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API 中心 · 交互原型</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --panel:#fff; --line:#e6e8eb; --text:#1f2329; --muted:#86909c;
+    --primary:#2f54eb; --primary-light:#eef1fd; --success:#0aa05a; --warn:#d48806;
+    --danger:#d4380d; --sidebar:#1d2129; --sidebar-text:#c9cdd4;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+  .layout{display:flex;min-height:100vh}
+  /* 侧边栏 */
+  .sidebar{width:200px;background:var(--sidebar);color:var(--sidebar-text);flex-shrink:0;position:sticky;top:0;height:100vh;display:flex;flex-direction:column}
+  .logo{height:56px;display:flex;align-items:center;gap:8px;padding:0 20px;font-size:16px;font-weight:700;color:#fff;border-bottom:1px solid rgba(255,255,255,.08)}
+  .logo .dot{width:10px;height:10px;border-radius:50%;background:var(--primary)}
+  .menu{padding:12px 8px;display:flex;flex-direction:column;gap:4px}
+  .menu a{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:6px;color:var(--sidebar-text);cursor:pointer;text-decoration:none;transition:.15s}
+  .menu a:hover{background:rgba(255,255,255,.06);color:#fff}
+  .menu a.active{background:var(--primary);color:#fff}
+  .menu a .ico{width:16px;text-align:center;font-size:14px}
+  .sidebar .foot{margin-top:auto;padding:16px 20px;font-size:12px;color:#5f6672}
+  /* 内容区 */
+  .content{flex:1;display:flex;flex-direction:column;min-width:0}
+  .topbar{height:56px;background:var(--panel);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;padding:0 24px;position:sticky;top:0;z-index:10}
+  .topbar .crumb{color:var(--muted)}
+  .topbar .crumb a{color:var(--primary);cursor:pointer;text-decoration:none}
+  .topbar .title{font-size:16px;font-weight:600}
+  .page{padding:24px}
+  .view{display:none}
+  .view.active{display:block}
+  /* 组件 */
+  .row{display:flex;gap:16px;flex-wrap:wrap}
+  .stat-card{flex:1;min-width:180px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px}
+  .stat-card .label{color:var(--muted);font-size:13px}
+  .stat-card .value{font-size:28px;font-weight:700;margin-top:6px}
+  .stat-card .sub{color:var(--muted);font-size:12px;margin-top:4px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-top:16px}
+  .panel-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line)}
+  .panel-head h3{font-size:15px}
+  .panel-body{padding:8px 0}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:11px 18px;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{color:var(--muted);font-weight:500;font-size:12px;background:#fafbfc}
+  tr:last-child td{border-bottom:none}
+  tbody tr{cursor:pointer}
+  tbody tr:hover{background:#f7f8fa}
+  .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px;font-weight:500}
+  .badge.success{background:#e8f7ef;color:var(--success)}
+  .badge.warn{background:#fff7e6;color:var(--warn)}
+  .badge.danger{background:#fff1f0;color:var(--danger)}
+  .badge.gray{background:#f2f3f5;color:var(--muted)}
+  .badge.primary{background:var(--primary-light);color:var(--primary)}
+  .tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;background:#f2f3f5;color:#4e5969;margin-right:6px}
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:6px;border:1px solid transparent;cursor:pointer;font-size:14px;transition:.15s;background:var(--primary);color:#fff}
+  .btn:hover{opacity:.9}
+  .btn.ghost{background:#fff;border-color:var(--line);color:var(--text)}
+  .btn.ghost:hover{border-color:var(--primary);color:var(--primary)}
+  .btn.sm{padding:5px 10px;font-size:12px}
+  .btn.danger{background:#fff;border-color:#ffccc7;color:var(--danger)}
+  .field{margin-bottom:14px}
+  .field label{display:block;margin-bottom:6px;color:#4e5969;font-size:13px}
+  .field input,.field select,.field textarea{width:100%;padding:8px 12px;border:1px solid var(--line);border-radius:6px;font-size:14px;font-family:inherit;background:#fff}
+  .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--primary)}
+  .field .hint{font-size:12px;color:var(--muted);margin-top:4px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .keyval{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px dashed var(--line)}
+  .keyval:last-child{border-bottom:none}
+  .keyval .k{color:var(--muted)}
+  .keyval .v{font-weight:500;text-align:right;word-break:break-all}
+  /* 层级树 */
+  .tree-item{display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--line);cursor:pointer}
+  .tree-item:hover{background:#f7f8fa}
+  .tree-item .arrow{color:var(--muted);width:16px}
+  .tree-item .name{font-weight:500}
+  .tree-item .sub{color:var(--muted);font-size:12px}
+  .tree-indent{margin-left:28px;border-left:2px solid var(--line)}
+  /* 适配器链 */
+  .chain{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:16px}
+  .chain .node{background:var(--primary-light);color:var(--primary);border-radius:8px;padding:10px 14px;font-weight:500}
+  .chain .node.core{background:#e8f7ef;color:var(--success)}
+  .chain .node.end{background:#f2f3f5;color:var(--muted)}
+  .chain .arr{color:var(--muted);font-weight:700}
+  /* 适配器 tab */
+  .tabs{display:flex;gap:8px;padding:14px 18px 0;flex-wrap:wrap}
+  .tab{padding:7px 14px;border-radius:6px;border:1px solid var(--line);background:#fff;color:var(--text);cursor:pointer;font-size:13px;transition:.15s}
+  .tab:hover{border-color:var(--primary);color:var(--primary)}
+  .tab.active{background:var(--primary);border-color:var(--primary);color:#fff}
+  /* 弹窗 */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:100}
+  .overlay.show{display:flex}
+  .modal{background:#fff;border-radius:12px;width:520px;max-width:92vw;max-height:88vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.2)}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line)}
+  .modal-head h3{font-size:16px}
+  .modal-head .x{cursor:pointer;color:var(--muted);font-size:20px;line-height:1}
+  .modal-body{padding:20px}
+  .modal-foot{padding:14px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:10px}
+  .empty{padding:40px;text-align:center;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="logo"><span class="dot"></span>API 中心</div>
+    <nav class="menu">
+      <a data-view="dashboard" class="active" onclick="navigate('dashboard')"><span class="ico">◧</span>概览</a>
+      <a data-view="apps" onclick="navigate('apps')"><span class="ico">▤</span>应用管理</a>
+      <a data-view="groups" onclick="navigate('groups')"><span class="ico">▦</span>分组管理</a>
+      <a data-view="interfaces" onclick="navigate('interfaces')"><span class="ico">⇄</span>接口管理</a>
+      <a data-view="monitor" onclick="navigate('monitor')"><span class="ico">◎</span>接口监控</a>
+      <a data-view="adapters" onclick="navigate('adapters')"><span class="ico">⚙</span>适配器</a>
+    </nav>
+    <div class="foot">API 中心 · 交互原型<br>基于 doc 目录设计方案</div>
+  </aside>
+
+  <main class="content">
+    <header class="topbar" id="topbar"></header>
+    <div class="page">
+      <div id="view-dashboard" class="view"></div>
+      <div id="view-apps" class="view"></div>
+      <div id="view-groups" class="view"></div>
+      <div id="view-interfaces" class="view"></div>
+      <div id="view-monitor" class="view"></div>
+      <div id="view-adapters" class="view"></div>
+    </div>
+  </main>
+</div>
+
+<div class="overlay" id="overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal" id="modal"></div>
+</div>
+
+<script>
+/* ===== 模拟数据 ===== */
+const state = {
+  apps: [
+    { appId:'ERP-CORE', name:'ERP 核心系统', type:'ERP', authType:'HMAC 签名', status:'启用', secret:'sk_erp_9f8a…', desc:'ERP 订单/库存出站调用方',
+      groups:[
+        { name:'订单', ifs:['IF001'] },
+        { name:'库存', ifs:['IF002'] }
+      ]},
+    { appId:'PARTNER_A', name:'第三方 A', type:'第三方', authType:'API Key', status:'启用', secret:'sk_a_7c2d…', desc:'第三方 A 回调与接收方',
+      groups:[
+        { name:'回调', ifs:['IF003'] }
+      ]},
+    { appId:'INTERNAL-BI', name:'内部 BI', type:'内部', authType:'无鉴权', status:'草稿', secret:'—', desc:'内部数据拉取（未启用）',
+      groups:[]}
+  ],
+  interfaces: [
+    { id:'IF001', name:'订单推送', path:'/api/orders', method:'POST', protocol:'JSON', upstream:'http://localhost:8101/order',
+      appId:'ERP-CORE', group:'订单', status:'已发布',
+      adapters:{ protocol:'JsonProtocolAdapter', message:'EnvelopeMessageAdapter', field:'RuleFieldMappingAdapter (json-json)' },
+      config:{ timeout:3000, retries:4, idempotent:true } },
+    { id:'IF002', name:'库存同步', path:'/api/stock', method:'POST', protocol:'XML', upstream:'http://localhost:8102/stock',
+      appId:'ERP-CORE', group:'库存', status:'已发布',
+      adapters:{ protocol:'XmlProtocolAdapter', message:'HeaderMappingAdapter', field:'RuleFieldMappingAdapter (json-xml)' },
+      config:{ timeout:3000, retries:4, idempotent:true } },
+    { id:'IF003', name:'订单状态回调', path:'/callback/{channel}/order-status', method:'POST', protocol:'JSON', upstream:'http://localhost:8103/callback',
+      appId:'PARTNER_A', group:'回调', status:'已发布',
+      adapters:{ protocol:'JsonProtocolAdapter', message:'EnvelopeMessageAdapter', field:'RuleFieldMappingAdapter (json-json)' },
+      config:{ timeout:3000, retries:3, idempotent:true } }
+  ],
+  logs: [
+    { time:'10:32:05', iface:'/api/orders', app:'ERP-CORE', code:200, ms:84,  trace:'tr-8f2a1c' },
+    { time:'10:31:48', iface:'/callback/{channel}/order-status', app:'PARTNER_A', code:200, ms:121, trace:'tr-7c19d0' },
+    { time:'10:30:11', iface:'/api/stock', app:'ERP-CORE', code:502, ms:3011, trace:'tr-5a77b3' },
+    { time:'10:29:52', iface:'/api/orders', app:'ERP-CORE', code:200, ms:66,  trace:'tr-9e04a2' },
+    { time:'10:28:30', iface:'/api/orders', app:'ERP-CORE', code:429, ms:12,  trace:'tr-3b60ef' }
+  ],
+  alerts: [
+    { level:'warn', text:'/api/stock 上游 5xx，已进入补偿重试', time:'10:30:12' },
+    { level:'danger', text:'ERP-CORE 近 1 分钟 QPS 超限，触发限流', time:'10:28:30' }
+  ]
+};
+
+const AUTH_TYPES = ['API Key','HMAC 签名','OAuth 2.0','Bearer Token / JWT','Basic Auth','mTLS','无鉴权'];
+const VIEW_TITLES = { dashboard:'概览', apps:'应用管理', groups:'分组管理', interfaces:'接口管理', monitor:'接口监控', adapters:'适配器' };
+let currentView = 'dashboard';
+let currentAppId = null;      // 应用详情
+let currentIfId = null;       // 接口详情
+let adapterTab = 'auth';       // 适配器 tab
+
+/* ===== 导航 ===== */
+function navigate(view){
+  currentView = view;
+  currentAppId = null; currentIfId = null;
+  document.querySelectorAll('.menu a').forEach(a=>a.classList.toggle('active', a.dataset.view===view));
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+view).classList.add('active');
+  renderTopbar(view);
+  render(view);
+}
+function renderTopbar(view, extra){
+  const t = VIEW_TITLES[view];
+  let html = `<span class="title">${t}</span>`;
+  if(view==='apps' && currentAppId){
+    const a = state.apps.find(x=>x.appId===currentAppId);
+    html = `<span class="crumb"><a onclick="navigate('apps')">应用管理</a> / </span><span class="title">${a ? a.name : ''}</span>`;
+  }
+  if(view==='interfaces' && currentIfId){
+    const i = state.interfaces.find(x=>x.id===currentIfId);
+    html = `<span class="crumb"><a onclick="navigate('interfaces')">接口管理</a> / </span><span class="title">${i ? i.name : ''}</span>`;
+  }
+  document.getElementById('topbar').innerHTML = html;
+}
+function render(view){
+  if(view==='dashboard') renderDashboard();
+  else if(view==='apps') renderApps();
+  else if(view==='groups') renderGroups();
+  else if(view==='interfaces') renderInterfaces();
+  else if(view==='monitor') renderMonitor();
+  else if(view==='adapters') renderAdapters();
+}
+
+/* ===== 概览 ===== */
+function renderDashboard(){
+  const totalCalls = 12840, success = 98.6, p99 = 142;
+  const el = document.getElementById('view-dashboard');
+  el.innerHTML = `
+    <div class="row">
+      <div class="stat-card"><div class="label">应用数</div><div class="value">${state.apps.length}</div><div class="sub">启用 ${state.apps.filter(a=>a.status==='启用').length} 个</div></div>
+      <div class="stat-card"><div class="label">接口数</div><div class="value">${state.interfaces.length}</div><div class="sub">已发布 ${state.interfaces.filter(i=>i.status==='已发布').length} 个</div></div>
+      <div class="stat-card"><div class="label">今日调用量</div><div class="value">${totalCalls.toLocaleString()}</div><div class="sub">较昨日 +12.4%</div></div>
+      <div class="stat-card"><div class="label">成功率</div><div class="value">${success}%</div><div class="sub">P99 延迟 ${p99}ms</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>最近调用</h3><button class="btn sm ghost" onclick="navigate('monitor')">查看全部 →</button></div>
+      <div class="panel-body">
+        <table><thead><tr><th>时间</th><th>接口</th><th>应用</th><th>状态码</th><th>耗时</th><th>traceId</th></tr></thead>
+        <tbody>${state.logs.map(l=>`<tr onclick="navigate('monitor')"><td>${l.time}</td><td>${l.iface}</td><td>${l.app}</td><td>${codeBadge(l.code)}</td><td>${l.ms}ms</td><td>${l.trace}</td></tr>`).join('')}</tbody></table>
+      </div>
+    </div>`;
+}
+function codeBadge(c){
+  const ok = c>=200 && c<300;
+  return `<span class="badge ${ok?'success':'danger'}">${c}</span>`;
+}
+
+/* ===== 应用管理 ===== */
+function renderApps(){
+  const el = document.getElementById('view-apps');
+  if(currentAppId){
+    renderAppDetail(el); return;
+  }
+  el.innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h3>应用列表</h3><button class="btn" onclick="openAppModal()">＋ 新建应用</button></div>
+      <div class="panel-body">
+        <table><thead><tr><th>appId</th><th>名称</th><th>类型</th><th>鉴权方式</th><th>状态</th><th></th></tr></thead>
+        <tbody>${state.apps.map(a=>`
+          <tr onclick="openAppDetail('${a.appId}')">
+            <td><b>${a.appId}</b></td><td>${a.name}</td><td><span class="tag">${a.type}</span></td>
+            <td>${a.authType}</td><td>${statusBadge(a.status)}</td>
+            <td><span style="color:var(--primary)">详情 →</span></td>
+          </tr>`).join('')}</tbody></table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>说明</h3></div>
+      <div class="panel-body" style="padding:14px 18px;color:var(--muted)">应用下的分组与接口，请在「分组管理」「接口管理」中查看与管理。</div>
+    </div>`;
+}
+function appTree(a){
+  const groups = a.groups;
+  return `
+    <div class="tree-item" onclick="openAppDetail('${a.appId}')">
+      <span class="arrow">▾</span><span class="name">${a.name}</span><span class="sub">${a.appId} · ${a.authType}</span>
+    </div>
+    <div class="tree-indent">
+      ${groups.map(g=>`
+        <div class="tree-item"><span class="arrow">▸</span><span class="name">分组：${g.name}</span><span class="sub">${g.ifs.length} 个接口</span></div>
+        <div class="tree-indent">
+          ${g.ifs.map(id=>{const i=state.interfaces.find(x=>x.id===id);return i?`
+            <div class="tree-item" onclick="openInterfaceDetail('${i.id}')"><span class="arrow">·</span><span class="name">${i.name}</span><span class="sub">${i.method} ${i.path}</span></div>`:''}).join('')}
+        </div>`).join('')}
+      ${groups.length===0?'<div class="tree-item" style="cursor:default"><span class="arrow">·</span><span class="sub">暂无分组</span></div>':''}
+    </div>`;
+}
+function renderAppDetail(el){
+  const a = state.apps.find(x=>x.appId===currentAppId);
+  if(!a){ currentAppId=null; renderApps(); return; }
+  el.innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h3>${a.name} · 应用详情</h3><span class="tag">分组与接口在「分组管理」「接口管理」中管理</span></div>
+      <div class="panel-body" style="padding:18px">
+        <div class="grid2">
+          <div>
+            <div class="keyval"><span class="k">appId</span><span class="v">${a.appId}</span></div>
+            <div class="keyval"><span class="k">类型</span><span class="v">${a.type}</span></div>
+            <div class="keyval"><span class="k">状态</span><span class="v">${statusBadge(a.status)}</span></div>
+            <div class="keyval"><span class="k">描述</span><span class="v">${a.desc}</span></div>
+          </div>
+          <div>
+            <div class="keyval"><span class="k">鉴权适配器</span><span class="v">${a.authType}</span></div>
+            <div class="keyval"><span class="k">appSecret</span><span class="v">${a.secret}</span></div>
+            <div class="keyval"><span class="k">分组数</span><span class="v">${a.groups.length}</span></div>
+            <div class="keyval"><span class="k">接口数</span><span class="v">${a.groups.reduce((n,g)=>n+g.ifs.length,0)}</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>分组概览</h3><button class="btn sm ghost" onclick="navigate('groups')">去分组管理 →</button></div>
+      <div class="panel-body">
+        ${a.groups.map(g=>`
+          <div class="tree-item" onclick="navigate('groups')"><span class="arrow">▸</span><span class="name">${g.name}</span><span class="sub">${g.ifs.length} 个接口</span><span style="margin-left:auto;color:var(--primary)">查看 →</span></div>`).join('') || '<div class="empty">暂无分组，请到「分组管理」新建</div>'}
+      </div>
+    </div>`;
+}
+function openAppDetail(appId){ currentAppId=appId; renderTopbar('apps'); renderApps(); }
+
+/* ===== 分组管理 ===== */
+function renderGroups(){
+  const el = document.getElementById('view-groups');
+  el.innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h3>分组管理（应用 → 分组）</h3><button class="btn" onclick="openGroupModal()">＋ 新建分组</button></div>
+      <div class="panel-body">
+        ${state.apps.map(a=>`
+          <div class="tree-item" style="cursor:default"><span class="arrow">▾</span><span class="name">${a.name}</span><span class="sub">${a.appId} · ${a.groups.length} 个分组</span></div>
+          <div class="tree-indent">
+            ${a.groups.map(g=>`
+              <div class="tree-item" onclick="openGroupDetail('${a.appId}','${g.name}')">
+                <span class="arrow">▸</span><span class="name">分组：${g.name}</span>
+                <span class="sub">${g.ifs.length} 个接口</span>
+                <span style="margin-left:auto;color:var(--primary)">查看 →</span>
+              </div>`).join('')}
+            ${a.groups.length===0?'<div class="tree-item" style="cursor:default"><span class="arrow">·</span><span class="sub">暂无分组</span></div>':''}
+          </div>`).join('')}
+      </div>
+    </div>`;
+}
+function openGroupDetail(appId, groupName){
+  const app = state.apps.find(x=>x.appId===appId);
+  const g = app.groups.find(x=>x.name===groupName);
+  const list = g.ifs.map(id=>state.interfaces.find(x=>x.id===id)).filter(Boolean);
+  openModal(`
+    <div class="modal-head"><h3>分组：${groupName}（${app.name}）</h3><span class="x" onclick="closeModal()">×</span></div>
+    <div class="modal-body">
+      ${list.length ? list.map(i=>`
+        <div class="tree-item" onclick="closeModal();openInterfaceDetail('${i.id}')">
+          <span class="arrow">·</span><span class="name">${i.name}</span>
+          <span class="sub">${i.method} ${i.path} · ${i.protocol}</span>
+          <span style="margin-left:auto">${statusBadge(i.status)}</span>
+        </div>`).join('') : '<div class="empty">该分组下暂无接口</div>'}
+    </div>`);
+}
+
+/* ===== 接口管理 ===== */
+function renderInterfaces(){
+  const el = document.getElementById('view-interfaces');
+  if(currentIfId){ renderInterfaceDetail(el); return; }
+  el.innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h3>接口列表</h3><button class="btn" onclick="openInterfaceModal()">＋ 新建接口</button></div>
+      <div class="panel-body">
+        <table><thead><tr><th>名称</th><th>方法</th><th>路径</th><th>协议</th><th>归属（应用 / 分组）</th><th>状态</th><th></th></tr></thead>
+        <tbody>${state.interfaces.map(i=>`
+          <tr onclick="openInterfaceDetail('${i.id}')">
+            <td><b>${i.name}</b></td><td><span class="tag">${i.method}</span></td><td>${i.path}</td>
+            <td><span class="badge ${i.protocol==='JSON'?'primary':'warn'}">${i.protocol}</span></td>
+            <td>${i.appId} / ${i.group}</td><td>${statusBadge(i.status)}</td>
+            <td><span style="color:var(--primary)">详情 →</span></td>
+          </tr>`).join('')}</tbody></table>
+      </div>
+    </div>`;
+}
+function renderInterfaceDetail(el){
+  const i = state.interfaces.find(x=>x.id===currentIfId);
+  if(!i){ currentIfId=null; renderInterfaces(); return; }
+  const a = state.apps.find(x=>x.appId===i.appId);
+  el.innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h3>${i.name} · 接口详情</h3><span class="badge ${i.status==='已发布'?'success':'gray'}">${i.status}</span></div>
+      <div class="panel-body" style="padding:18px">
+        <div class="grid2">
+          <div>
+            <div class="keyval"><span class="k">路径</span><span class="v">${i.method} ${i.path}</span></div>
+            <div class="keyval"><span class="k">协议</span><span class="v">${i.protocol}</span></div>
+            <div class="keyval"><span class="k">上游地址</span><span class="v">${i.upstream}</span></div>
+            <div class="keyval"><span class="k">归属</span><span class="v">${i.appId} / ${i.group}</span></div>
+          </div>
+          <div>
+            <div class="keyval"><span class="k">读超时</span><span class="v">${i.config.timeout}ms</span></div>
+            <div class="keyval"><span class="k">最大重试</span><span class="v">${i.config.retries} 次</span></div>
+            <div class="keyval"><span class="k">幂等</span><span class="v">${i.config.idempotent?'开启':'关闭'}</span></div>
+            <div class="keyval"><span class="k">鉴权（继承应用）</span><span class="v">${a?a.authType:'—'}</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>适配器链配置</h3></div>
+      <div class="panel-body">
+        <div class="chain">
+          <span class="node">鉴权</span><span class="arr">→</span>
+          <span class="node">协议解码</span><span class="arr">→</span>
+          <span class="node">报文适配</span><span class="arr">→</span>
+          <span class="node">字段映射</span><span class="arr">→</span>
+          <span class="node core">协议编码</span>
+        </div>
+        <div style="padding:0 18px 16px">
+          <div class="keyval"><span class="k">协议适配器</span><span class="v">${i.adapters.protocol}</span></div>
+          <div class="keyval"><span class="k">报文适配器</span><span class="v">${i.adapters.message}</span></div>
+          <div class="keyval"><span class="k">字段映射适配器</span><span class="v">${i.adapters.field}</span></div>
+        </div>
+      </div>
+    </div>`;
+}
+function openInterfaceDetail(id){ currentIfId=id; currentView='interfaces'; document.querySelectorAll('.menu a').forEach(a=>a.classList.toggle('active',a.dataset.view==='interfaces')); document.querySelectorAll('.view').forEach(v=>v.classList.remove('active')); document.getElementById('view-interfaces').classList.add('active'); renderTopbar('interfaces'); renderInterfaces(); }
+
+/* ===== 接口监控 ===== */
+function renderMonitor(){
+  const el = document.getElementById('view-monitor');
+  el.innerHTML = `
+    <div class="row">
+      <div class="stat-card"><div class="label">今日调用量</div><div class="value">12,840</div><div class="sub">↑ 12.4%</div></div>
+      <div class="stat-card"><div class="label">成功率</div><div class="value">98.6%</div><div class="sub">失败 182 次</div></div>
+      <div class="stat-card"><div class="label">P99 延迟</div><div class="value">142ms</div><div class="sub">P50 38ms</div></div>
+      <div class="stat-card"><div class="label">待补偿 / 死信</div><div class="value">3 / 1</div><div class="sub">对账中 1</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>调用日志</h3><span class="tag">traceId 贯穿</span></div>
+      <div class="panel-body">
+        <table><thead><tr><th>时间</th><th>接口</th><th>应用</th><th>状态码</th><th>耗时</th><th>traceId</th></tr></thead>
+        <tbody>${state.logs.map(l=>`<tr><td>${l.time}</td><td>${l.iface}</td><td>${l.app}</td><td>${codeBadge(l.code)}</td><td>${l.ms}ms</td><td>${l.trace}</td></tr>`).join('')}</tbody></table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>告警</h3></div>
+      <div class="panel-body">
+        ${state.alerts.map(a=>`<div class="tree-item" style="cursor:default"><span class="badge ${a.level==='danger'?'danger':'warn'}">${a.level==='danger'?'严重':'警告'}</span><span class="name">${a.text}</span><span class="sub" style="margin-left:auto">${a.time}</span></div>`).join('')}
+      </div>
+    </div>`;
+}
+
+/* ===== 适配器 ===== */
+function renderAdapters(){
+  const el = document.getElementById('view-adapters');
+  el.innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h3>顶层基适配器（Adapter）与链上下文（AdapterContext）</h3></div>
+      <div class="panel-body" style="padding:16px 18px">
+        <div class="grid2">
+          <div>
+            <h4 style="margin-bottom:6px;color:var(--primary)">Adapter 契约</h4>
+            <div class="keyval"><span class="k">type()</span><span class="v">标识四类：鉴权/协议/报文/字段映射</span></div>
+            <div class="keyval"><span class="k">order()</span><span class="v">链内执行顺序</span></div>
+            <div class="keyval"><span class="k">supports(ctx)</span><span class="v">是否适用于当前请求</span></div>
+            <div class="keyval"><span class="k">process(ctx)</span><span class="v">执行并返回上下文</span></div>
+          </div>
+          <div>
+            <h4 style="margin-bottom:6px;color:var(--primary)">AdapterContext 链上下文</h4>
+            <div class="keyval"><span class="k">统一内部模型</span><span class="v">payload，格式无关</span></div>
+            <div class="keyval"><span class="k">元数据</span><span class="v">接口/应用/渠道/协议/traceId</span></div>
+            <div class="keyval"><span class="k">鉴权结果</span><span class="v">appId、是否通过</span></div>
+            <div class="keyval"><span class="k">错误/告警</span><span class="v">各适配器可追加收集</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>四类适配器</h3></div>
+      <div class="tabs">
+        <button class="tab ${adapterTab==='auth'?'active':''}" onclick="selectAdapterTab('auth')">鉴权适配器</button>
+        <button class="tab ${adapterTab==='proto'?'active':''}" onclick="selectAdapterTab('proto')">协议适配器</button>
+        <button class="tab ${adapterTab==='msg'?'active':''}" onclick="selectAdapterTab('msg')">报文适配器</button>
+        <button class="tab ${adapterTab==='field'?'active':''}" onclick="selectAdapterTab('field')">字段映射适配器</button>
+      </div>
+      <div style="padding:14px 18px 18px">${adapterDetail(adapterTab)}</div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>适配器链编排（运行时）</h3></div>
+      <div class="panel-body">
+        <div class="chain">
+          <span class="node">鉴权</span><span class="arr">→</span>
+          <span class="node">协议解码</span><span class="arr">→</span>
+          <span class="node">报文适配</span><span class="arr">→</span>
+          <span class="node">字段映射</span><span class="arr">→</span>
+          <span class="node core">协议编码</span><span class="arr">→</span>
+          <span class="node end">调上游</span>
+        </div>
+        <div style="padding:0 18px 16px;color:var(--muted);font-size:13px">
+          统一内部模型（UnifiedModel）为链内唯一数据载体；四种端到端转换场景 json-json / json-xml / xml-xml / xml-json 由整条链协作完成。
+        </div>
+      </div>
+    </div>`;
+}
+function selectAdapterTab(type){ adapterTab = type; renderAdapters(); }
+function adapterDetail(tab){
+  if(tab==='auth') return `
+    <div class="grid2">
+      <div>
+        <h4 style="margin-bottom:8px">AuthAdapter · authenticate(req) → AuthResult</h4>
+        <div class="keyval"><span class="k">绑定</span><span class="v">应用级默认 + 接口级覆盖</span></div>
+        <div class="keyval"><span class="k">出站 Flow A</span><span class="v">HMAC-SHA256(appId+timestamp+orderId, appSecret)</span></div>
+        <div class="keyval"><span class="k">入站 Flow B</span><span class="v">X-Partner-Signature + X-Timestamp（渠道密钥）</span></div>
+        <div class="keyval"><span class="k">失败处理</span><span class="v">401；连续失败告警/临时封禁</span></div>
+        <div class="keyval"><span class="k">密钥管理</span><span class="v">加密存储、轮换、泄漏即时失效</span></div>
+      </div>
+      <div>
+        <h4 style="margin-bottom:8px">可插拔策略（7 种）</h4>
+        ${['API Key','HMAC 签名','OAuth 2.0','Bearer Token / JWT','Basic Auth','mTLS','无鉴权'].map(x=>`<span class="tag" style="margin-bottom:6px">${x}</span>`).join('')}
+        <h4 style="margin:12px 0 8px">具体实现</h4>
+        ${['ApiKeyAuthAdapter','HmacAuthAdapter','OAuth2AuthAdapter','BearerJwtAuthAdapter','BasicAuthAdapter','MtlsAuthAdapter','NoopAuthAdapter'].map(x=>`<span class="tag" style="margin-bottom:6px">${x}</span>`).join('')}
+      </div>
+    </div>`;
+  if(tab==='proto') return `
+    <div class="grid2">
+      <div>
+        <h4 style="margin-bottom:8px">ProtocolAdapter · decode(bytes, format) / encode(model, format)</h4>
+        <div class="keyval"><span class="k">职责</span><span class="v">「格式」的唯一责任方</span></div>
+        <div class="keyval"><span class="k">绑定</span><span class="v">接口声明协议 → 适配器实现编解码</span></div>
+        <div class="keyval"><span class="k">解析失败容错</span><span class="v">错误码 + 落日志，不污染状态机</span></div>
+      </div>
+      <div>
+        <h4 style="margin-bottom:8px">编解码细节</h4>
+        <div class="keyval"><span class="k">JSON</span><span class="v">命名策略、日期格式、忽略未知字段、空值策略、数字精度</span></div>
+        <div class="keyval"><span class="k">XML</span><span class="v">根元素、命名空间、属性 vs 元素映射</span></div>
+        <div class="keyval"><span class="k">Mapper 隔离</span><span class="v">每渠道独立 ObjectMapper / XmlMapper</span></div>
+      </div>
+    </div>
+    <div style="margin-top:6px"><span class="tag">JsonProtocolAdapter</span><span class="tag">XmlProtocolAdapter</span></div>`;
+  if(tab==='msg') return `
+    <div class="grid2">
+      <div>
+        <h4 style="margin-bottom:8px">MessageAdapter · adapt(UnifiedModel)</h4>
+        <div class="keyval"><span class="k">输入</span><span class="v">第三方/ERP 报文 → 统一内部模型</span></div>
+        <div class="keyval"><span class="k">输出</span><span class="v">统一内部模型 → 目标报文</span></div>
+        <div class="keyval"><span class="k">分工</span><span class="v">报文管「外壳/骨架」，字段映射管「字段内容」</span></div>
+      </div>
+      <div>
+        <h4 style="margin-bottom:8px">报文结构转换</h4>
+        <div class="keyval"><span class="k">信封/包裹</span><span class="v">请求/响应外层结构</span></div>
+        <div class="keyval"><span class="k">报文头</span><span class="v">头部字段映射与规整</span></div>
+        <div class="keyval"><span class="k">结构适配</span><span class="v">请求/响应结构转换</span></div>
+      </div>
+    </div>
+    <div style="margin-top:6px"><span class="tag">EnvelopeMessageAdapter</span><span class="tag">HeaderMappingAdapter</span><span class="tag">按渠道定制</span></div>`;
+  return `
+    <div class="grid2">
+      <div>
+        <h4 style="margin-bottom:8px">FieldMappingAdapter · map(UnifiedModel, MappingRule)</h4>
+        <div class="keyval"><span class="k">职责</span><span class="v">管「字段内容」，格式无关</span></div>
+        <div class="keyval"><span class="k">字段级</span><span class="v">重命名、类型、枚举、默认值、条件/空值</span></div>
+        <div class="keyval"><span class="k">嵌套聚合</span><span class="v">展开/拍平、列表映射、多字段聚合</span></div>
+      </div>
+      <div>
+        <h4 style="margin-bottom:8px">四种端到端组合</h4>
+        <div class="keyval"><span class="k">json-json</span><span class="v">JSON → JSON 纯字段映射</span></div>
+        <div class="keyval"><span class="k">json-xml</span><span class="v">JSON → XML 字段映射 + 格式转换</span></div>
+        <div class="keyval"><span class="k">xml-xml</span><span class="v">XML → XML 字段映射</span></div>
+        <div class="keyval"><span class="k">xml-json</span><span class="v">XML → JSON 字段映射 + 格式转换</span></div>
+        <div class="keyval"><span class="k">说明</span><span class="v">由「协议适配器 + 字段映射」协作完成</span></div>
+      </div>
+    </div>
+    <div style="margin-top:6px"><span class="tag">RuleFieldMappingAdapter</span></div>`;
+}
+
+/* ===== 弹窗 ===== */
+function openModal(html){ document.getElementById('modal').innerHTML = html; document.getElementById('overlay').classList.add('show'); }
+function closeModal(){ document.getElementById('overlay').classList.remove('show'); }
+
+function openAppModal(){
+  openModal(`
+    <div class="modal-head"><h3>新建应用</h3><span class="x" onclick="closeModal()">×</span></div>
+    <div class="modal-body">
+      <div class="field"><label>应用名称</label><input id="f-app-name" placeholder="如：ERP 核心系统"></div>
+      <div class="grid2">
+        <div class="field"><label>类型</label><select id="f-app-type"><option>ERP</option><option>第三方</option><option>内部</option></select></div>
+        <div class="field"><label>鉴权适配器</label><select id="f-app-auth">${AUTH_TYPES.map(t=>`<option>${t}</option>`).join('')}</select></div>
+      </div>
+      <div class="field"><label>描述</label><input id="f-app-desc" placeholder="可选"></div>
+      <div class="hint" style="color:var(--muted);font-size:12px">无需审批，创建即签发 appId + appSecret。</div>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">取消</button><button class="btn" onclick="submitApp()">创建</button></div>`);
+}
+function submitApp(){
+  const name = document.getElementById('f-app-name').value.trim();
+  if(!name){ alert('请填写应用名称'); return; }
+  const type = document.getElementById('f-app-type').value;
+  const auth = document.getElementById('f-app-auth').value;
+  const desc = document.getElementById('f-app-desc').value.trim();
+  const appId = 'APP-' + Math.random().toString(36).slice(2,7).toUpperCase();
+  state.apps.push({ appId, name, type, authType:auth, status:'草稿', secret:'sk_new_xxxx…', desc:desc||'—', groups:[] });
+  closeModal(); navigate('apps');
+}
+
+function openGroupModal(){
+  const appOpts = state.apps.map(a=>`<option value="${a.appId}">${a.name}（${a.appId}）</option>`).join('');
+  openModal(`
+    <div class="modal-head"><h3>新建分组</h3><span class="x" onclick="closeModal()">×</span></div>
+    <div class="modal-body">
+      <div class="field"><label>所属应用</label><select id="f-group-app">${appOpts}</select></div>
+      <div class="field"><label>分组名称</label><input id="f-group-name" placeholder="如：订单 / 回调"></div>
+      <div class="hint" style="color:var(--muted);font-size:12px">分组为纯组织单元，不承载配置。</div>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">取消</button><button class="btn" onclick="submitGroup()">创建</button></div>`);
+}
+function submitGroup(){
+  const appId = document.getElementById('f-group-app').value;
+  const name = document.getElementById('f-group-name').value.trim();
+  if(!name){ alert('请填写分组名称'); return; }
+  const app = state.apps.find(x=>x.appId===appId);
+  app.groups.push({ name, ifs:[] });
+  closeModal(); renderGroups();
+}
+
+function openInterfaceModal(){
+  const appOpts = state.apps.map(a=>`<option value="${a.appId}">${a.name}（${a.appId}）</option>`).join('');
+  openModal(`
+    <div class="modal-head"><h3>新建接口</h3><span class="x" onclick="closeModal()">×</span></div>
+    <div class="modal-body">
+      <div class="field"><label>接口名称</label><input id="f-if-name" placeholder="如：订单推送"></div>
+      <div class="grid2">
+        <div class="field"><label>HTTP 方法</label><select id="f-if-method"><option>POST</option><option>GET</option><option>PUT</option><option>DELETE</option></select></div>
+        <div class="field"><label>协议</label><select id="f-if-proto"><option>JSON</option><option>XML</option></select></div>
+      </div>
+      <div class="field"><label>平台侧路径</label><input id="f-if-path" placeholder="/api/orders"></div>
+      <div class="field"><label>上游地址</label><input id="f-if-upstream" placeholder="http://localhost:8101/order"></div>
+      <div class="grid2">
+        <div class="field"><label>归属应用</label><select id="f-if-app" onchange="populateGroups()">${appOpts}</select></div>
+        <div class="field"><label>归属分组</label><select id="f-if-group"><option value="">— 请先选应用 —</option></select></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label>协议适配器</label><select id="f-adp-proto"><option>JsonProtocolAdapter</option><option>XmlProtocolAdapter</option></select></div>
+        <div class="field"><label>报文适配器</label><select id="f-adp-msg"><option>EnvelopeMessageAdapter</option><option>HeaderMappingAdapter</option></select></div>
+      </div>
+      <div class="field"><label>字段映射适配器</label><select id="f-adp-field"><option>RuleFieldMappingAdapter</option></select></div>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">取消</button><button class="btn" onclick="submitInterface()">创建</button></div>`);
+  populateGroups();
+}
+function populateGroups(){
+  const appId = document.getElementById('f-if-app').value;
+  const app = state.apps.find(x=>x.appId===appId);
+  const sel = document.getElementById('f-if-group');
+  if(!app){ sel.innerHTML = '<option value="">— 请先选应用 —</option>'; return; }
+  if(app.groups.length===0){ sel.innerHTML = '<option value="">— 该应用暂无分组 —</option>'; return; }
+  sel.innerHTML = app.groups.map(g=>`<option value="${g.name}">${g.name}</option>`).join('');
+}
+function submitInterface(){
+  const name = document.getElementById('f-if-name').value.trim();
+  const path = document.getElementById('f-if-path').value.trim();
+  const appId = document.getElementById('f-if-app').value;
+  const group = document.getElementById('f-if-group').value;
+  if(!name || !path){ alert('请填写接口名称与路径'); return; }
+  if(!appId || !group){ alert('请选择归属应用与分组'); return; }
+  const method = document.getElementById('f-if-method').value;
+  const proto = document.getElementById('f-if-proto').value;
+  const upstream = document.getElementById('f-if-upstream').value.trim() || 'http://localhost:9999/up';
+  const adpProto = document.getElementById('f-adp-proto').value;
+  const adpMsg = document.getElementById('f-adp-msg').value;
+  const id = 'IF' + String(state.interfaces.length+1).padStart(3,'0');
+  const field = 'RuleFieldMappingAdapter (' + (proto==='JSON'?'json-json':'json-xml') + ')';
+  state.interfaces.push({ id, name, path, method, protocol:proto, upstream, appId, group, status:'草稿',
+    adapters:{ protocol:adpProto, message:adpMsg, field },
+    config:{ timeout:3000, retries:4, idempotent:true } });
+  const app = state.apps.find(x=>x.appId===appId);
+  const g = app.groups.find(x=>x.name===group);
+  if(g) g.ifs.push(id);
+  closeModal(); navigate('interfaces');
+}
+
+function statusBadge(s){
+  const map = { '启用':'success', '已发布':'success', '草稿':'gray', '停用':'danger', '注销':'gray', '下线':'danger' };
+  return `<span class="badge ${map[s]||'gray'}">${s}</span>`;
+}
+
+/* ===== 启动 ===== */
+navigate('dashboard');
+</script>
+</body>
+</html>

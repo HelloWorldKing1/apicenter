@@ -180,13 +180,15 @@
   .add-row { margin-top: 10px; }
 
   /* ---------- 函数库 ---------- */
-  .fn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
-  .fn-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--card); }
+  .fn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; align-items: stretch; }
+  .fn-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--card); display: flex; flex-direction: column; }
   .fn-card h4 { font-size: 13px; display: flex; align-items: center; gap: 8px; }
   .fn-card .sig { font-family: var(--mono); font-size: 11px; color: var(--purple); background: var(--purple-soft); border-radius: 4px; padding: 1px 6px; }
-  .fn-card p { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .fn-card p { font-size: 12px; color: var(--muted); margin-top: 6px; min-height: 32px; }
   .fn-card .kv { font-size: 12px; margin-top: 6px; }
   .fn-card .btn { margin-top: 8px; }
+  .fn-card .code-block { height: 90px; margin-top: 6px; }
+  .fn-card .foot { margin-top: auto; padding-top: 8px; }
 
   /* ---------- 执行预览 ---------- */
   .run-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -254,6 +256,8 @@
       <div class="menu-item" data-menu="ds" onclick="gotoMenu('ds')">数据源管理</div>
       <div class="menu-item" data-menu="mapping" onclick="gotoMenu('mapping')">字段映射管理</div>
       <div class="menu-item" data-menu="fn" onclick="gotoMenu('fn')">函数管理</div>
+      <div class="menu-item" data-menu="dict" onclick="gotoMenu('dict')">数据字典管理</div>
+      <div class="menu-item" data-menu="cred" onclick="gotoMenu('cred')">密钥 / 凭证管理</div>
     </div>
 
     <div class="menu-item" data-menu="sec" onclick="gotoMenu('sec')">🛡 安全设置</div>
@@ -423,7 +427,7 @@
       <div>
         <div style="overflow:auto">
           <table class="mt">
-            <thead><tr><th>接口名称</th><th>分类</th><th>URL</th><th>协议</th><th>方法</th><th>鉴权</th><th>状态</th><th>操作</th></tr></thead>
+            <thead><tr><th>ID</th><th>接口名称</th><th>分类</th><th>URL</th><th>版本</th><th>创建时间</th><th>修改时间</th><th>状态</th><th>操作</th></tr></thead>
             <tbody id="apiBody"></tbody>
           </table>
         </div>
@@ -450,9 +454,36 @@
   <!-- ======================= 函数管理 ======================= -->
   <div class="pane" id="pane-fn">
     <div class="card">
-      <h2 class="sec">函数库（内置 · 元数据驱动 UI）</h2>
+      <div class="controls" style="margin-bottom:10px">
+        <h2 class="sec" style="margin:0">函数库（内置 · 元数据驱动 UI）</h2>
+        <span style="flex:1"></span>
+        <button class="btn" onclick="openNewFn()">＋ 新建函数</button>
+      </div>
       <div class="sub">运行时引擎按函数名反射调用 Java 方法；函数供字段映射规则引用</div>
       <div class="fn-grid" id="fnGrid" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+  <!-- ======================= 数据字典（枚举）管理 ======================= -->
+  <div class="pane" id="pane-dict">
+    <div class="controls">
+      <button class="btn" onclick="openNewDict()">＋ 新建字典</button>
+      <span class="sub">维护字段值映射（枚举），供字段映射「枚举映射」函数引用</span>
+    </div>
+    <div class="job-grid" id="dictGrid"></div>
+  </div>
+
+  <!-- ======================= 密钥 / 凭证管理 ======================= -->
+  <div class="pane" id="pane-cred">
+    <div class="controls">
+      <button class="btn" onclick="openNewCred()">＋ 新建凭证</button>
+      <span class="sub">集中管理签名密钥 / API Key / 数据库密码 / 证书，密钥脱敏展示</span>
+    </div>
+    <div style="overflow:auto">
+      <table class="mt">
+        <thead><tr><th>名称</th><th>类型</th><th>密钥</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>
+        <tbody id="credBody"></tbody>
+      </table>
     </div>
   </div>
 
@@ -477,15 +508,15 @@
     <div class="kpi-grid" id="monitorKpi"></div>
     <div class="card" style="margin-top:14px">
       <h2 class="sec">① 接口流量统计</h2>
-      <div style="overflow:auto;margin-top:6px"><table class="mt"><thead><tr><th>接口</th><th>请求流量</th><th>响应流量</th><th>总流量</th><th>流量占比</th></tr></thead><tbody id="monitorTraffic"></tbody></table></div>
+      <div style="overflow:auto;margin-top:6px"><table class="mt"><thead><tr><th>接口 ID</th><th>接口</th><th>请求流量</th><th>响应流量</th><th>总流量</th><th>流量占比</th></tr></thead><tbody id="monitorTraffic"></tbody></table></div>
     </div>
     <div class="card">
       <h2 class="sec">② 接口调用次数</h2>
-      <div style="overflow:auto;margin-top:6px"><table class="mt"><thead><tr><th>接口</th><th>总调用次数</th><th>成功次数</th><th>失败次数</th><th>成功率</th></tr></thead><tbody id="monitorCalls"></tbody></table></div>
+      <div style="overflow:auto;margin-top:6px"><table class="mt"><thead><tr><th>接口 ID</th><th>接口</th><th>总调用次数</th><th>成功次数</th><th>失败次数</th><th>成功率</th></tr></thead><tbody id="monitorCalls"></tbody></table></div>
     </div>
     <div class="card">
       <h2 class="sec">③ 接口响应时长统计</h2>
-      <div style="overflow:auto;margin-top:6px"><table class="mt"><thead><tr><th>接口</th><th>平均(ms)</th><th>P50</th><th>P95</th><th>P99</th><th>最大</th><th>最小</th></tr></thead><tbody id="monitorLatency"></tbody></table></div>
+      <div style="overflow:auto;margin-top:6px"><table class="mt"><thead><tr><th>接口 ID</th><th>接口</th><th>平均(ms)</th><th>P50</th><th>P95</th><th>P99</th><th>最大</th><th>最小</th></tr></thead><tbody id="monitorLatency"></tbody></table></div>
     </div>
     <div class="card">
       <h2 class="sec">④ 调用日志</h2>
@@ -543,7 +574,7 @@
 </div>
 
 <div class="foot">
-  apicenter 组件设计演示 ｜ 原型基于 <a href="api演示 demo.html">api演示 demo.html</a> 技术架构 ｜ 可行性分析见 <a href="doc/低代码集成平台可行性分析.md">低代码集成平台可行性分析.md</a>
+  apicenter 组件设计演示 ｜ 原型基于 <a href="api演示 demo.html">api演示 demo.html</a> 技术架构 ｜ 可行性分析见 <a href="doc_old/低代码集成平台可行性分析.md">低代码集成平台可行性分析.md</a>
 </div>
 
 <!-- ======================= 日志详情弹框 ======================= -->
@@ -553,6 +584,65 @@
     <div id="logDetailBody"></div>
     <div class="foot">
       <button class="btn" onclick="closeLogDetail()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 函数编辑弹框 ======================= -->
+<div class="modal-overlay" id="fnModal" style="display:none">
+  <div class="modal">
+    <h3>新建函数</h3>
+    <div class="form-grid">
+      <div class="field"><label>函数标识(key) *</label><input id="fnKey" placeholder="如 yuanToCent"></div>
+      <div class="field"><label>函数名称 *</label><input id="fnName" placeholder="如 元→分"></div>
+      <div class="field"><label>签名</label><input id="fnSig" placeholder="如 yuanToCent(v)"></div>
+      <div class="field"><label>返回类型</label><input id="fnRet" placeholder="如 long"></div>
+      <div class="field full"><label>描述</label><input id="fnDesc" placeholder="函数说明"></div>
+      <div class="field full"><label>函数代码</label><textarea id="fnCode" style="min-height:160px;font-family:var(--mono);font-size:12.5px;line-height:1.5" placeholder="function(v) { return ...; }"></textarea></div>
+    </div>
+    <div class="foot">
+      <button class="btn ghost" onclick="closeFn()">取消</button>
+      <button class="btn" onclick="saveFn()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 数据字典编辑弹框 ======================= -->
+<div class="modal-overlay" id="dictModal" style="display:none">
+  <div class="modal" style="width:680px">
+    <h3>新建字典</h3>
+    <div class="form-grid">
+      <div class="field"><label>字典名称 *</label><input id="dictName" placeholder="如 订单状态"></div>
+      <div class="field"><label>字典编码</label><input id="dictCode" placeholder="如 order_status"></div>
+    </div>
+    <div class="res-h" style="margin-top:12px">字典项（key / value / 描述）</div>
+    <div style="overflow:auto;margin-top:6px">
+      <table class="mt">
+        <thead><tr><th style="width:28%">Key</th><th style="width:28%">Value</th><th>描述</th><th style="width:40px"></th></tr></thead>
+        <tbody id="dictItemsBody"></tbody>
+      </table>
+    </div>
+    <button class="btn ghost sm" onclick="addDictItem()" style="margin-top:8px">＋ 添加字典项</button>
+    <div class="foot">
+      <button class="btn ghost" onclick="closeDict()">取消</button>
+      <button class="btn" onclick="saveDict()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 凭证编辑弹框 ======================= -->
+<div class="modal-overlay" id="credModal" style="display:none">
+  <div class="modal">
+    <h3>新建凭证</h3>
+    <div class="form-grid">
+      <div class="field full"><label>凭证名称 *</label><input id="credName" placeholder="如 ERP 签名密钥"></div>
+      <div class="field"><label>类型</label><select id="credType"><option>签名密钥</option><option>API Key</option><option>数据库密码</option><option>证书</option></select></div>
+      <div class="field"><label>状态</label><select id="credStatus"><option>启用</option><option>停用</option></select></div>
+      <div class="field full"><label>密钥值 *</label><input id="credValue" placeholder="如 erp-secret"></div>
+    </div>
+    <div class="foot">
+      <button class="btn ghost" onclick="closeCred()">取消</button>
+      <button class="btn" onclick="saveCred()">保存</button>
     </div>
   </div>
 </div>
@@ -1023,6 +1113,18 @@ const APIS = [
     params: [ { id:'p1', name:'mobile', type:'string', required:true, location:'body', example:'13812341234' } ],
     headers: [ { id:'h1', name:'Content-Type', value:'application/json' } ] }
 ];
+// 初始化接口版本与时间（模拟）
+APIS.forEach((a, i) => {
+  if(!a.version) a.version = 'V1.' + (i % 3);
+  if(!a.createdAt) a.createdAt = '2026-08-' + String(18 + i).padStart(2, '0') + ' 10:00:00';
+  if(!a.updatedAt) a.updatedAt = '2026-08-27 10:00:00';
+});
+
+function bumpVersion(v){
+  const n = (parseFloat(String(v || 'V1.0').replace(/V/i, '')) || 1) + 0.1;
+  return 'V' + n.toFixed(1);
+}
+
 let currentApiCategory = 'all';   // 当前选中分类（'all'=全部）
 let apiSearch = '';               // 接口搜索关键字
 let currentApiStatus = 'all';     // 接口启用状态筛选
@@ -1555,18 +1657,14 @@ function renderApis(){
   const list = filtered.slice(start, start + PAGE_SIZE);
   tb.innerHTML = list.map(a => `
     <tr>
+      <td><code>${esc(a.id)}</code></td>
       <td>${esc(a.name)} · ${esc(a.desc)}</td>
       <td><span class="pill blue">${esc(catName(a.category))}</span></td>
       <td><code>${esc(a.method || 'POST')} ${esc(a.url)}</code></td>
-      <td>${esc(a.proto)}</td>
-      <td>${esc(a.method || 'POST')}</td>
-      <td>${esc(a.auth)} · ${esc(maskApiKey(a.apiKey))}</td>
-      <td>
-        <label class="switch" style="width:36px;height:20px" title="点击切换启用/停用">
-          <input type="checkbox" ${a.enabled !== false ? 'checked' : ''} onchange="toggleApiEnabled('${a.id}', this.checked)">
-          <span class="slider"></span>
-        </label>
-      </td>
+      <td><span style="color:var(--green);font-weight:600">${esc(a.version || 'V1.0')}</span></td>
+      <td>${esc(a.createdAt || '—')}</td>
+      <td>${esc(a.updatedAt || '—')}</td>
+      <td><span class="pill ${a.enabled !== false ? 'ok' : 'off'}">${a.enabled !== false ? '已启用' : '未启用'}</span></td>
       <td>
         <button class="btn ghost sm" onclick="openApiEdit('${a.id}')">修改</button>
         <button class="btn danger sm" onclick="delApi('${a.id}')">删除</button>
@@ -1576,13 +1674,6 @@ function renderApis(){
 }
 
 function gotoApiPage(p){ apiPage = p; renderApis(); }
-
-function toggleApiEnabled(id, checked){
-  const a = APIS.find(x => x.id === id);
-  if(a) a.enabled = checked;
-  renderDashboard();
-  flash('接口「' + (a ? a.name : '') + '」已' + (checked ? '启用' : '停用'));
-}
 
 function renderLogs(){
   const tb = $('logBody');
@@ -1654,15 +1745,15 @@ function renderMonitor(){
   $('monitorTraffic').innerHTML = list.map(m => {
     const tot = +(m.reqMB + m.respMB).toFixed(1);
     const pct = Math.round(tot / maxMB * 100);
-    return `<tr><td>${esc(m.apiName)}</td><td>${m.reqMB}MB</td><td>${m.respMB}MB</td><td>${tot}MB</td><td><span class="bar" style="display:inline-block;width:120px"><span class="fill" style="width:${pct}%"></span></span></td></tr>`;
+    return `<tr><td><code>${esc(m.apiId)}</code></td><td>${esc(m.apiName)}</td><td>${m.reqMB}MB</td><td>${m.respMB}MB</td><td>${tot}MB</td><td><span class="bar" style="display:inline-block;width:120px"><span class="fill" style="width:${pct}%"></span></span></td></tr>`;
   }).join('');
 
   $('monitorCalls').innerHTML = list.map(m => {
     const rate = (m.successCalls / m.totalCalls * 100).toFixed(1) + '%';
-    return `<tr><td>${esc(m.apiName)}</td><td>${m.totalCalls}</td><td>${m.successCalls}</td><td>${m.failCalls}</td><td>${rate}</td></tr>`;
+    return `<tr><td><code>${esc(m.apiId)}</code></td><td>${esc(m.apiName)}</td><td>${m.totalCalls}</td><td>${m.successCalls}</td><td>${m.failCalls}</td><td>${rate}</td></tr>`;
   }).join('');
 
-  $('monitorLatency').innerHTML = list.map(m => `<tr><td>${esc(m.apiName)}</td><td>${m.avgMs}</td><td>${m.p50Ms}</td><td>${m.p95Ms}</td><td>${m.p99Ms}</td><td>${m.maxMs}</td><td>${m.minMs}</td></tr>`).join('');
+  $('monitorLatency').innerHTML = list.map(m => `<tr><td><code>${esc(m.apiId)}</code></td><td>${esc(m.apiName)}</td><td>${m.avgMs}</td><td>${m.p50Ms}</td><td>${m.p95Ms}</td><td>${m.p99Ms}</td><td>${m.maxMs}</td><td>${m.minMs}</td></tr>`).join('');
 
   const logs = currentMonitorApi === 'all' ? API_CALL_LOGS : API_CALL_LOGS.filter(l => l.apiName === (API_MONITOR.find(m => m.apiId === currentMonitorApi) || {}).apiName);
   $('monitorLogs').innerHTML = logs.map(l => `<tr><td><code>${esc(l.traceId)}</code></td><td>${esc(l.apiName)}</td><td>${esc(l.time)}</td><td>${l.statusCode}</td><td>${l.ms}ms</td><td>${esc(l.method)}</td><td>${esc(l.source)}</td></tr>`).join('');
@@ -2447,13 +2538,22 @@ function saveApiEdit(){
     thirdFormParams: editingThirdFormParams.map(f => ({ ...f })),
     enabled: $('apiEditEnabled').checked
   };
+  const now = fmtDateTime(new Date());
   if(editingApiId){
     const a = APIS.find(x => x.id === editingApiId);
-    if(a) Object.assign(a, data);
-    flash('已更新接口「' + name + '」');
+    if(a){
+      data.version = bumpVersion(a.version);
+      data.createdAt = a.createdAt || now;
+      data.updatedAt = now;
+      Object.assign(a, data);
+    }
+    flash('已更新接口「' + name + '」（' + data.version + '）');
   } else {
+    data.version = 'V1.0';
+    data.createdAt = now;
+    data.updatedAt = now;
     APIS.push({ id:'api'+Date.now(), desc:'自定义接口', ...data });
-    flash('已创建接口「' + name + '」');
+    flash('已创建接口「' + name + '」（V1.0）');
   }
   editingApiId = null;
   renderApis();
@@ -2747,21 +2847,46 @@ const MAPPING_SETS = {
 };
 let mappings = MAPPING_SETS.order.slice();
 
+/* ============================ 数据字典（枚举） ============================ */
+let DICTIONARIES = [
+  { id:'dict1', name:'订单状态', code:'order_status', items: [
+    { id:'di1', key:'NEW', value:'1', desc:'新建' },
+    { id:'di2', key:'PAID', value:'2', desc:'已支付' },
+    { id:'di3', key:'SHIPPED', value:'3', desc:'已发货' }
+  ]},
+  { id:'dict2', name:'币种', code:'currency', items: [
+    { id:'di1', key:'CNY', value:'CNY', desc:'人民币' },
+    { id:'di2', key:'USD', value:'USD', desc:'美元' }
+  ]},
+  { id:'dict3', name:'业务类型', code:'order_type', items: [
+    { id:'di1', key:'PUSH', value:'PUSH', desc:'推送' },
+    { id:'di2', key:'PULL', value:'PULL', desc:'拉取' }
+  ]}
+];
+
+/* ============================ 密钥 / 凭证 ============================ */
+let CREDENTIALS = [
+  { id:'cred1', name:'ERP 签名密钥',      type:'签名密钥',  value:'erp-secret',         status:'启用', createdAt:'2026-08-10 09:00:00' },
+  { id:'cred2', name:'PARTNER_A API Key', type:'API Key',   value:'sk-a1b2c3d4e5f6',    status:'启用', createdAt:'2026-08-12 10:00:00' },
+  { id:'cred3', name:'PARTNER_B API Key', type:'API Key',   value:'sk-b2c3d4e5f6a7',    status:'启用', createdAt:'2026-08-12 10:05:00' },
+  { id:'cred4', name:'订单库密码',        type:'数据库密码', value:'db_pass_123',        status:'启用', createdAt:'2026-08-15 11:00:00' }
+];
+
 /* ============================ 函数库（元数据） ============================ */
-const FUNCTIONS = {
-  pass:         { name: '直传',   sig: 'pass(v)',      ret: '原值',   desc: '源字段原样复制到目标字段' },
-  yuanToCent:   { name: '元→分',  sig: 'yuanToCent(v)', ret: 'long',   desc: '金额 元 ×100 转分（BigDecimal→long）' },
-  centToYuan:   { name: '分→元',  sig: 'centToYuan(v)', ret: 'number', desc: '金额 分 ÷100 转元' },
-  dateFormat:   { name: '时间格式化', sig: 'dateFormat(v, ISO)', ret: 'string', desc: 'ISO-8601 ↔ yyyyMMddHHmmss 转换' },
-  maskPhone:    { name: '手机号脱敏', sig: 'maskPhone(v)', ret: 'string', desc: '13812341234 → 138****1234' },
-  enumMap:      { name: '枚举映射', sig: 'enumMap(v, map)', ret: 'value', desc: 'NEW→1 / PAID→2 / SHIPPED→3' },
-  nest:         { name: '嵌套写入', sig: 'nest(v)', ret: 'value', desc: '源值写入点号目标路径，自动建父对象（buyer.name）' },
-  mapItems:     { name: '明细列表映射', sig: 'mapItems(items[])', ret: 'array', desc: '对明细 items[] 逐项映射（qty→quantity、金额元→分）' },
-  defaultValue: { name: '默认值', sig: 'defaultValue(v, d)', ret: 'value', desc: '空值时返回默认值' },
-  jsonPath:     { name: '路径取值', sig: 'jsonPath(src)', ret: 'value', desc: '按点号路径从源数据取值（src 即路径）' },
-  trim:         { name: '去空格', sig: 'trim(v)', ret: 'string', desc: '去掉首尾空白' }
+let FUNCTIONS = {
+  pass:         { name: '直传',   sig: 'pass(v)',      ret: '原值',   desc: '源字段原样复制到目标字段', code: 'function pass(v) {\n  return v;\n}' },
+  yuanToCent:   { name: '元→分',  sig: 'yuanToCent(v)', ret: 'long',   desc: '金额 元 ×100 转分（BigDecimal→long）', code: 'function yuanToCent(v) {\n  return Math.round(v * 100);\n}' },
+  centToYuan:   { name: '分→元',  sig: 'centToYuan(v)', ret: 'number', desc: '金额 分 ÷100 转元', code: 'function centToYuan(v) {\n  return v / 100;\n}' },
+  dateFormat:   { name: '时间格式化', sig: 'dateFormat(v, ISO)', ret: 'string', desc: 'ISO-8601 ↔ yyyyMMddHHmmss 转换', code: 'function dateFormat(v, iso) {\n  return iso ? v : v.replace(/[-T:]/g, "");\n}' },
+  maskPhone:    { name: '手机号脱敏', sig: 'maskPhone(v)', ret: 'string', desc: '13812341234 → 138****1234', code: 'function maskPhone(v) {\n  return v.replace(/(1[3-9]\\d)\\d{4}(\\d{4})/, "$1****$2");\n}' },
+  enumMap:      { name: '枚举映射', sig: 'enumMap(v, map)', ret: 'value', desc: 'NEW→1 / PAID→2 / SHIPPED→3', code: 'function enumMap(v, map) {\n  return map[v] ?? v;\n}' },
+  nest:         { name: '嵌套写入', sig: 'nest(v)', ret: 'value', desc: '源值写入点号目标路径，自动建父对象（buyer.name）', code: 'function nest(v) {\n  return v;\n}' },
+  mapItems:     { name: '明细列表映射', sig: 'mapItems(items[])', ret: 'array', desc: '对明细 items[] 逐项映射（qty→quantity、金额元→分）', code: 'function mapItems(items) {\n  return items.map(it => ({\n    skuCode: it.skuCode,\n    quantity: it.qty,\n    unitPriceCent: it.unitPrice * 100\n  }));\n}' },
+  defaultValue: { name: '默认值', sig: 'defaultValue(v, d)', ret: 'value', desc: '空值时返回默认值', code: 'function defaultValue(v, d) {\n  return (v == null || v === "") ? d : v;\n}' },
+  jsonPath:     { name: '路径取值', sig: 'jsonPath(src)', ret: 'value', desc: '按点号路径从源数据取值（src 即路径）', code: 'function jsonPath(data, path) {\n  return path.split(".").reduce((o, k) => o?.[k], data);\n}' },
+  trim:         { name: '去空格', sig: 'trim(v)', ret: 'string', desc: '去掉首尾空白', code: 'function trim(v) {\n  return String(v || "").trim();\n}' }
 };
-const FN_LIST = ['pass','yuanToCent','centToYuan','dateFormat','maskPhone','enumMap','nest','mapItems','defaultValue','jsonPath','trim'];
+let FN_LIST = ['pass','yuanToCent','centToYuan','dateFormat','maskPhone','enumMap','nest','mapItems','defaultValue','jsonPath','trim'];
 
 /* ============================ 取值 / 写值 / 函数执行 ============================ */
 function getPath(obj, path){
@@ -2828,13 +2953,192 @@ function renderFns(){
       <h4>${esc(fn.name)} <span class="sig">${esc(fn.sig)}</span></h4>
       <p>${esc(fn.desc)}</p>
       <div class="kv"><span class="k">返回</span><span>${esc(fn.ret)}</span></div>
-      <button class="btn ghost sm" onclick="addFnToFlow('${f}')">＋ 添加到流程</button>
+      <pre class="json code-block" style="font-size:11px">${esc(fn.code || '')}</pre>
+      <div class="foot" style="margin-top:8px">
+        <button class="btn ghost sm" onclick="editFn('${f}')">编辑</button>
+        <button class="btn danger sm" onclick="delFn('${f}')">删除</button>
+      </div>
     </div>`;
   }).join('');
 }
-function addFnToFlow(f){
-  consoleLog('purple','fn', `函数「${FUNCTIONS[f].name}」已挂到当前流程的处理步骤（原型示意）`);
-  flash(`已添加 ${FUNCTIONS[f].name}`);
+
+let editingFnKey = null;
+function openNewFn(){
+  editingFnKey = null;
+  $('fnKey').value = ''; $('fnName').value = ''; $('fnSig').value = ''; $('fnRet').value = ''; $('fnDesc').value = ''; $('fnCode').value = '';
+  $('fnModal').querySelector('h3').textContent = '新建函数';
+  $('fnModal').style.display = 'flex';
+}
+function closeFn(){ $('fnModal').style.display = 'none'; }
+function editFn(key){
+  const f = FUNCTIONS[key];
+  if(!f) return;
+  editingFnKey = key;
+  $('fnKey').value = key;
+  $('fnName').value = f.name;
+  $('fnSig').value = f.sig;
+  $('fnRet').value = f.ret;
+  $('fnDesc').value = f.desc;
+  $('fnCode').value = f.code || '';
+  $('fnModal').querySelector('h3').textContent = '编辑函数';
+  $('fnModal').style.display = 'flex';
+}
+function saveFn(){
+  const key = $('fnKey').value.trim();
+  const name = $('fnName').value.trim();
+  if(!key || !name){ flash('请填写函数标识和名称'); return; }
+  if(editingFnKey && editingFnKey !== key){
+    delete FUNCTIONS[editingFnKey];
+    FN_LIST = FN_LIST.filter(k => k !== editingFnKey);
+  }
+  FUNCTIONS[key] = { name, sig: $('fnSig').value.trim(), ret: $('fnRet').value.trim(), desc: $('fnDesc').value.trim(), code: $('fnCode').value };
+  if(!FN_LIST.includes(key)) FN_LIST.push(key);
+  renderFns();
+  closeFn();
+  flash('已保存函数「' + name + '」');
+}
+function delFn(key){
+  delete FUNCTIONS[key];
+  FN_LIST = FN_LIST.filter(k => k !== key);
+  renderFns();
+  flash('已删除函数');
+}
+
+/* ============================ 数据字典（枚举）管理 ============================ */
+let editingDictId = null;
+let editingDictItems = [];
+
+function renderDicts(){
+  const grid = $('dictGrid');
+  if(!grid) return;
+  grid.innerHTML = DICTIONARIES.map(d => `
+    <div class="job">
+      <h3>${esc(d.name)}</h3>
+      <div class="route"><code>${esc(d.code)}</code> · ${d.items.length} 项</div>
+      <span class="pill purple">字典</span>
+      <div class="foot">
+        <button class="btn ghost sm" onclick="editDict('${d.id}')">编辑</button>
+        <button class="btn danger sm" onclick="delDict('${d.id}')">删除</button>
+      </div>
+    </div>`).join('');
+}
+
+function renderDictItems(){
+  $('dictItemsBody').innerHTML = editingDictItems.map((it, i) => `
+    <tr>
+      <td><input value="${esc(it.key)}" onchange="setDictItem(${i},'key',this.value)"></td>
+      <td><input value="${esc(it.value)}" onchange="setDictItem(${i},'value',this.value)"></td>
+      <td><input value="${esc(it.desc)}" onchange="setDictItem(${i},'desc',this.value)"></td>
+      <td><button class="btn ghost" onclick="delDictItem(${i})">×</button></td>
+    </tr>`).join('');
+}
+function setDictItem(i, key, val){ editingDictItems[i][key] = val; }
+function addDictItem(){ editingDictItems.push({ id:'di'+Date.now(), key:'', value:'', desc:'' }); renderDictItems(); }
+function delDictItem(i){ editingDictItems.splice(i, 1); renderDictItems(); }
+
+function openNewDict(){
+  editingDictId = null;
+  $('dictName').value = ''; $('dictCode').value = '';
+  editingDictItems = [];
+  renderDictItems();
+  $('dictModal').querySelector('h3').textContent = '新建字典';
+  $('dictModal').style.display = 'flex';
+}
+function closeDict(){ $('dictModal').style.display = 'none'; }
+function editDict(id){
+  const d = DICTIONARIES.find(x => x.id === id);
+  if(!d) return;
+  editingDictId = id;
+  $('dictName').value = d.name;
+  $('dictCode').value = d.code;
+  editingDictItems = (d.items || []).map(it => ({ ...it }));
+  renderDictItems();
+  $('dictModal').querySelector('h3').textContent = '编辑字典';
+  $('dictModal').style.display = 'flex';
+}
+function saveDict(){
+  const name = $('dictName').value.trim();
+  if(!name){ flash('请填写字典名称'); return; }
+  const data = { name, code: $('dictCode').value.trim(), items: editingDictItems.map(it => ({ ...it })) };
+  if(editingDictId){
+    const d = DICTIONARIES.find(x => x.id === editingDictId);
+    if(d) Object.assign(d, data);
+    flash('已更新字典「' + name + '」');
+  } else {
+    DICTIONARIES.push({ id:'dict'+Date.now(), ...data });
+    flash('已创建字典「' + name + '」');
+  }
+  editingDictId = null;
+  renderDicts();
+  closeDict();
+}
+function delDict(id){
+  DICTIONARIES = DICTIONARIES.filter(d => d.id !== id);
+  renderDicts();
+  flash('已删除字典');
+}
+
+/* ============================ 密钥 / 凭证管理 ============================ */
+let editingCredId = null;
+
+function renderCreds(){
+  const tb = $('credBody');
+  if(!tb) return;
+  tb.innerHTML = CREDENTIALS.map(c => `
+    <tr>
+      <td>${esc(c.name)}</td>
+      <td><span class="pill blue">${esc(c.type)}</span></td>
+      <td><code>${esc(maskApiKey(c.value))}</code></td>
+      <td><span class="pill ${c.status === '启用' ? 'ok' : 'off'}">${esc(c.status)}</span></td>
+      <td>${esc(c.createdAt)}</td>
+      <td>
+        <button class="btn ghost sm" onclick="editCred('${c.id}')">编辑</button>
+        <button class="btn danger sm" onclick="delCred('${c.id}')">删除</button>
+      </td>
+    </tr>`).join('');
+}
+
+function openNewCred(){
+  editingCredId = null;
+  $('credName').value = ''; $('credValue').value = '';
+  $('credType').value = '签名密钥';
+  $('credStatus').value = '启用';
+  $('credModal').querySelector('h3').textContent = '新建凭证';
+  $('credModal').style.display = 'flex';
+}
+function closeCred(){ $('credModal').style.display = 'none'; }
+function editCred(id){
+  const c = CREDENTIALS.find(x => x.id === id);
+  if(!c) return;
+  editingCredId = id;
+  $('credName').value = c.name;
+  $('credType').value = c.type;
+  $('credValue').value = c.value;
+  $('credStatus').value = c.status;
+  $('credModal').querySelector('h3').textContent = '编辑凭证';
+  $('credModal').style.display = 'flex';
+}
+function saveCred(){
+  const name = $('credName').value.trim();
+  const value = $('credValue').value.trim();
+  if(!name || !value){ flash('请填写凭证名称和密钥值'); return; }
+  const data = { name, type: $('credType').value, value, status: $('credStatus').value, createdAt: fmtDateTime(new Date()) };
+  if(editingCredId){
+    const c = CREDENTIALS.find(x => x.id === editingCredId);
+    if(c){ data.createdAt = c.createdAt; Object.assign(c, data); }
+    flash('已更新凭证「' + name + '」');
+  } else {
+    CREDENTIALS.push({ id:'cred'+Date.now(), ...data });
+    flash('已创建凭证「' + name + '」');
+  }
+  editingCredId = null;
+  renderCreds();
+  closeCred();
+}
+function delCred(id){
+  CREDENTIALS = CREDENTIALS.filter(c => c.id !== id);
+  renderCreds();
+  flash('已删除凭证');
 }
 
 /* ============================ 流程设计配置面板 ============================ */
@@ -2990,6 +3294,8 @@ function init(){
   renderMappingSets();
   renderSecurity();
   renderMonitor();
+  renderDicts();
+  renderCreds();
   renderDashboard();
   selectJob('http_a');
 }

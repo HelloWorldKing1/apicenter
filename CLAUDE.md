@@ -9,7 +9,7 @@
 - **Flow A 出站**（ERP → 组件 → 第三方）：ERP 调 `POST /api/orders` 推送订单 → 验签 → MapStruct 字段映射（PARTNER_A 出 JSON / PARTNER_B 出 XML）→ `@HttpExchange` 调用第三方 → 反向映射返回 ERP。失败按状态机处理：500/429 指数退避重试 → 持久化补偿 → 成功；400 → 死信；超时 → UNKNOWN 对账。
 - **Flow B 入站回调**（第三方 → 组件 → ERP）：第三方调 `POST /callback/{channel}/order-status` → 验签 → 映射为 ERP 事件 → 送达 ERP 回调 URL → ERP ack → 组件回第三方 ack。送达失败由补偿 worker 重发。
 
-四大能力：字段映射（3.1）、失败重试（3.2）、请求日志（3.3）、定时/实时同步（3.4）。详见 `README.md` 与 `src/main/resources/doc/设计文档.md`（12 章）。
+四大能力：字段映射（3.1）、失败重试（3.2）、请求日志（3.3）、定时/实时同步（3.4）。详见 `README.md` 与 `src/main/resources/doc_old/设计文档.md`（12 章）。
 
 ## 技术栈
 
@@ -89,7 +89,7 @@ mvn package           # 打可执行 jar
 ## 文档导航
 
 - `README.md` — 设计文档与 Demo 索引（功能、接口清单、技术栈、Demo 动线）
-- `src/main/resources/doc/设计文档.md` — 12 章设计文档（定位/架构/链路时序/字段映射/重试补偿状态机/日志链路/定时同步/数据模型/API/验收映射）
-- `src/main/resources/doc/实现指南.md` — 各能力「如何实现」及代码位置
+- `src/main/resources/doc_old/设计文档.md` — 12 章设计文档（定位/架构/链路时序/字段映射/重试补偿状态机/日志链路/定时同步/数据模型/API/验收映射）
+- `src/main/resources/doc_old/实现指南.md` — 各能力「如何实现」及代码位置
 - `src/main/resources/api演示 demo.html` — 独立静态交互演示页
 - `src/main/resources/static/` — Vue3 前端（`/`）
