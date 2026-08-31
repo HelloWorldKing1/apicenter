@@ -464,13 +464,13 @@ function renderApps(){
     <div class="panel">
       <div class="panel-head"><h3>应用列表</h3><button class="btn" onclick="openAppModal()">＋ 新建应用</button></div>
       <div class="panel-body">
-        <table><thead><tr><th>appId</th><th>名称</th><th>鉴权方式</th><th>状态</th><th>新增时间</th><th>修改时间</th><th></th></tr></thead>
+        <table><thead><tr><th>appId</th><th>名称</th><th>鉴权方式</th><th>状态</th><th>新增时间</th><th>修改时间</th><th>操作</th></tr></thead>
         <tbody>${state.apps.map(a=>`
           <tr onclick="openAppDetail('${a.appId}')">
             <td><b>${a.appId}</b></td><td>${a.name}</td>
             <td>${a.authType}</td><td>${statusBadge(a.status)}</td>
             <td>${a.createTime}</td><td>${a.updateTime}</td>
-            <td><span style="color:var(--primary)">详情 →</span></td>
+            <td><button class="btn sm ghost" onclick="event.stopPropagation();openAppModal('${a.appId}')">编辑</button> <button class="btn sm danger" onclick="event.stopPropagation();deleteApp('${a.appId}')">删除</button></td>
           </tr>`).join('')}</tbody></table>
       </div>
     </div>
@@ -484,7 +484,7 @@ function renderAppDetail(el){
   if(!a){ currentAppId=null; renderApps(); return; }
   el.innerHTML = `
     <div class="panel">
-      <div class="panel-head"><h3>${a.name} · 应用详情</h3><span class="tag">分组与接口在「分组管理」「接口管理」中管理</span></div>
+      <div class="panel-head"><h3>${a.name} · 应用详情</h3><span><span class="tag">分组与接口在「分组管理」「接口管理」中管理</span> <button class="btn sm ghost" onclick="openAppModal('${a.appId}')">编辑</button> <button class="btn sm danger" onclick="deleteApp('${a.appId}')">删除</button></span></div>
       <div class="panel-body" style="padding:18px">
         <div class="grid2">
           <div>
@@ -515,6 +515,16 @@ function renderAppDetail(el){
     </div>`;
 }
 function openAppDetail(appId){ currentAppId=appId; renderTopbar('apps'); renderApps(); }
+function deleteApp(id){
+  const a = state.apps.find(x=>x.appId===id);
+  if(!a) return;
+  if(!confirm(`确认删除应用「${a.name}」？其下接口将一并删除，引用它的接口将解绑上游。`)) return;
+  state.interfaces = state.interfaces.filter(i=>i.appId!==id);
+  state.interfaces.forEach(i=>{ if(i.upstreamApp===id){ i.upstreamApp=''; } });
+  state.apps = state.apps.filter(x=>x.appId!==id);
+  if(currentAppId===id){ currentAppId=null; }
+  renderApps();
+}
 
 /* ===== 分组管理 ===== */
 function renderGroups(){
@@ -1013,18 +1023,20 @@ function openModal(html, wide){ const m = document.getElementById('modal'); m.in
 function closeModal(){ document.getElementById('overlay').classList.remove('show'); }
 function openModal2(html){ document.getElementById('modal2').innerHTML = html; document.getElementById('overlay2').classList.add('show'); }
 function closeModal2(){ document.getElementById('overlay2').classList.remove('show'); }
-function openAppModal(){
+function openAppModal(id){
+  const a = id ? state.apps.find(x=>x.appId===id) : null;
   openModal(`
-    <div class="modal-head"><h3>新建应用</h3><span class="x" onclick="closeModal()">×</span></div>
+    <div class="modal-head"><h3>${a?'编辑应用':'新建应用'}</h3><span class="x" onclick="closeModal()">×</span></div>
     <div class="modal-body">
-      <div class="field"><label>应用名称</label><input id="f-app-name" placeholder="如：ERP 核心系统"></div>
-      <div class="field"><label>鉴权适配器</label><select id="f-app-auth" onchange="onAppAuthChange()">${adapterOpts('auth')}<option value="__custom__">＋ 自定义鉴权适配器…</option></select><div id="f-app-auth-custom" class="params-panel" style="display:none;margin-top:10px"></div></div>
-      <div class="field"><label>IP 白名单</label><textarea id="f-app-ip-wl" rows="3" placeholder="使用英文逗号分割"></textarea><div class="hint">多个IP请使用英文逗号分割，为空时不限制开放接口的请求IP。</div></div>
-      <div class="field"><label>IP 黑名单</label><textarea id="f-app-ip-bl" rows="3" placeholder="使用英文逗号分割"></textarea><div class="hint">多个IP请使用英文逗号分割，为空时不限制开放接口的请求IP。</div></div>
-      <div class="field"><label>描述</label><input id="f-app-desc" placeholder="可选"></div>
+      <input type="hidden" id="f-app-id" value="${a?a.appId:''}">
+      <div class="field"><label>应用名称</label><input id="f-app-name" placeholder="如：ERP 核心系统" value="${a?a.name:''}"></div>
+      <div class="field"><label>鉴权适配器</label><select id="f-app-auth" onchange="onAppAuthChange()">${adapterOpts('auth', a?a.authType:null)}<option value="__custom__">＋ 自定义鉴权适配器…</option></select><div id="f-app-auth-custom" class="params-panel" style="display:none;margin-top:10px"></div></div>
+      <div class="field"><label>IP 白名单</label><textarea id="f-app-ip-wl" rows="3" placeholder="使用英文逗号分割">${a?a.ipWhitelist:''}</textarea><div class="hint">多个IP请使用英文逗号分割，为空时不限制开放接口的请求IP。</div></div>
+      <div class="field"><label>IP 黑名单</label><textarea id="f-app-ip-bl" rows="3" placeholder="使用英文逗号分割">${a?a.ipBlacklist:''}</textarea><div class="hint">多个IP请使用英文逗号分割，为空时不限制开放接口的请求IP。</div></div>
+      <div class="field"><label>描述</label><input id="f-app-desc" placeholder="可选" value="${a && a.desc!=='—' ? a.desc : ''}"></div>
       <div class="hint" style="color:var(--muted);font-size:12px">无需审批，创建即签发 appId + appSecret。</div>
     </div>
-    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">取消</button><button class="btn" onclick="submitApp()">创建</button></div>`);
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">取消</button><button class="btn" onclick="submitApp()">${a?'保存':'创建'}</button></div>`);
 }
 function nowStr(){
   const d = new Date();
@@ -1056,6 +1068,7 @@ function renderAppAuthCustomParams(){
   box.innerHTML = fields.map(f=>paramFieldHtml(f, '', 'f-acp-')).join('');
 }
 function submitApp(){
+  const id = document.getElementById('f-app-id').value;
   const name = document.getElementById('f-app-name').value.trim();
   if(!name){ alert('请填写应用名称'); return; }
   let auth = document.getElementById('f-app-auth').value || '无鉴权';
@@ -1083,9 +1096,14 @@ function submitApp(){
   const ipWhitelist = document.getElementById('f-app-ip-wl').value.trim();
   const ipBlacklist = document.getElementById('f-app-ip-bl').value.trim();
   const desc = document.getElementById('f-app-desc').value.trim();
-  const appId = 'APP-' + Math.random().toString(36).slice(2,7).toUpperCase();
   const now = nowStr();
-  state.apps.push({ appId, name, authType:auth, status:'草稿', secret:'sk_new_xxxx…', ipWhitelist, ipBlacklist, createTime:now, updateTime:now, desc:desc||'—', groups:[] });
+  if(id){
+    const a = state.apps.find(x=>x.appId===id);
+    if(a){ Object.assign(a, { name, authType:auth, ipWhitelist, ipBlacklist, desc:desc||'—', updateTime:now }); }
+  } else {
+    const appId = 'APP-' + Math.random().toString(36).slice(2,7).toUpperCase();
+    state.apps.push({ appId, name, authType:auth, status:'草稿', secret:'sk_new_xxxx…', ipWhitelist, ipBlacklist, createTime:now, updateTime:now, desc:desc||'—', groups:[] });
+  }
   closeModal(); navigate('apps');
 }
 
