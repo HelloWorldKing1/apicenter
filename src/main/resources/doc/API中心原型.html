@@ -114,6 +114,14 @@
   .btn[disabled]{opacity:.45;pointer-events:none}
   .params-panel{border:1px solid var(--line);border-radius:8px;padding:12px 14px;background:#fafbfc}
   .rule-row{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:12px;background:#fff}
+  .impl-select{position:relative}
+  .impl-select-trigger{width:100%;padding:8px 12px;border:1px solid var(--line);border-radius:6px;background:#fff;font-size:14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
+  .impl-select-trigger:hover{border-color:var(--primary)}
+  .impl-select-trigger .caret{color:var(--muted);font-size:12px}
+  .impl-select-panel{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:6px;max-height:220px;overflow:auto;z-index:20;box-shadow:0 8px 24px rgba(0,0,0,.12);margin-top:4px;display:none}
+  .impl-opt{padding:8px 12px;cursor:pointer;font-size:13px}
+  .impl-opt:hover{background:#f7f8fa}
+  .impl-opt.active{color:var(--primary);background:var(--primary-light)}
 </style>
 </head>
 <body>
@@ -203,13 +211,14 @@ const state = {
     { level:'danger', text:'ERP-CORE 近 1 分钟 QPS 超限，触发限流', time:'10:28:30' }
   ],
   adapters: [
-    { id:'ADP-001', name:'API Key 鉴权', type:'auth', impl:'ApiKeyAuthAdapter', enabled:true, version:'1.0', params:{ headerName:'X-App-Id' } },
+    { id:'ADP-001', name:'API Key 鉴权', type:'auth', impl:'ApiKeyAuthAdapter', enabled:true, version:'1.0', params:{ apiKey:'', headerName:'X-App-Id' } },
     { id:'ADP-002', name:'HMAC 签名鉴权', type:'auth', impl:'HmacAuthAdapter', enabled:true, version:'1.0', params:{ signatureAlgorithm:'HMAC-SHA256', signatureHeader:'X-Signature', timestampToleranceSeconds:300, replayProtection:true } },
     { id:'ADP-003', name:'OAuth2 Client Credentials 鉴权', type:'auth', impl:'OAuth2ClientCredentialsAdapter', enabled:true, version:'1.0', params:{ tokenUrl:'', clientId:'', clientSecret:'', scope:'' } },
     { id:'ADP-004', name:'Bearer Token 鉴权', type:'auth', impl:'BearerTokenAuthAdapter', enabled:true, version:'1.0', params:{ token:'', headerName:'Authorization', prefix:'Bearer' } },
     { id:'ADP-005', name:'Basic 鉴权', type:'auth', impl:'BasicAuthAdapter', enabled:true, version:'1.0', params:{ username:'', password:'' } },
     { id:'ADP-006', name:'mTLS 鉴权', type:'auth', impl:'MtlsAuthAdapter', enabled:false, version:'1.0', params:{ clientCert:'', clientKey:'', caCert:'', verifyMode:'STRICT' } },
     { id:'ADP-007', name:'无鉴权', type:'auth', impl:'NoopAuthAdapter', enabled:true, version:'1.0', params:{} },
+    { id:'ADP-008', name:'云厂商签名鉴权', type:'auth', impl:'CloudSignatureAdapter', enabled:true, version:'1.0', params:{ scheme:'TC3-HMAC-SHA256', secretId:'', secretKey:'', service:'cvm', region:'ap-guangzhou', signedHeaders:'content-type;host' } },
     { id:'ADP-101', name:'JSON 协议编解码', type:'protocol', impl:'JsonProtocolAdapter', enabled:true, version:'1.0', params:{ namingStrategy:'CAMEL_CASE', dateFormat:'yyyy-MM-dd', ignoreUnknown:true, nullHandling:'OMIT', numberPrecision:'DOUBLE' } },
     { id:'ADP-102', name:'XML 协议编解码', type:'protocol', impl:'XmlProtocolAdapter', enabled:true, version:'1.0', params:{ rootElement:'request', namespace:'', attrVsElement:'ELEMENT' } },
     { id:'ADP-201', name:'信封报文适配', type:'message', impl:'EnvelopeMessageAdapter', enabled:true, version:'1.0', params:{ envelope:'envelope', requestTemplate:'', responseTemplate:'' } },
@@ -224,20 +233,29 @@ const state = {
 const AUTH_TYPES = ['API Key','HMAC 签名','OAuth 2.0','Bearer Token / JWT','Basic Auth','mTLS','无鉴权'];
 const ADAPTER_TYPE_META = { auth:'鉴权', protocol:'协议', message:'报文', field:'字段映射' };
 const ADAPTER_IMPLS = {
-  auth:     ['ApiKeyAuthAdapter','HmacAuthAdapter','OAuth2ClientCredentialsAdapter','OAuth2AuthorizationCodeAdapter','BearerTokenAuthAdapter','BasicAuthAdapter','MtlsAuthAdapter','NoopAuthAdapter'],
+  auth:     ['ApiKeyAuthAdapter','HmacAuthAdapter','CloudSignatureAdapter','OAuth2ClientCredentialsAdapter','OAuth2AuthorizationCodeAdapter','BearerTokenAuthAdapter','BasicAuthAdapter','MtlsAuthAdapter','NoopAuthAdapter'],
   protocol: ['JsonProtocolAdapter','XmlProtocolAdapter'],
   message:  ['EnvelopeMessageAdapter','HeaderMappingAdapter'],
   field:    ['RuleFieldMappingAdapter']
 };
 const ADAPTER_FIELDS = {
   ApiKeyAuthAdapter: [
-    { key:'headerName', label:'Header 名', kind:'text', placeholder:'如 X-App-Id' }
+    { key:'headerName', label:'Header 名', kind:'select', options:['X-API-Key','X-App-Id','X-Auth-Token','api-key'] },
+    { key:'apiKey', label:'API Key（值）', kind:'text', secret:true }
   ],
   HmacAuthAdapter: [
-    { key:'signatureAlgorithm', label:'签名算法', kind:'text', placeholder:'HMAC-SHA256' },
-    { key:'signatureHeader', label:'签名头', kind:'text', placeholder:'X-Signature' },
+    { key:'signatureAlgorithm', label:'签名算法', kind:'select', options:['HMAC-SHA256','HMAC-SHA1','HMAC-SHA512'] },
+    { key:'signatureHeader', label:'签名头', kind:'select', options:['X-Signature','X-Hub-Signature','X-Auth-Signature'] },
     { key:'timestampToleranceSeconds', label:'时间戳容差(s)', kind:'number', placeholder:'300' },
     { key:'replayProtection', label:'防重放', kind:'switch' }
+  ],
+  CloudSignatureAdapter: [
+    { key:'scheme', label:'签名规范', kind:'select', options:['TC3-HMAC-SHA256','AWS4-HMAC-SHA256','ACS3-HMAC-SHA256'] },
+    { key:'secretId', label:'SecretId / AccessKeyId', kind:'text', placeholder:'AKID...' },
+    { key:'secretKey', label:'SecretKey', kind:'text', secret:true },
+    { key:'service', label:'服务名', kind:'text', placeholder:'cvm' },
+    { key:'region', label:'地域', kind:'text', placeholder:'ap-guangzhou' },
+    { key:'signedHeaders', label:'签名头', kind:'text', placeholder:'content-type;host' }
   ],
   OAuth2ClientCredentialsAdapter: [
     { key:'tokenUrl', label:'Token 端点', kind:'text' },
@@ -255,8 +273,8 @@ const ADAPTER_FIELDS = {
   ],
   BearerTokenAuthAdapter: [
     { key:'token', label:'Token（API Key）', kind:'text', secret:true, placeholder:'YOUR_API_KEY' },
-    { key:'headerName', label:'Header 名', kind:'text', placeholder:'Authorization' },
-    { key:'prefix', label:'前缀', kind:'text', placeholder:'Bearer' }
+    { key:'headerName', label:'Header 名', kind:'select', options:['Authorization','X-Auth-Token','X-Access-Token'] },
+    { key:'prefix', label:'前缀', kind:'select', options:['Bearer','Token'] }
   ],
   BasicAuthAdapter: [
     { key:'username', label:'用户名', kind:'text' },
@@ -271,7 +289,7 @@ const ADAPTER_FIELDS = {
   NoopAuthAdapter: [],
   JsonProtocolAdapter: [
     { key:'namingStrategy', label:'命名策略', kind:'select', options:['CAMEL_CASE','SNAKE_CASE','KEBAB_CASE'] },
-    { key:'dateFormat', label:'日期格式', kind:'text', placeholder:'yyyy-MM-dd' },
+    { key:'dateFormat', label:'日期格式', kind:'select', options:['yyyy-MM-dd','yyyy-MM-dd HH:mm:ss','ISO8601'] },
     { key:'ignoreUnknown', label:'忽略未知字段', kind:'switch' },
     { key:'nullHandling', label:'空值策略', kind:'select', options:['OMIT','INCLUDE','AS_NULL'] },
     { key:'numberPrecision', label:'数字精度', kind:'select', options:['DOUBLE','BIG_DECIMAL','STRING'] }
@@ -303,11 +321,27 @@ function opParamMeta(op){
     default: return null;
   }
 }
+const ADAPTER_IMPL_DESC = {
+  ApiKeyAuthAdapter: '静态 API Key 鉴权：填 API Key（值）与携带密钥的 Header 名（如 X-App-Id）。',
+  HmacAuthAdapter: '简单 HMAC 签名：填签名算法、签名头、时间戳容差、是否防重放。',
+  CloudSignatureAdapter: '云厂商签名（腾讯云 TC3 / AWS SigV4 / 阿里云 ACS3）：填 SecretId、SecretKey、服务名、地域、签名头。',
+  OAuth2ClientCredentialsAdapter: 'OAuth2 机器对机器：填 Token 端点、Client ID、Client Secret、Scope。',
+  OAuth2AuthorizationCodeAdapter: 'OAuth2 授权码流程：填授权地址、Token 端点、Client ID、Client Secret、回调地址、Scope。',
+  BearerTokenAuthAdapter: '静态 Bearer Token：只需填 Token（API Key）、Header 名、前缀。',
+  BasicAuthAdapter: 'HTTP 基础认证：填用户名、密码。',
+  MtlsAuthAdapter: 'mTLS 双向证书：上传客户端证书、私钥、CA 证书，选校验方式。',
+  NoopAuthAdapter: '无鉴权：无需填任何参数。',
+  JsonProtocolAdapter: 'JSON 编解码：填命名策略、日期格式、忽略未知字段、空值策略、数字精度。',
+  XmlProtocolAdapter: 'XML 编解码：填根元素、命名空间、属性 vs 元素。',
+  EnvelopeMessageAdapter: '信封/报文结构：填信封、请求模板、响应模板。',
+  HeaderMappingAdapter: '报文头映射：填报文头字段映射规则。',
+  RuleFieldMappingAdapter: '字段映射：配置映射规则列表（源字段 / 操作 / 目标字段 / 空值策略）。'
+};
 const VIEW_TITLES = { dashboard:'概览', apps:'应用管理', groups:'分组管理', interfaces:'接口管理', monitor:'接口监控', adapters:'适配器', appendix:'设计附录' };
 let currentView = 'dashboard';
 let currentAppId = null;      // 应用详情
 let currentIfId = null;       // 接口详情
-let adapterTypeFilter = 'all'; // 适配器类型过滤
+let adapterTypeFilter = 'auth'; // 适配器类型过滤
 let adapterPage = 0;           // 适配器当前页
 let adapterFormEnabled = true; // 适配器表单启用状态
 let adapterRuleList = [];      // 字段映射规则瞬时列表
@@ -576,11 +610,11 @@ function renderMonitor(){
 /* ===== 适配器 ===== */
 function renderAdapters(){
   const el = document.getElementById('view-adapters');
-  const filtered = state.adapters.filter(a => adapterTypeFilter==='all' || a.type===adapterTypeFilter);
+  const filtered = state.adapters.filter(a => a.type===adapterTypeFilter);
   const pages = Math.max(1, Math.ceil(filtered.length / ADAPTER_PAGE_SIZE));
   if(adapterPage > pages-1) adapterPage = pages-1;
   const rows = filtered.slice(adapterPage*ADAPTER_PAGE_SIZE, adapterPage*ADAPTER_PAGE_SIZE+ADAPTER_PAGE_SIZE);
-  const tabs = [['all','全部'],['auth','鉴权'],['protocol','协议'],['message','报文'],['field','字段映射']]
+  const tabs = [['auth','鉴权'],['protocol','协议'],['message','报文'],['field','字段映射']]
     .map(([k,l])=>`<button class="tab ${adapterTypeFilter===k?'active':''}" onclick="selectAdapterFilter('${k}')">${l}</button>`).join('');
   el.innerHTML = `
     <div class="panel">
@@ -592,7 +626,7 @@ function renderAdapters(){
           <tr>
             <td><b>${a.name}</b></td>
             <td>${typeDot(a.type)}${ADAPTER_TYPE_META[a.type]}</td>
-            <td><span class="tag">${a.impl}</span></td>
+            <td><span class="tag" title="${ADAPTER_IMPL_DESC[a.impl]||''}">${a.impl}</span></td>
             <td>${a.version}</td>
             <td>${switchBtn(a)}</td>
             <td>
@@ -620,7 +654,7 @@ function openAdapterModal(id){
   const a = id ? state.adapters.find(x=>x.id===id) : null;
   const type = a ? a.type : 'auth';
   const typeOpts = Object.keys(ADAPTER_TYPE_META).map(t=>`<option value="${t}" ${t===type?'selected':''}>${ADAPTER_TYPE_META[t]}</option>`).join('');
-  const implOpts = ADAPTER_IMPLS[type].map(i=>`<option value="${i}" ${a&&a.impl===i?'selected':''}>${i}</option>`).join('');
+  const impl = a ? a.impl : ADAPTER_IMPLS[type][0];
   openModal(`
     <div class="modal-head"><h3>${a?'编辑适配器':'新建适配器'}</h3><span class="x" onclick="closeModal()">×</span></div>
     <div class="modal-body">
@@ -630,7 +664,14 @@ function openAdapterModal(id){
         <div class="field"><label>类型</label><select id="f-adp-type" onchange="onAdapterTypeChange()">${typeOpts}</select></div>
       </div>
       <div class="grid2">
-        <div class="field"><label>实现类</label><select id="f-adp-impl" onchange="onAdapterImplChange()">${implOpts}</select></div>
+        <div class="field"><label>实现类</label>
+          <input type="hidden" id="f-adp-impl" value="${impl}">
+          <div class="impl-select">
+            <div class="impl-select-trigger" id="f-adp-impl-trigger" onclick="toggleImplDropdown(event)"><span id="f-adp-impl-label">${impl}</span><span class="caret">▾</span></div>
+            <div class="impl-select-panel" id="f-adp-impl-panel"></div>
+          </div>
+          <div class="hint" id="f-adp-impl-hint">${ADAPTER_IMPL_DESC[impl]||''}</div>
+        </div>
         <div class="field"><label>版本</label><input id="f-adp-version" placeholder="1.0" value="${a?a.version:'1.0'}"></div>
       </div>
       <div class="field"><label>启用</label><div id="f-adp-enabled"></div></div>
@@ -641,6 +682,7 @@ function openAdapterModal(id){
     </div>
     <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">取消</button><button class="btn" onclick="submitAdapter()">保存</button></div>`);
   renderAdapterEnabled(a ? a.enabled : true);
+  renderImplOptions();
   adapterRuleList = a ? (a.params.mappingRules || []).map(r=>({...r})) : [];
   renderAdapterParams();
 }
@@ -650,11 +692,38 @@ function renderAdapterEnabled(v){
 }
 function onAdapterTypeChange(){
   const type = document.getElementById('f-adp-type').value;
-  document.getElementById('f-adp-impl').innerHTML = ADAPTER_IMPLS[type].map(i=>`<option value="${i}">${i}</option>`).join('');
+  const first = ADAPTER_IMPLS[type][0] || '';
+  document.getElementById('f-adp-impl').value = first;
+  document.getElementById('f-adp-impl-label').textContent = first;
+  document.getElementById('f-adp-impl-hint').textContent = ADAPTER_IMPL_DESC[first] || '';
   document.getElementById('f-adp-params-title').textContent = ADAPTER_TYPE_META[type];
+  renderImplOptions();
   renderAdapterParams();
 }
 function onAdapterImplChange(){ renderAdapterParams(); }
+let implOpen = false;
+function renderImplOptions(){
+  const type = document.getElementById('f-adp-type').value;
+  const cur = document.getElementById('f-adp-impl').value;
+  document.getElementById('f-adp-impl-panel').innerHTML = (ADAPTER_IMPLS[type]||[]).map(i=>`
+    <div class="impl-opt ${i===cur?'active':''}" title="${ADAPTER_IMPL_DESC[i]||''}" onclick="selectImpl('${i}')">${i}</div>`).join('');
+}
+function toggleImplDropdown(e){
+  e.stopPropagation();
+  const panel = document.getElementById('f-adp-impl-panel');
+  implOpen = !implOpen;
+  panel.style.display = implOpen ? 'block' : 'none';
+}
+function selectImpl(impl){
+  document.getElementById('f-adp-impl').value = impl;
+  document.getElementById('f-adp-impl-label').textContent = impl;
+  document.getElementById('f-adp-impl-hint').textContent = ADAPTER_IMPL_DESC[impl] || '';
+  implOpen = false;
+  document.getElementById('f-adp-impl-panel').style.display = 'none';
+  renderImplOptions();
+  onAdapterImplChange();
+}
+document.addEventListener('click', function(){ if(implOpen){ implOpen = false; const p = document.getElementById('f-adp-impl-panel'); if(p) p.style.display = 'none'; } });
 function renderAdapterParams(){
   const impl = document.getElementById('f-adp-impl').value;
   if(impl==='RuleFieldMappingAdapter'){ renderRuleEditor(); return; }
