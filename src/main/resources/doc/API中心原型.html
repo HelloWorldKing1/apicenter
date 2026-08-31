@@ -728,6 +728,25 @@ function selectImpl(impl){
   onAdapterImplChange();
 }
 document.addEventListener('click', function(){ if(implOpen){ implOpen = false; const p = document.getElementById('f-adp-impl-panel'); if(p) p.style.display = 'none'; } });
+function paramFieldHtml(f, val, prefix){
+  if(f.kind==='select'){
+    return `<div class="field"><label>${f.label}</label><select id="${prefix}${f.key}">${(f.options||[]).map(o=>`<option value="${o}" ${val===o?'selected':''}>${o}</option>`).join('')}</select></div>`;
+  }
+  if(f.kind==='switch'){
+    return `<div class="field"><label>${f.label}</label><select id="${prefix}${f.key}"><option value="1" ${val?'selected':''}>是</option><option value="0" ${!val?'selected':''}>否</option></select></div>`;
+  }
+  if(f.kind==='textarea'){
+    return `<div class="field"><label>${f.label}</label><textarea id="${prefix}${f.key}" placeholder="${f.placeholder||''}">${val}</textarea></div>`;
+  }
+  if(f.kind==='number'){
+    return `<div class="field"><label>${f.label}</label><input type="number" id="${prefix}${f.key}" placeholder="${f.placeholder||''}" value="${val}"></div>`;
+  }
+  if(f.kind==='file'){
+    return `<div class="field"><label>${f.label}</label><input type="file" id="${prefix}${f.key}">${val ? `<div class="hint">已选：${val}</div>` : ''}</div>`;
+  }
+  const inputType = f.secret ? 'password' : 'text';
+  return `<div class="field"><label>${f.label}</label><input type="${inputType}" id="${prefix}${f.key}" placeholder="${f.placeholder||''}" value="${val}"></div>`;
+}
 function renderAdapterParams(){
   const impl = document.getElementById('f-adp-impl').value;
   if(impl==='RuleFieldMappingAdapter'){ renderRuleEditor(); return; }
@@ -741,23 +760,7 @@ function renderAdapterParams(){
   }
   box.innerHTML = fields.map(f=>{
     const val = existing[f.key] !== undefined ? existing[f.key] : '';
-    if(f.kind==='select'){
-      return `<div class="field"><label>${f.label}</label><select id="f-p-${f.key}">${(f.options||[]).map(o=>`<option value="${o}" ${val===o?'selected':''}>${o}</option>`).join('')}</select></div>`;
-    }
-    if(f.kind==='switch'){
-      return `<div class="field"><label>${f.label}</label><select id="f-p-${f.key}"><option value="1" ${val?'selected':''}>是</option><option value="0" ${!val?'selected':''}>否</option></select></div>`;
-    }
-    if(f.kind==='textarea'){
-      return `<div class="field"><label>${f.label}</label><textarea id="f-p-${f.key}" placeholder="${f.placeholder||''}">${val}</textarea></div>`;
-    }
-    if(f.kind==='number'){
-      return `<div class="field"><label>${f.label}</label><input type="number" id="f-p-${f.key}" placeholder="${f.placeholder||''}" value="${val}"></div>`;
-    }
-    if(f.kind==='file'){
-      return `<div class="field"><label>${f.label}</label><input type="file" id="f-p-${f.key}">${val ? `<div class="hint">已选：${val}</div>` : ''}</div>`;
-    }
-    const inputType = f.secret ? 'password' : 'text';
-    return `<div class="field"><label>${f.label}</label><input type="${inputType}" id="f-p-${f.key}" placeholder="${f.placeholder||''}" value="${val}"></div>`;
+    return paramFieldHtml(f, val, 'f-p-');
   }).join('');
 }
 function renderRuleEditor(){
@@ -977,7 +980,7 @@ function openAppModal(){
     <div class="modal-head"><h3>新建应用</h3><span class="x" onclick="closeModal()">×</span></div>
     <div class="modal-body">
       <div class="field"><label>应用名称</label><input id="f-app-name" placeholder="如：ERP 核心系统"></div>
-      <div class="field"><label>鉴权适配器</label><select id="f-app-auth">${adapterOpts('auth')}</select></div>
+      <div class="field"><label>鉴权适配器</label><select id="f-app-auth" onchange="onAppAuthChange()">${adapterOpts('auth')}<option value="__custom__">＋ 自定义鉴权适配器…</option></select><div id="f-app-auth-custom" class="params-panel" style="display:none;margin-top:10px"></div></div>
       <div class="field"><label>IP 白名单</label><textarea id="f-app-ip-wl" rows="3" placeholder="使用英文逗号分割"></textarea><div class="hint">多个IP请使用英文逗号分割，为空时不限制开放接口的请求IP。</div></div>
       <div class="field"><label>IP 黑名单</label><textarea id="f-app-ip-bl" rows="3" placeholder="使用英文逗号分割"></textarea><div class="hint">多个IP请使用英文逗号分割，为空时不限制开放接口的请求IP。</div></div>
       <div class="field"><label>描述</label><input id="f-app-desc" placeholder="可选"></div>
@@ -990,10 +993,55 @@ function nowStr(){
   const p = n => String(n).padStart(2,'0');
   return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
+function onAppAuthChange(){
+  const isCustom = document.getElementById('f-app-auth').value === '__custom__';
+  document.getElementById('f-app-auth-custom').style.display = isCustom ? 'block' : 'none';
+  if(isCustom) renderAppAuthCustom();
+}
+function renderAppAuthCustom(){
+  const box = document.getElementById('f-app-auth-custom');
+  box.innerHTML = `
+    <div class="field"><label>适配器名称</label><input id="f-app-auth-c-name" placeholder="如：我的 HMAC 鉴权"></div>
+    <div class="field"><label>实现类</label><select id="f-app-auth-c-impl" onchange="renderAppAuthCustomParams()">${ADAPTER_IMPLS.auth.map(i=>`<option value="${i}">${i}</option>`).join('')}</select></div>
+    <div id="f-app-auth-c-params"></div>
+    <div class="field" style="margin-bottom:0"><label style="font-weight:400;color:var(--muted);display:flex;align-items:center;gap:6px"><input type="checkbox" id="f-app-auth-c-save" style="width:auto"> 保存为适配器（供其他应用复用）</label></div>`;
+  renderAppAuthCustomParams();
+}
+function renderAppAuthCustomParams(){
+  const impl = document.getElementById('f-app-auth-c-impl').value;
+  const fields = ADAPTER_FIELDS[impl] || [];
+  const box = document.getElementById('f-app-auth-c-params');
+  if(!fields.length){
+    box.innerHTML = '<div class="empty" style="padding:12px">该实现类无额外参数。</div>';
+    return;
+  }
+  box.innerHTML = fields.map(f=>paramFieldHtml(f, '', 'f-acp-')).join('');
+}
 function submitApp(){
   const name = document.getElementById('f-app-name').value.trim();
   if(!name){ alert('请填写应用名称'); return; }
-  const auth = document.getElementById('f-app-auth').value || '无鉴权';
+  let auth = document.getElementById('f-app-auth').value || '无鉴权';
+  if(auth === '__custom__'){
+    const cName = document.getElementById('f-app-auth-c-name').value.trim();
+    const cImpl = document.getElementById('f-app-auth-c-impl').value;
+    const saveAs = document.getElementById('f-app-auth-c-save').checked;
+    if(!cName){ alert('请填写自定义鉴权适配器名称'); return; }
+    const cParams = {};
+    (ADAPTER_FIELDS[cImpl]||[]).forEach(f=>{
+      const el = document.getElementById('f-acp-'+f.key);
+      if(!el) return;
+      if(f.kind==='file'){ cParams[f.key] = (el.files && el.files[0]) ? el.files[0].name : ''; return; }
+      const raw = el.value;
+      if(f.kind==='switch'){ cParams[f.key] = (raw==='1'); }
+      else if(f.kind==='number'){ cParams[f.key] = raw==='' ? null : Number(raw); }
+      else { cParams[f.key] = raw.trim(); }
+    });
+    if(saveAs){
+      const maxId = state.adapters.reduce((m,x)=>Math.max(m, parseInt(x.id.replace('ADP-',''))||0), 0);
+      state.adapters.push({ id:'ADP-'+String(maxId+1).padStart(3,'0'), name:cName, type:'auth', impl:cImpl, version:'1.0', enabled:true, params:cParams });
+    }
+    auth = cName;
+  }
   const ipWhitelist = document.getElementById('f-app-ip-wl').value.trim();
   const ipBlacklist = document.getElementById('f-app-ip-bl').value.trim();
   const desc = document.getElementById('f-app-desc').value.trim();
