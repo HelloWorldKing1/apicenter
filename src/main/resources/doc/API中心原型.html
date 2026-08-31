@@ -166,18 +166,18 @@
 /* ===== 模拟数据 ===== */
 const state = {
   apps: [
-    { appId:'ERP-CORE', name:'ERP 核心系统', type:'ERP', authType:'HMAC 签名鉴权', status:'启用', secret:'sk_erp_9f8a…', baseUrl:'http://localhost:8103', desc:'ERP 订单/库存出站调用方',
+    { appId:'ERP-CORE', name:'ERP 核心系统', authType:'HMAC 签名鉴权', status:'启用', secret:'sk_erp_9f8a…', baseUrl:'http://localhost:8103', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-17 10:00', updateTime:'2026-08-29 16:59', desc:'ERP 订单/库存出站调用方',
       groups:[
         { name:'订单', ifs:['IF001'] },
         { name:'库存', ifs:['IF002'] }
       ]},
-    { appId:'PARTNER_A', name:'第三方 A', type:'第三方', authType:'API Key 鉴权', status:'启用', secret:'sk_a_7c2d…', baseUrl:'http://localhost:8101', desc:'第三方 A 回调调用方 / 上游接收方',
+    { appId:'PARTNER_A', name:'第三方 A', authType:'API Key 鉴权', status:'启用', secret:'sk_a_7c2d…', baseUrl:'http://localhost:8101', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-18 14:30', updateTime:'2026-08-29 16:59', desc:'第三方 A 回调调用方 / 上游接收方',
       groups:[
         { name:'回调', ifs:['IF003'] }
       ]},
-    { appId:'PARTNER_B', name:'第三方 B', type:'第三方', authType:'API Key 鉴权', status:'启用', secret:'sk_b_5d3e…', baseUrl:'http://localhost:8102', desc:'第三方 B 上游接收方',
+    { appId:'PARTNER_B', name:'第三方 B', authType:'API Key 鉴权', status:'启用', secret:'sk_b_5d3e…', baseUrl:'http://localhost:8102', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-20 09:15', updateTime:'2026-08-20 09:15', desc:'第三方 B 上游接收方',
       groups:[]},
-    { appId:'INTERNAL-BI', name:'内部 BI', type:'内部', authType:'无鉴权', status:'草稿', secret:'—', baseUrl:'http://localhost:8104', desc:'内部数据拉取（未启用）',
+    { appId:'INTERNAL-BI', name:'内部 BI', authType:'无鉴权', status:'草稿', secret:'—', baseUrl:'http://localhost:8104', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-25 11:00', updateTime:'2026-08-25 11:00', desc:'内部数据拉取（未启用）',
       groups:[]}
   ],
   interfaces: [
@@ -431,11 +431,12 @@ function renderApps(){
     <div class="panel">
       <div class="panel-head"><h3>应用列表</h3><button class="btn" onclick="openAppModal()">＋ 新建应用</button></div>
       <div class="panel-body">
-        <table><thead><tr><th>appId</th><th>名称</th><th>类型</th><th>鉴权方式</th><th>状态</th><th></th></tr></thead>
+        <table><thead><tr><th>appId</th><th>名称</th><th>鉴权方式</th><th>状态</th><th>新增时间</th><th>修改时间</th><th></th></tr></thead>
         <tbody>${state.apps.map(a=>`
           <tr onclick="openAppDetail('${a.appId}')">
-            <td><b>${a.appId}</b></td><td>${a.name}</td><td><span class="tag">${a.type}</span></td>
+            <td><b>${a.appId}</b></td><td>${a.name}</td>
             <td>${a.authType}</td><td>${statusBadge(a.status)}</td>
+            <td>${a.createTime}</td><td>${a.updateTime}</td>
             <td><span style="color:var(--primary)">详情 →</span></td>
           </tr>`).join('')}</tbody></table>
       </div>
@@ -455,14 +456,17 @@ function renderAppDetail(el){
         <div class="grid2">
           <div>
             <div class="keyval"><span class="k">appId</span><span class="v">${a.appId}</span></div>
-            <div class="keyval"><span class="k">类型</span><span class="v">${a.type}</span></div>
             <div class="keyval"><span class="k">状态</span><span class="v">${statusBadge(a.status)}</span></div>
+            <div class="keyval"><span class="k">IP 白名单</span><span class="v">${a.ipWhitelist || '—'}</span></div>
+            <div class="keyval"><span class="k">IP 黑名单</span><span class="v">${a.ipBlacklist || '—'}</span></div>
             <div class="keyval"><span class="k">描述</span><span class="v">${a.desc}</span></div>
           </div>
           <div>
             <div class="keyval"><span class="k">鉴权适配器</span><span class="v">${a.authType}</span></div>
             <div class="keyval"><span class="k">appSecret</span><span class="v">${a.secret}</span></div>
             <div class="keyval"><span class="k">服务地址</span><span class="v">${a.baseUrl}</span></div>
+            <div class="keyval"><span class="k">新增时间</span><span class="v">${a.createTime}</span></div>
+            <div class="keyval"><span class="k">修改时间</span><span class="v">${a.updateTime}</span></div>
             <div class="keyval"><span class="k">分组数</span><span class="v">${a.groups.length}</span></div>
             <div class="keyval"><span class="k">接口数</span><span class="v">${a.groups.reduce((n,g)=>n+g.ifs.length,0)}</span></div>
           </div>
@@ -973,23 +977,29 @@ function openAppModal(){
     <div class="modal-head"><h3>新建应用</h3><span class="x" onclick="closeModal()">×</span></div>
     <div class="modal-body">
       <div class="field"><label>应用名称</label><input id="f-app-name" placeholder="如：ERP 核心系统"></div>
-      <div class="grid2">
-        <div class="field"><label>类型</label><select id="f-app-type"><option>ERP</option><option>第三方</option><option>内部</option></select></div>
-        <div class="field"><label>鉴权适配器</label><select id="f-app-auth">${adapterOpts('auth')}</select></div>
-      </div>
+      <div class="field"><label>鉴权适配器</label><select id="f-app-auth">${adapterOpts('auth')}</select></div>
+      <div class="field"><label>IP 白名单</label><textarea id="f-app-ip-wl" rows="3" placeholder="使用英文逗号分割"></textarea><div class="hint">多个IP请使用英文逗号分割，为空时不限制开放接口的请求IP。</div></div>
+      <div class="field"><label>IP 黑名单</label><textarea id="f-app-ip-bl" rows="3" placeholder="使用英文逗号分割"></textarea><div class="hint">多个IP请使用英文逗号分割，为空时不限制开放接口的请求IP。</div></div>
       <div class="field"><label>描述</label><input id="f-app-desc" placeholder="可选"></div>
       <div class="hint" style="color:var(--muted);font-size:12px">无需审批，创建即签发 appId + appSecret。</div>
     </div>
     <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">取消</button><button class="btn" onclick="submitApp()">创建</button></div>`);
 }
+function nowStr(){
+  const d = new Date();
+  const p = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
 function submitApp(){
   const name = document.getElementById('f-app-name').value.trim();
   if(!name){ alert('请填写应用名称'); return; }
-  const type = document.getElementById('f-app-type').value;
   const auth = document.getElementById('f-app-auth').value || '无鉴权';
+  const ipWhitelist = document.getElementById('f-app-ip-wl').value.trim();
+  const ipBlacklist = document.getElementById('f-app-ip-bl').value.trim();
   const desc = document.getElementById('f-app-desc').value.trim();
   const appId = 'APP-' + Math.random().toString(36).slice(2,7).toUpperCase();
-  state.apps.push({ appId, name, type, authType:auth, status:'草稿', secret:'sk_new_xxxx…', desc:desc||'—', groups:[] });
+  const now = nowStr();
+  state.apps.push({ appId, name, authType:auth, status:'草稿', secret:'sk_new_xxxx…', ipWhitelist, ipBlacklist, createTime:now, updateTime:now, desc:desc||'—', groups:[] });
   closeModal(); navigate('apps');
 }
 
@@ -1021,10 +1031,10 @@ function openInterfaceModal(){
       <div class="field"><label>接口名称</label><input id="f-if-name" placeholder="如：订单推送"></div>
       <div class="grid2">
         <div class="field"><label>HTTP 方法</label><select id="f-if-method"><option>POST</option><option>GET</option><option>PUT</option><option>DELETE</option></select></div>
-        <div class="field"><label>入站协议</label><select id="f-if-proto-in" onchange="syncProtoAdapter()"><option>JSON</option><option>XML</option></select></div>
+        <div class="field"><label>入站协议</label><select id="f-if-proto-in" onchange="onProtoInChange()"><option>JSON</option><option>XML</option></select></div>
       </div>
       <div class="grid2">
-        <div class="field"><label>出站协议</label><select id="f-if-proto-out" onchange="syncProtoAdapter()"><option>JSON</option><option>XML</option></select></div>
+        <div class="field"><label>出站协议</label><select id="f-if-proto-out" onchange="syncProtoAdapter()"><option>JSON</option><option>XML</option></select><div id="f-proto-same" style="margin-top:6px"></div></div>
         <div class="field"><label>出站协议适配器（编码）</label><select id="f-adp-proto-out">${adapterOpts('protocol')}</select></div>
       </div>
       <div class="field"><label>平台侧路径</label><input id="f-if-path" placeholder="/api/orders"></div>
@@ -1044,6 +1054,7 @@ function openInterfaceModal(){
     <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">取消</button><button class="btn" onclick="submitInterface()">创建</button></div>`);
   populateGroups();
   syncProtoAdapter();
+  renderProtoSame();
 }
 function populateGroups(){
   const appId = document.getElementById('f-if-app').value;
@@ -1063,6 +1074,25 @@ function setProtoAdapter(selId, impl){
   const sel = document.getElementById(selId);
   const a = state.adapters.find(x=>x.type==='protocol' && x.enabled && x.impl===impl);
   if(a && sel) sel.value = a.name;
+}
+let protoSame = true;
+function renderProtoSame(){
+  const box = document.getElementById('f-proto-same');
+  box.innerHTML = `<button type="button" class="switch ${protoSame?'on':''}" onclick="toggleProtoSame()"><span class="knob"></span><span class="lbl">${protoSame?'与入站协议一致':'独立选择'}</span></button>`;
+  const out = document.getElementById('f-if-proto-out');
+  out.disabled = protoSame;
+  if(protoSame) out.value = document.getElementById('f-if-proto-in').value;
+}
+function toggleProtoSame(){
+  protoSame = !protoSame;
+  renderProtoSame();
+  syncProtoAdapter();
+}
+function onProtoInChange(){
+  if(protoSame){
+    document.getElementById('f-if-proto-out').value = document.getElementById('f-if-proto-in').value;
+  }
+  syncProtoAdapter();
 }
 function submitInterface(){
   const name = document.getElementById('f-if-name').value.trim();
