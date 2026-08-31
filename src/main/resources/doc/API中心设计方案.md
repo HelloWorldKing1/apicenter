@@ -5,14 +5,17 @@
 ## 1. 应用管理
 
 ### 1.1 应用模型与生命周期
-- 应用 = 调用平台的一方主体（持有 appId/appSecret 并发起请求）：出站场景是 ERP，入站场景是第三方。
-- 被代理的第三方上游属于「接口 / 渠道」概念，不在「应用」范畴。
+- 应用 = 平台对接的一方外部主体（持有 appId/appSecret），既可为调用方、也可为被调用方：出站时 ERP 调用平台、第三方作为上游被调用；入站时第三方调用平台、ERP 作为回调目标被送达。
+- 被代理的第三方上游同样是「应用」（类型 = 第三方），不再单列「渠道」概念。
 - 核心字段：appId（全局唯一）、应用名称、类型（ERP / 第三方 / 内部）、联系人、创建/更新时间。
+- 服务地址（base-url）：平台作为调用方时使用的目标地址——出站场景为第三方上游的 base-url，入站场景为 ERP 的 base-url。
+- 回调地址（callback URL）：平台向该应用主动推送事件 / 送达回调的目标 URL——入站场景为 ERP 回调 URL，出站场景为第三方异步回调 URL；可按业务类型配多个。
+- OAuth2 的 token URL / 授权回调地址属鉴权适配器配置（见 5.8 适配器配置元数据），不在应用级字段内。
 - 生命周期状态机：草稿 → 启用 → 停用 → 注销；停用即拒绝其请求，注销后回收 appId。
 
 ### 1.2 应用密钥与凭证
 - 每应用持有一对 appId + appSecret。
-- appSecret 加密存储，不落明文（存哈希或加密值）。
+- appSecret 加密存储（可逆加密或 KMS/HSM），不落明文；不得单向哈希——HMAC 验签需用明文密钥重算签名。
 - 支持密钥轮换（新旧短暂并存，平滑切换），支持重置与即时失效。
 
 ### 1.3 应用接入流程
@@ -44,11 +47,11 @@
 
 ## 3. 接口管理
 
-### 3.1 接口定义模型（路径 / 方法 / 协议 / 上游地址）
+### 3.1 接口定义模型（路径 / 方法 / 协议 / 上游应用）
 - 接口 = 平台对外暴露/代理的一个 API 定义。
-- 核心字段：接口标识、HTTP 方法、平台侧路径（如 /api/orders、/callback/{channel}/order-status）、上游地址（base-url + path）、请求/响应模型。
+- 核心字段：接口标识、HTTP 方法、平台侧路径（如 /api/orders、/callback/{appId}/order-status）、上游应用（appId）+ 上游路径（path，base-url 取上游应用的「服务地址」）、请求/响应模型。
 - 归属：接口属于某应用下的某分组（应用 → 分组 → 接口），新建时经两级下拉选择。
-- 协议类型（JSON/XML）：接口对外/对上游声明的格式契约，由协议适配器实现对应编解码。
+- 协议（入站 / 出站各一，JSON/XML）：入站协议 = 调用方→平台的报文格式，出站协议 = 平台→上游的报文格式，二者可不同；组合即 json-json / json-xml / xml-xml / xml-json 四种场景，由入站协议适配器（decode）与出站协议适配器（encode）分别实现。
 - 接口类型：出站中转（ERP→第三方）vs 入站回调（第三方→ERP）。
 
 ### 3.2 接口归属与适配器链
@@ -70,7 +73,8 @@
 - Flow B 入站：上游回调 → 平台接口 → 适配器链 → 送达 ERP → ack。
 - 状态机载体：出站为出站请求记录状态，入站为送达记录状态。
 
-### 3.6 接口级容错（重试 / 补偿 / 死信 / 对账）
+### 3.6 接口级容错（熔断 / 重试 / 补偿 / 死信 / 对账）
+- 熔断：上游持续失败时快速失败，跳过重试直接进补偿 / 死信（详见 6.4）。
 - 5xx/429 短重试 → 耗尽补偿。
 - 4xx 死信。
 - 超时 → UNKNOWN 对账。
@@ -85,7 +89,7 @@
 
 ### 4.2 成功率与延迟指标
 - Micrometer/Prometheus 指标：调用量、成功率、P50/P95/P99 延迟。
-- 按接口、应用、渠道维度聚合。
+- 按接口、应用（调用方 / 上游应用）维度聚合。
 
 ### 4.3 链路追踪
 - OpenTelemetry 集成，span 贯穿平台→上游。
@@ -105,9 +109,9 @@
 ### 5.1 适配器体系总览
 - 四类适配器：鉴权、协议、报文、字段映射。
 - 统一适配器接口，可插拔、可扩展。
-- 适配器链：请求按固定顺序流过「鉴权 → 协议解码 → 报文适配 → 字段映射 → 协议编码」。
+- 适配器链：请求按固定顺序流过「入站鉴权（验证调用方）→ 协议解码 → 报文适配 → 字段映射 → 协议编码 → 出站鉴权（调用上游 / 送达 ERP 前附加凭证）」。
 - 以「统一内部模型」为链内唯一数据载体（格式无关）。
-- 四种端到端转换场景（由整条链协作完成）：json-json / json-xml / xml-xml / xml-json。
+- 四种端到端转换场景（由整条链协作完成）：json-json / json-xml / xml-xml / xml-json（入站协议与出站协议各一、可不同，如 json-xml）。
 - 每类适配器绑定到接口 / 应用，未绑定用平台默认。
 
 ### 5.2 基适配器设计
@@ -119,13 +123,13 @@
   - 适配器无状态、配置驱动，链上复用。
 - 链上下文（AdapterContext）：适配器链中传递的唯一上下文，携带：
   - 统一内部模型（payload，格式无关）。
-  - 元数据：接口标识、应用标识、渠道、输入/输出协议类型、traceId。
+  - 元数据：接口标识、应用标识、上游应用标识、输入/输出协议类型、traceId。
   - 鉴权结果（appId、是否通过）。
   - 错误 / 告警收集（各适配器可追加）。
   - 作用：解耦上下游，新增适配器只读写上下文。
-- 鉴权基适配器（AuthAdapter）：契约 `AuthResult authenticate(RequestContext req)`。输入原始请求（Header、参数、时间戳、报文摘要），输出鉴权结果（通过 / 拒绝 + appId）。具体实现：ApiKeyAuthAdapter、HmacAuthAdapter、OAuth2AuthAdapter、BearerJwtAuthAdapter、BasicAuthAdapter、MtlsAuthAdapter、NoopAuthAdapter。
+- 鉴权基适配器（AuthAdapter）：双向契约——`AuthResult authenticate(RequestContext req)`（入站：验证调用方，输入原始请求 Header / 参数 / 时间戳 / 报文摘要，输出通过 / 拒绝 + appId）+ `void applyCredential(OutboundRequest out)`（出站：作为调用方向对端附加凭证，如签名 / token / 证书）。具体实现：ApiKeyAuthAdapter、HmacAuthAdapter、OAuth2AuthAdapter、BearerJwtAuthAdapter、BasicAuthAdapter、MtlsAuthAdapter、NoopAuthAdapter。
 - 协议基适配器（ProtocolAdapter）：契约（双向）`UnifiedModel decode(bytes, format)` / `bytes encode(UnifiedModel, format)`，是「格式」的唯一责任方。具体实现：JsonProtocolAdapter、XmlProtocolAdapter。
-- 报文基适配器（MessageAdapter）：契约 `UnifiedModel adapt(UnifiedModel)`，做报文结构转换（信封/包裹、报文头、请求/响应结构）。具体实现按渠道定制（EnvelopeMessageAdapter、HeaderMappingAdapter 等）。
+- 报文基适配器（MessageAdapter）：契约 `UnifiedModel adapt(UnifiedModel)`，做报文结构转换（信封/包裹、报文头、请求/响应结构）。具体实现按应用定制（EnvelopeMessageAdapter、HeaderMappingAdapter 等）。
 - 字段映射基适配器（FieldMappingAdapter）：契约 `UnifiedModel map(UnifiedModel, MappingRule)`，做字段级转换，格式无关。具体实现：RuleFieldMappingAdapter（按映射规则集驱动）；json-json / json-xml / xml-xml / xml-json 四种组合由「协议适配器 + 字段映射」协作完成，非字段映射适配器自身变体。
 
 ### 5.3 鉴权适配器
@@ -137,15 +141,19 @@
   - Basic Auth（HTTP 基础认证，仅限 HTTPS）
   - mTLS（双向证书，高安全场景）
   - 无鉴权（内网 / 演示）
-- 出站（Flow A，ERP→平台）：HMAC-SHA256(appId + timestamp + orderId, appSecret)，时间戳容差 300s，防重放。
-- 入站（Flow B，第三方→平台）：X-Partner-Signature + X-Timestamp，按渠道密钥验签。
-- 失败返回 401；连续失败告警 / 临时封禁（防暴力破解）。
+- 入站验证（平台验证调用方身份）：
+  - Flow A（ERP→平台）：HMAC-SHA256(appId + timestamp + orderId, appSecret)，时间戳容差 300s，防重放。
+  - Flow B（第三方→平台）：X-Partner-Signature + X-Timestamp，按应用密钥验签。
+  - 失败返回 401；连续失败告警 / 临时封禁（防暴力破解）。
+- 出站鉴权（平台作为调用方，向对端证明身份）：
+  - Flow A（平台→第三方上游）：按对端要求附加凭证（API Key header / 签名 / OAuth2 client_credentials 取 token / mTLS 客户端证书）。
+  - Flow B（平台→ERP 回调 URL）：按 ERP 要求附加凭证（签名 / token 等）。
 - 密钥管理：appSecret 加密存储、轮换（新旧并存）、泄漏即时失效。
 - 绑定关系：应用级默认 + 接口级覆盖。
 
 ### 5.4 协议适配器（JSON / XML 编解码）
 - 接口声明协议（JSON/XML）→ 协议适配器实现对应编解码。
-- 每渠道独立 ObjectMapper / XmlMapper，避免互相污染。
+- 每应用独立 ObjectMapper / XmlMapper，避免互相污染。
 - JSON 编解码：命名策略、日期格式、忽略未知字段、空值策略、数字精度。
 - XML 编解码：根元素、命名空间、属性 vs 元素映射。
 - 解析失败容错：明确错误码 + 落日志，不污染状态机。
@@ -166,6 +174,30 @@
 - 元数据驱动，新增适配器不影响既有链路。
 - 适配器可配置化、版本化、灰度切换。
 
+### 5.8 适配器配置元数据（字段结构）
+
+适配器「无状态、配置驱动」——配置元数据即适配器运行时读取的全部参数。每类适配器配置均含统一外层字段 + 各自 `params`：
+
+- 统一外层：`adapterType`（auth / protocol / message / field）、`impl`（具体实现类）、`enabled`（启用 / 停用）、`version`（版本，用于版本化 / 灰度）、`params`（该类适配器的具体参数，见下表）。
+
+| 适配器 | params 关键字段 | 说明 |
+|---|---|---|
+| 鉴权（auth） | `strategy`、`credentialSource` | `strategy` = API_KEY / HMAC / OAUTH2 / JWT / BASIC / MTLS / NOOP；`credentialSource` = 密钥/证书来源（appSecret、证书库、JWKS URL） |
+| 鉴权 · HMAC | `signatureAlgorithm`、`signatureHeader`、`timestampToleranceSeconds`、`replayProtection` | 签名算法（HMAC-SHA256）、签名头名、时间戳容差（300s）、是否防重放 |
+| 鉴权 · OAuth2 | `tokenUrl`、`grantType`、`clientId`、`clientSecret`、`scope`、`tokenCache/refresh` | token 端点、授权模式（authorization_code / client_credentials）、缓存与刷新策略 |
+| 鉴权 · JWT | `issuer`、`audience`、`jwksUrl`、`algorithm` | 签发方、受众、公钥/JWKS 地址、验签算法 |
+| 鉴权 · Basic | `username`、`password` | 基础认证（仅限 HTTPS） |
+| 鉴权 · mTLS | `clientCert`、`caCert`、`verifyMode` | 客户端证书、CA、校验方式 |
+| 协议（protocol） | `format` | JSON / XML；入站 / 出站各绑定一个协议适配器（decode 用入站 format，encode 用出站 format） |
+| 协议 · JSON | `namingStrategy`、`dateFormat`、`ignoreUnknown`、`nullHandling`、`numberPrecision` | 命名策略、日期格式、忽略未知字段、空值策略、数字精度 |
+| 协议 · XML | `rootElement`、`namespace`、`attrVsElement` | 根元素、命名空间、属性 vs 元素映射 |
+| 报文（message） | `envelope`、`headerMappings[]`、`requestTemplate`、`responseTemplate` | 信封/包裹结构、报文头映射规则、请求/响应结构模板 |
+| 字段映射（field） | `mappingRules[]`、`scenario` | 规则集 + 端到端组合（json-json / json-xml / xml-xml / xml-json） |
+
+字段映射规则 `mappingRules[]` 每条：`sourceField`、`targetField`、`op`（rename / typeCast / enumMap / default / condition / aggregate）、`params`、`nullStrategy`。
+
+配置元数据与「统一内部模型」一一对应，持久化后按 `adapterType + impl + version` 索引；接口级配置覆盖应用级默认（呼应 5.7 与接口级容错）。
+
 ## 6. 状态机 / 错误码 / 容错机制
 
 ### 6.1 状态机
@@ -184,6 +216,7 @@ stateDiagram-v2
     RETRYING --> SENDING: 重试（未超上限）
     RETRYING --> COMPENSATING: 重试耗尽
     COMPENSATING --> SUCCESS: 补偿成功
+    COMPENSATING --> DEAD_LETTER: 补偿耗尽（超最大次数）
     UNKNOWN --> SUCCESS: 对账确认已到达
     UNKNOWN --> COMPENSATING: 对账确认未到达
     SUCCESS --> [*]
@@ -192,8 +225,10 @@ stateDiagram-v2
 
 - 状态流：`INIT → MAPPING → SENDING → RETRYING → COMPENSATING → SUCCESS / DEAD_LETTER / UNKNOWN`。
 - 5xx/429 → RETRYING（短重试，指数退避，未超上限回 SENDING）；重试耗尽 → COMPENSATING（补偿 worker 兜底）。
+- 补偿超过最大次数 → DEAD_LETTER（死信 + 告警）。
 - 4xx（非 429）→ DEAD_LETTER，不重试。
 - 超时 / 连接异常 → UNKNOWN（结果不确定），对账收敛为 SUCCESS 或 COMPENSATING。
+- SENDING 前经熔断器闸门：OPEN 时直接转 COMPENSATING / DEAD_LETTER，不触发重试（详见 6.4）。
 
 入站送达状态机（Flow B）：
 
@@ -203,11 +238,13 @@ stateDiagram-v2
     RECEIVED --> ERP_ACKED: 送达 ERP 成功
     RECEIVED --> PENDING: 送达失败（仍回第三方 ack）
     PENDING --> ERP_ACKED: 补偿 worker 重送成功
+    PENDING --> DEAD_LETTER: 重送耗尽（超最大次数）
     ERP_ACKED --> [*]
 ```
 
 - 状态流：`RECEIVED → ERP_ACKED / PENDING`。
 - 送达失败 → PENDING（仍回第三方 ack，第三方不重发），由补偿 worker 重送至 ERP_ACKED。
+- 重送超过最大次数 → DEAD_LETTER（死信 + 告警）。
 
 ### 6.2 统一错误码与响应规范
 
@@ -227,13 +264,25 @@ stateDiagram-v2
 | 401xx | 鉴权失败 | 40100 验签失败、40101 时间戳过期、40102 应用未启用 |
 | 400xx | 参数 / 请求错误 | 40001 字段缺失、40002 报文格式非法 |
 | 404xx | 资源不存在 | 40401 接口不存在、40402 应用不存在 |
-| 429xx | 限流 / 配额 | 42901 QPS 限流、42902 日配额超限 |
-| 502xx | 上游错误 | 50201 上游 5xx、50202 上游 429 |
+| 429xx | 限流 / 配额 | 42901 QPS 限流、42902 日配额超限、42903 上游限流（透传上游 429） |
+| 502xx | 上游错误 | 50201 上游 5xx |
 | 504xx | 上游超时 | 50401 上游读超时 |
 | 500xx | 平台内部错误 | 50000 未知异常 |
 
+> 说明：上游返回 429 属限流语义，归入 429xx（42903）；502xx 仅表示上游 5xx（网关错误）。
+
 ### 6.3 幂等 / 对账 / 补偿机制
 
-- 幂等：幂等键 = `(biz_type, channel_code, biz_id)`，如 `(order, PARTNER_A, 订单号)`。首次请求写入幂等键并记录结果，重复请求命中即返回首次结果（防重复下单 / 重复回调）；幂等键设过期时间（如 7 天）。
+- 幂等（平台侧）：幂等键 = `(biz_type, app_id, biz_id)`，如 `(order, PARTNER_A, 订单号)`。首次请求写入幂等键并记录结果，重复请求命中即返回首次结果（防调用方重复下单 / 重复回调）；幂等键设过期时间（如 7 天）。
 - 对账（UNKNOWN 处理）：UNKNOWN = 结果不确定（可能已达上游），不可盲目重试；通过查询接口查上游真实状态，已成功 → 收敛 SUCCESS，未到达 → 触发补偿 COMPENSATING。
-- 补偿：补偿 worker 定时扫描出站 COMPENSATING 记录与入站 PENDING 记录，按固定间隔（如 3s）重试；超过最大次数（如 5 次）转死信 + 告警；补偿重放受幂等键保护，不会重复生效。
+- 补偿：补偿 worker 定时扫描出站 COMPENSATING 记录与入站 PENDING 记录，按固定间隔（如 3s）重试；超过最大次数（如 5 次）转死信 + 告警；补偿重放不重复生效依赖**上游对业务键幂等**（请求携带稳定 biz_id 由上游去重），与平台侧幂等键是两回事。
+
+### 6.4 熔断机制
+
+- 目标：上游持续不可用时快速失败，避免反复重试压垮上游、占用线程与连接资源。
+- 三态：`CLOSED（正常放行） → OPEN（快速失败） → HALF_OPEN（半开放行探测） → CLOSED / OPEN`。
+- 参数：失败率阈值（如 50%）、滑动窗口 + 最小请求数（如 10s / 10 次）、熔断时长（如 30s）、半开探测请求数（如 1~2 次）。
+- OPEN：直接快速失败，不触发 `@Retryable` 短重试，转 COMPENSATING / DEAD_LETTER。
+- HALF_OPEN：放行少量探测请求；探测成功恢复 CLOSED，失败回到 OPEN 重新计时。
+- 与重试 / 补偿的衔接：熔断先于短重试判断；熔断触发的失败同样落调用日志与告警，冷却结束后自动半开探测。
+- 粒度：按「接口 + 上游应用」为熔断维度，避免一个坏上游拖垮所有接口。

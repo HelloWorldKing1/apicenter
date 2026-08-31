@@ -99,6 +99,21 @@
   .modal-body{padding:20px}
   .modal-foot{padding:14px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:10px}
   .empty{padding:40px;text-align:center;color:var(--muted)}
+  .type-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+  .type-dot.auth{background:#2f54eb}
+  .type-dot.protocol{background:#13c2c2}
+  .type-dot.message{background:#d48806}
+  .type-dot.field{background:#0aa05a}
+  .switch{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:#fff;border-radius:20px;padding:3px 10px 3px 3px;cursor:pointer;font-size:12px;color:var(--muted)}
+  .switch .knob{width:18px;height:18px;border-radius:50%;background:#d9dce1;transition:.15s}
+  .switch .lbl{font-weight:500}
+  .switch.on{background:#e8f7ef;border-color:#b7ebd0;color:var(--success)}
+  .switch.on .knob{background:var(--success)}
+  .pager{display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:12px 18px;border-top:1px solid var(--line)}
+  .pager .pager-info{color:var(--muted);font-size:12px}
+  .btn[disabled]{opacity:.45;pointer-events:none}
+  .params-panel{border:1px solid var(--line);border-radius:8px;padding:12px 14px;background:#fafbfc}
+  .rule-row{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:12px;background:#fff}
 </style>
 </head>
 <body>
@@ -112,6 +127,7 @@
       <a data-view="interfaces" onclick="navigate('interfaces')"><span class="ico">⇄</span>接口管理</a>
       <a data-view="monitor" onclick="navigate('monitor')"><span class="ico">◎</span>接口监控</a>
       <a data-view="adapters" onclick="navigate('adapters')"><span class="ico">⚙</span>适配器</a>
+      <a data-view="appendix" onclick="navigate('appendix')"><span class="ico">✦</span>设计附录</a>
     </nav>
     <div class="foot">API 中心 · 交互原型<br>基于 doc 目录设计方案</div>
   </aside>
@@ -125,6 +141,7 @@
       <div id="view-interfaces" class="view"></div>
       <div id="view-monitor" class="view"></div>
       <div id="view-adapters" class="view"></div>
+      <div id="view-appendix" class="view"></div>
     </div>
   </main>
 </div>
@@ -133,55 +150,168 @@
   <div class="modal" id="modal"></div>
 </div>
 
+<div class="overlay" id="overlay2" style="z-index:200" onclick="if(event.target===this)closeModal2()">
+  <div class="modal" id="modal2"></div>
+</div>
+
 <script>
 /* ===== 模拟数据 ===== */
 const state = {
   apps: [
-    { appId:'ERP-CORE', name:'ERP 核心系统', type:'ERP', authType:'HMAC 签名', status:'启用', secret:'sk_erp_9f8a…', desc:'ERP 订单/库存出站调用方',
+    { appId:'ERP-CORE', name:'ERP 核心系统', type:'ERP', authType:'HMAC 签名鉴权', status:'启用', secret:'sk_erp_9f8a…', baseUrl:'http://localhost:8103', desc:'ERP 订单/库存出站调用方',
       groups:[
         { name:'订单', ifs:['IF001'] },
         { name:'库存', ifs:['IF002'] }
       ]},
-    { appId:'PARTNER_A', name:'第三方 A', type:'第三方', authType:'API Key', status:'启用', secret:'sk_a_7c2d…', desc:'第三方 A 回调与接收方',
+    { appId:'PARTNER_A', name:'第三方 A', type:'第三方', authType:'API Key 鉴权', status:'启用', secret:'sk_a_7c2d…', baseUrl:'http://localhost:8101', desc:'第三方 A 回调调用方 / 上游接收方',
       groups:[
         { name:'回调', ifs:['IF003'] }
       ]},
-    { appId:'INTERNAL-BI', name:'内部 BI', type:'内部', authType:'无鉴权', status:'草稿', secret:'—', desc:'内部数据拉取（未启用）',
+    { appId:'PARTNER_B', name:'第三方 B', type:'第三方', authType:'API Key 鉴权', status:'启用', secret:'sk_b_5d3e…', baseUrl:'http://localhost:8102', desc:'第三方 B 上游接收方',
+      groups:[]},
+    { appId:'INTERNAL-BI', name:'内部 BI', type:'内部', authType:'无鉴权', status:'草稿', secret:'—', baseUrl:'http://localhost:8104', desc:'内部数据拉取（未启用）',
       groups:[]}
   ],
   interfaces: [
-    { id:'IF001', name:'订单推送', path:'/api/orders', method:'POST', protocol:'JSON', upstream:'http://localhost:8101/order',
+    { id:'IF001', name:'订单推送', path:'/api/orders', method:'POST', protocolIn:'JSON', protocolOut:'JSON', upstreamApp:'PARTNER_A', upstreamPath:'/order',
       appId:'ERP-CORE', group:'订单', status:'已发布',
-      adapters:{ protocol:'JsonProtocolAdapter', message:'EnvelopeMessageAdapter', field:'RuleFieldMappingAdapter (json-json)' },
+      adapters:{ protocolIn:'JSON 协议编解码', protocolOut:'JSON 协议编解码', message:'信封报文适配', field:'规则字段映射' },
       config:{ timeout:3000, retries:4, idempotent:true } },
-    { id:'IF002', name:'库存同步', path:'/api/stock', method:'POST', protocol:'XML', upstream:'http://localhost:8102/stock',
+    { id:'IF002', name:'库存同步', path:'/api/stock', method:'POST', protocolIn:'JSON', protocolOut:'XML', upstreamApp:'PARTNER_B', upstreamPath:'/stock',
       appId:'ERP-CORE', group:'库存', status:'已发布',
-      adapters:{ protocol:'XmlProtocolAdapter', message:'HeaderMappingAdapter', field:'RuleFieldMappingAdapter (json-xml)' },
+      adapters:{ protocolIn:'JSON 协议编解码', protocolOut:'XML 协议编解码', message:'报文头映射适配', field:'规则字段映射' },
       config:{ timeout:3000, retries:4, idempotent:true } },
-    { id:'IF003', name:'订单状态回调', path:'/callback/{channel}/order-status', method:'POST', protocol:'JSON', upstream:'http://localhost:8103/callback',
+    { id:'IF003', name:'订单状态回调', path:'/callback/{appId}/order-status', method:'POST', protocolIn:'JSON', protocolOut:'JSON', upstreamApp:'ERP-CORE', upstreamPath:'/callback',
       appId:'PARTNER_A', group:'回调', status:'已发布',
-      adapters:{ protocol:'JsonProtocolAdapter', message:'EnvelopeMessageAdapter', field:'RuleFieldMappingAdapter (json-json)' },
+      adapters:{ protocolIn:'JSON 协议编解码', protocolOut:'JSON 协议编解码', message:'信封报文适配', field:'规则字段映射' },
       config:{ timeout:3000, retries:3, idempotent:true } }
   ],
   logs: [
     { time:'10:32:05', iface:'/api/orders', app:'ERP-CORE', code:200, ms:84,  trace:'tr-8f2a1c' },
-    { time:'10:31:48', iface:'/callback/{channel}/order-status', app:'PARTNER_A', code:200, ms:121, trace:'tr-7c19d0' },
+    { time:'10:31:48', iface:'/callback/{appId}/order-status', app:'PARTNER_A', code:200, ms:121, trace:'tr-7c19d0' },
+    { time:'10:31:20', iface:'/api/orders', app:'ERP-CORE', code:200, ms:92,  trace:'tr-2b88e7' },
     { time:'10:30:11', iface:'/api/stock', app:'ERP-CORE', code:502, ms:3011, trace:'tr-5a77b3' },
+    { time:'10:30:02', iface:'/api/stock', app:'ERP-CORE', code:504, ms:3000, trace:'tr-6c41fa' },
     { time:'10:29:52', iface:'/api/orders', app:'ERP-CORE', code:200, ms:66,  trace:'tr-9e04a2' },
-    { time:'10:28:30', iface:'/api/orders', app:'ERP-CORE', code:429, ms:12,  trace:'tr-3b60ef' }
+    { time:'10:29:30', iface:'/api/orders', app:'ERP-CORE', code:429, ms:12,  trace:'tr-3b60ef' },
+    { time:'10:29:11', iface:'/callback/{appId}/order-status', app:'PARTNER_A', code:200, ms:58, trace:'tr-1a55c8' },
+    { time:'10:28:30', iface:'/api/orders', app:'ERP-CORE', code:401, ms:7,   trace:'tr-7d30b1' },
+    { time:'10:28:02', iface:'/api/stock', app:'ERP-CORE', code:200, ms:74,  trace:'tr-4e9c06' }
   ],
   alerts: [
     { level:'warn', text:'/api/stock 上游 5xx，已进入补偿重试', time:'10:30:12' },
     { level:'danger', text:'ERP-CORE 近 1 分钟 QPS 超限，触发限流', time:'10:28:30' }
+  ],
+  adapters: [
+    { id:'ADP-001', name:'API Key 鉴权', type:'auth', impl:'ApiKeyAuthAdapter', enabled:true, version:'1.0', params:{ headerName:'X-App-Id' } },
+    { id:'ADP-002', name:'HMAC 签名鉴权', type:'auth', impl:'HmacAuthAdapter', enabled:true, version:'1.0', params:{ signatureAlgorithm:'HMAC-SHA256', signatureHeader:'X-Signature', timestampToleranceSeconds:300, replayProtection:true } },
+    { id:'ADP-003', name:'OAuth2 Client Credentials 鉴权', type:'auth', impl:'OAuth2ClientCredentialsAdapter', enabled:true, version:'1.0', params:{ tokenUrl:'', clientId:'', clientSecret:'', scope:'' } },
+    { id:'ADP-004', name:'Bearer Token 鉴权', type:'auth', impl:'BearerTokenAuthAdapter', enabled:true, version:'1.0', params:{ token:'', headerName:'Authorization', prefix:'Bearer' } },
+    { id:'ADP-005', name:'Basic 鉴权', type:'auth', impl:'BasicAuthAdapter', enabled:true, version:'1.0', params:{ username:'', password:'' } },
+    { id:'ADP-006', name:'mTLS 鉴权', type:'auth', impl:'MtlsAuthAdapter', enabled:false, version:'1.0', params:{ clientCert:'', clientKey:'', caCert:'', verifyMode:'STRICT' } },
+    { id:'ADP-007', name:'无鉴权', type:'auth', impl:'NoopAuthAdapter', enabled:true, version:'1.0', params:{} },
+    { id:'ADP-101', name:'JSON 协议编解码', type:'protocol', impl:'JsonProtocolAdapter', enabled:true, version:'1.0', params:{ namingStrategy:'CAMEL_CASE', dateFormat:'yyyy-MM-dd', ignoreUnknown:true, nullHandling:'OMIT', numberPrecision:'DOUBLE' } },
+    { id:'ADP-102', name:'XML 协议编解码', type:'protocol', impl:'XmlProtocolAdapter', enabled:true, version:'1.0', params:{ rootElement:'request', namespace:'', attrVsElement:'ELEMENT' } },
+    { id:'ADP-201', name:'信封报文适配', type:'message', impl:'EnvelopeMessageAdapter', enabled:true, version:'1.0', params:{ envelope:'envelope', requestTemplate:'', responseTemplate:'' } },
+    { id:'ADP-202', name:'报文头映射适配', type:'message', impl:'HeaderMappingAdapter', enabled:true, version:'1.0', params:{ headerMappings:'' } },
+    { id:'ADP-301', name:'规则字段映射', type:'field', impl:'RuleFieldMappingAdapter', enabled:true, version:'1.0', params:{ mappingRules:[
+      { sourceField:'orderNo', op:'rename', targetField:'orderId', nullStrategy:'KEEP', param:'' },
+      { sourceField:'status', op:'enumMap', targetField:'statusCode', nullStrategy:'DEFAULT', param:'PENDING→0, DONE→1' }
+    ] } }
   ]
 };
 
 const AUTH_TYPES = ['API Key','HMAC 签名','OAuth 2.0','Bearer Token / JWT','Basic Auth','mTLS','无鉴权'];
-const VIEW_TITLES = { dashboard:'概览', apps:'应用管理', groups:'分组管理', interfaces:'接口管理', monitor:'接口监控', adapters:'适配器' };
+const ADAPTER_TYPE_META = { auth:'鉴权', protocol:'协议', message:'报文', field:'字段映射' };
+const ADAPTER_IMPLS = {
+  auth:     ['ApiKeyAuthAdapter','HmacAuthAdapter','OAuth2ClientCredentialsAdapter','OAuth2AuthorizationCodeAdapter','BearerTokenAuthAdapter','BasicAuthAdapter','MtlsAuthAdapter','NoopAuthAdapter'],
+  protocol: ['JsonProtocolAdapter','XmlProtocolAdapter'],
+  message:  ['EnvelopeMessageAdapter','HeaderMappingAdapter'],
+  field:    ['RuleFieldMappingAdapter']
+};
+const ADAPTER_FIELDS = {
+  ApiKeyAuthAdapter: [
+    { key:'headerName', label:'Header 名', kind:'text', placeholder:'如 X-App-Id' }
+  ],
+  HmacAuthAdapter: [
+    { key:'signatureAlgorithm', label:'签名算法', kind:'text', placeholder:'HMAC-SHA256' },
+    { key:'signatureHeader', label:'签名头', kind:'text', placeholder:'X-Signature' },
+    { key:'timestampToleranceSeconds', label:'时间戳容差(s)', kind:'number', placeholder:'300' },
+    { key:'replayProtection', label:'防重放', kind:'switch' }
+  ],
+  OAuth2ClientCredentialsAdapter: [
+    { key:'tokenUrl', label:'Token 端点', kind:'text' },
+    { key:'clientId', label:'Client ID', kind:'text' },
+    { key:'clientSecret', label:'Client Secret', kind:'text', secret:true },
+    { key:'scope', label:'Scope', kind:'text' }
+  ],
+  OAuth2AuthorizationCodeAdapter: [
+    { key:'authorizationUrl', label:'授权地址', kind:'text' },
+    { key:'tokenUrl', label:'Token 端点', kind:'text' },
+    { key:'clientId', label:'Client ID', kind:'text' },
+    { key:'clientSecret', label:'Client Secret', kind:'text', secret:true },
+    { key:'redirectUri', label:'回调地址', kind:'text' },
+    { key:'scope', label:'Scope', kind:'text' }
+  ],
+  BearerTokenAuthAdapter: [
+    { key:'token', label:'Token（API Key）', kind:'text', secret:true, placeholder:'YOUR_API_KEY' },
+    { key:'headerName', label:'Header 名', kind:'text', placeholder:'Authorization' },
+    { key:'prefix', label:'前缀', kind:'text', placeholder:'Bearer' }
+  ],
+  BasicAuthAdapter: [
+    { key:'username', label:'用户名', kind:'text' },
+    { key:'password', label:'密码', kind:'text', secret:true }
+  ],
+  MtlsAuthAdapter: [
+    { key:'clientCert', label:'客户端证书', kind:'file' },
+    { key:'clientKey', label:'客户端私钥', kind:'file' },
+    { key:'caCert', label:'CA 证书', kind:'file' },
+    { key:'verifyMode', label:'校验方式', kind:'select', options:['STRICT','OPTIONAL','NONE'] }
+  ],
+  NoopAuthAdapter: [],
+  JsonProtocolAdapter: [
+    { key:'namingStrategy', label:'命名策略', kind:'select', options:['CAMEL_CASE','SNAKE_CASE','KEBAB_CASE'] },
+    { key:'dateFormat', label:'日期格式', kind:'text', placeholder:'yyyy-MM-dd' },
+    { key:'ignoreUnknown', label:'忽略未知字段', kind:'switch' },
+    { key:'nullHandling', label:'空值策略', kind:'select', options:['OMIT','INCLUDE','AS_NULL'] },
+    { key:'numberPrecision', label:'数字精度', kind:'select', options:['DOUBLE','BIG_DECIMAL','STRING'] }
+  ],
+  XmlProtocolAdapter: [
+    { key:'rootElement', label:'根元素', kind:'text', placeholder:'request' },
+    { key:'namespace', label:'命名空间', kind:'text' },
+    { key:'attrVsElement', label:'属性/元素', kind:'select', options:['ELEMENT','ATTRIBUTE'] }
+  ],
+  EnvelopeMessageAdapter: [
+    { key:'envelope', label:'信封', kind:'text', placeholder:'envelope' },
+    { key:'requestTemplate', label:'请求模板', kind:'textarea' },
+    { key:'responseTemplate', label:'响应模板', kind:'textarea' }
+  ],
+  HeaderMappingAdapter: [
+    { key:'headerMappings', label:'报文头映射', kind:'textarea', placeholder:'Content-Type → contentType' }
+  ],
+};
+
+const RULE_OPS = ['rename','typeCast','enumMap','default','condition','aggregate'];
+const RULE_NULL_STRATEGIES = { KEEP:'保留原值', NULL:'置空', DEFAULT:'默认值', ERROR:'报错' };
+function opParamMeta(op){
+  switch(op){
+    case 'typeCast': return { label:'目标类型', kind:'select', options:['STRING','INT','DECIMAL','DATE','BOOL'] };
+    case 'enumMap':  return { label:'枚举映射', kind:'text', placeholder:'PENDING→0, DONE→1' };
+    case 'default':  return { label:'默认值', kind:'text' };
+    case 'condition':return { label:'条件表达式', kind:'text', placeholder:'amount > 0' };
+    case 'aggregate':return { label:'聚合方式', kind:'select', options:['CONCAT','SUM','MAX','MIN'] };
+    default: return null;
+  }
+}
+const VIEW_TITLES = { dashboard:'概览', apps:'应用管理', groups:'分组管理', interfaces:'接口管理', monitor:'接口监控', adapters:'适配器', appendix:'设计附录' };
 let currentView = 'dashboard';
 let currentAppId = null;      // 应用详情
 let currentIfId = null;       // 接口详情
-let adapterTab = 'auth';       // 适配器 tab
+let adapterTypeFilter = 'all'; // 适配器类型过滤
+let adapterPage = 0;           // 适配器当前页
+let adapterFormEnabled = true; // 适配器表单启用状态
+let adapterRuleList = [];      // 字段映射规则瞬时列表
+const ADAPTER_PAGE_SIZE = 5;
 
 /* ===== 导航 ===== */
 function navigate(view){
@@ -213,18 +343,19 @@ function render(view){
   else if(view==='interfaces') renderInterfaces();
   else if(view==='monitor') renderMonitor();
   else if(view==='adapters') renderAdapters();
+  else if(view==='appendix') renderAppendix();
 }
 
 /* ===== 概览 ===== */
 function renderDashboard(){
-  const totalCalls = 12840, success = 98.6, p99 = 142;
+  const s = deriveStats();
   const el = document.getElementById('view-dashboard');
   el.innerHTML = `
     <div class="row">
       <div class="stat-card"><div class="label">应用数</div><div class="value">${state.apps.length}</div><div class="sub">启用 ${state.apps.filter(a=>a.status==='启用').length} 个</div></div>
       <div class="stat-card"><div class="label">接口数</div><div class="value">${state.interfaces.length}</div><div class="sub">已发布 ${state.interfaces.filter(i=>i.status==='已发布').length} 个</div></div>
-      <div class="stat-card"><div class="label">今日调用量</div><div class="value">${totalCalls.toLocaleString()}</div><div class="sub">较昨日 +12.4%</div></div>
-      <div class="stat-card"><div class="label">成功率</div><div class="value">${success}%</div><div class="sub">P99 延迟 ${p99}ms</div></div>
+      <div class="stat-card"><div class="label">今日调用量</div><div class="value">${s.total.toLocaleString()}</div><div class="sub">失败 ${s.fail} 次</div></div>
+      <div class="stat-card"><div class="label">成功率</div><div class="value">${s.successRate}%</div><div class="sub">P99 延迟 ${s.p99}ms</div></div>
     </div>
     <div class="panel">
       <div class="panel-head"><h3>最近调用</h3><button class="btn sm ghost" onclick="navigate('monitor')">查看全部 →</button></div>
@@ -237,6 +368,23 @@ function renderDashboard(){
 function codeBadge(c){
   const ok = c>=200 && c<300;
   return `<span class="badge ${ok?'success':'danger'}">${c}</span>`;
+}
+function deriveStats(){
+  const logs = state.logs;
+  const total = logs.length;
+  const success = logs.filter(l=>l.code>=200 && l.code<300).length;
+  const fail = total - success;
+  const retrying = logs.filter(l=>l.code===429 || (l.code>=500 && l.code<600 && l.code!==504)).length;
+  const deadLetter = logs.filter(l=>l.code>=400 && l.code<500 && l.code!==429).length;
+  const unknown = logs.filter(l=>l.code===504).length;
+  const ms = logs.map(l=>l.ms).sort((a,b)=>a-b);
+  const pct = p => ms.length ? ms[Math.min(ms.length-1, Math.ceil(p*ms.length)-1)] : 0;
+  return {
+    total, success, fail,
+    successRate: total ? (success/total*100).toFixed(1) : '0.0',
+    p50: pct(0.5), p99: pct(0.99),
+    retrying, deadLetter, unknown
+  };
 }
 
 /* ===== 应用管理 ===== */
@@ -263,22 +411,6 @@ function renderApps(){
       <div class="panel-body" style="padding:14px 18px;color:var(--muted)">应用下的分组与接口，请在「分组管理」「接口管理」中查看与管理。</div>
     </div>`;
 }
-function appTree(a){
-  const groups = a.groups;
-  return `
-    <div class="tree-item" onclick="openAppDetail('${a.appId}')">
-      <span class="arrow">▾</span><span class="name">${a.name}</span><span class="sub">${a.appId} · ${a.authType}</span>
-    </div>
-    <div class="tree-indent">
-      ${groups.map(g=>`
-        <div class="tree-item"><span class="arrow">▸</span><span class="name">分组：${g.name}</span><span class="sub">${g.ifs.length} 个接口</span></div>
-        <div class="tree-indent">
-          ${g.ifs.map(id=>{const i=state.interfaces.find(x=>x.id===id);return i?`
-            <div class="tree-item" onclick="openInterfaceDetail('${i.id}')"><span class="arrow">·</span><span class="name">${i.name}</span><span class="sub">${i.method} ${i.path}</span></div>`:''}).join('')}
-        </div>`).join('')}
-      ${groups.length===0?'<div class="tree-item" style="cursor:default"><span class="arrow">·</span><span class="sub">暂无分组</span></div>':''}
-    </div>`;
-}
 function renderAppDetail(el){
   const a = state.apps.find(x=>x.appId===currentAppId);
   if(!a){ currentAppId=null; renderApps(); return; }
@@ -296,6 +428,7 @@ function renderAppDetail(el){
           <div>
             <div class="keyval"><span class="k">鉴权适配器</span><span class="v">${a.authType}</span></div>
             <div class="keyval"><span class="k">appSecret</span><span class="v">${a.secret}</span></div>
+            <div class="keyval"><span class="k">服务地址</span><span class="v">${a.baseUrl}</span></div>
             <div class="keyval"><span class="k">分组数</span><span class="v">${a.groups.length}</span></div>
             <div class="keyval"><span class="k">接口数</span><span class="v">${a.groups.reduce((n,g)=>n+g.ifs.length,0)}</span></div>
           </div>
@@ -343,7 +476,7 @@ function openGroupDetail(appId, groupName){
       ${list.length ? list.map(i=>`
         <div class="tree-item" onclick="closeModal();openInterfaceDetail('${i.id}')">
           <span class="arrow">·</span><span class="name">${i.name}</span>
-          <span class="sub">${i.method} ${i.path} · ${i.protocol}</span>
+          <span class="sub">${i.method} ${i.path} · ${i.protocolIn} → ${i.protocolOut}</span>
           <span style="margin-left:auto">${statusBadge(i.status)}</span>
         </div>`).join('') : '<div class="empty">该分组下暂无接口</div>'}
     </div>`);
@@ -361,7 +494,7 @@ function renderInterfaces(){
         <tbody>${state.interfaces.map(i=>`
           <tr onclick="openInterfaceDetail('${i.id}')">
             <td><b>${i.name}</b></td><td><span class="tag">${i.method}</span></td><td>${i.path}</td>
-            <td><span class="badge ${i.protocol==='JSON'?'primary':'warn'}">${i.protocol}</span></td>
+            <td><span class="tag">${i.protocolIn}</span> → <span class="tag">${i.protocolOut}</span></td>
             <td>${i.appId} / ${i.group}</td><td>${statusBadge(i.status)}</td>
             <td><span style="color:var(--primary)">详情 →</span></td>
           </tr>`).join('')}</tbody></table>
@@ -379,15 +512,15 @@ function renderInterfaceDetail(el){
         <div class="grid2">
           <div>
             <div class="keyval"><span class="k">路径</span><span class="v">${i.method} ${i.path}</span></div>
-            <div class="keyval"><span class="k">协议</span><span class="v">${i.protocol}</span></div>
-            <div class="keyval"><span class="k">上游地址</span><span class="v">${i.upstream}</span></div>
+            <div class="keyval"><span class="k">协议（入站 → 出站）</span><span class="v">${i.protocolIn} → ${i.protocolOut}</span></div>
+            <div class="keyval"><span class="k">上游应用</span><span class="v">${i.upstreamApp}${i.upstreamPath}</span></div>
             <div class="keyval"><span class="k">归属</span><span class="v">${i.appId} / ${i.group}</span></div>
           </div>
           <div>
             <div class="keyval"><span class="k">读超时</span><span class="v">${i.config.timeout}ms</span></div>
             <div class="keyval"><span class="k">最大重试</span><span class="v">${i.config.retries} 次</span></div>
             <div class="keyval"><span class="k">幂等</span><span class="v">${i.config.idempotent?'开启':'关闭'}</span></div>
-            <div class="keyval"><span class="k">鉴权（继承应用）</span><span class="v">${a?a.authType:'—'}</span></div>
+            <div class="keyval"><span class="k">鉴权</span><span class="v">${i.adapters.auth ? '接口级覆盖：' + i.adapters.auth : '继承应用：' + (a?a.authType:'—')}</span></div>
           </div>
         </div>
       </div>
@@ -396,14 +529,16 @@ function renderInterfaceDetail(el){
       <div class="panel-head"><h3>适配器链配置</h3></div>
       <div class="panel-body">
         <div class="chain">
-          <span class="node">鉴权</span><span class="arr">→</span>
+          <span class="node">入站鉴权</span><span class="arr">→</span>
           <span class="node">协议解码</span><span class="arr">→</span>
           <span class="node">报文适配</span><span class="arr">→</span>
           <span class="node">字段映射</span><span class="arr">→</span>
-          <span class="node core">协议编码</span>
+          <span class="node core">协议编码</span><span class="arr">→</span>
+          <span class="node">出站鉴权</span>
         </div>
         <div style="padding:0 18px 16px">
-          <div class="keyval"><span class="k">协议适配器</span><span class="v">${i.adapters.protocol}</span></div>
+          <div class="keyval"><span class="k">鉴权适配器</span><span class="v">${i.adapters.auth || '继承应用（' + (a?a.authType:'—') + '）'}</span></div>
+          <div class="keyval"><span class="k">协议适配器（入站 / 出站）</span><span class="v">${i.adapters.protocolIn} / ${i.adapters.protocolOut}</span></div>
           <div class="keyval"><span class="k">报文适配器</span><span class="v">${i.adapters.message}</span></div>
           <div class="keyval"><span class="k">字段映射适配器</span><span class="v">${i.adapters.field}</span></div>
         </div>
@@ -414,13 +549,14 @@ function openInterfaceDetail(id){ currentIfId=id; currentView='interfaces'; docu
 
 /* ===== 接口监控 ===== */
 function renderMonitor(){
+  const s = deriveStats();
   const el = document.getElementById('view-monitor');
   el.innerHTML = `
     <div class="row">
-      <div class="stat-card"><div class="label">今日调用量</div><div class="value">12,840</div><div class="sub">↑ 12.4%</div></div>
-      <div class="stat-card"><div class="label">成功率</div><div class="value">98.6%</div><div class="sub">失败 182 次</div></div>
-      <div class="stat-card"><div class="label">P99 延迟</div><div class="value">142ms</div><div class="sub">P50 38ms</div></div>
-      <div class="stat-card"><div class="label">待补偿 / 死信</div><div class="value">3 / 1</div><div class="sub">对账中 1</div></div>
+      <div class="stat-card"><div class="label">今日调用量</div><div class="value">${s.total.toLocaleString()}</div><div class="sub">失败 ${s.fail} 次</div></div>
+      <div class="stat-card"><div class="label">成功率</div><div class="value">${s.successRate}%</div><div class="sub">成功 ${s.success} 次</div></div>
+      <div class="stat-card"><div class="label">P99 延迟</div><div class="value">${s.p99}ms</div><div class="sub">P50 ${s.p50}ms</div></div>
+      <div class="stat-card"><div class="label">待补偿 / 死信</div><div class="value">${s.retrying} / ${s.deadLetter}</div><div class="sub">对账中 ${s.unknown}</div></div>
     </div>
     <div class="panel">
       <div class="panel-head"><h3>调用日志</h3><span class="tag">traceId 贯穿</span></div>
@@ -440,6 +576,212 @@ function renderMonitor(){
 /* ===== 适配器 ===== */
 function renderAdapters(){
   const el = document.getElementById('view-adapters');
+  const filtered = state.adapters.filter(a => adapterTypeFilter==='all' || a.type===adapterTypeFilter);
+  const pages = Math.max(1, Math.ceil(filtered.length / ADAPTER_PAGE_SIZE));
+  if(adapterPage > pages-1) adapterPage = pages-1;
+  const rows = filtered.slice(adapterPage*ADAPTER_PAGE_SIZE, adapterPage*ADAPTER_PAGE_SIZE+ADAPTER_PAGE_SIZE);
+  const tabs = [['all','全部'],['auth','鉴权'],['protocol','协议'],['message','报文'],['field','字段映射']]
+    .map(([k,l])=>`<button class="tab ${adapterTypeFilter===k?'active':''}" onclick="selectAdapterFilter('${k}')">${l}</button>`).join('');
+  el.innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h3>适配器列表</h3><button class="btn" onclick="openAdapterModal()">＋ 新建适配器</button></div>
+      <div class="tabs">${tabs}</div>
+      <div class="panel-body">
+        ${rows.length ? `<table><thead><tr><th>名称</th><th>类型</th><th>实现类</th><th>版本</th><th>状态</th><th style="width:130px">操作</th></tr></thead>
+        <tbody>${rows.map(a=>`
+          <tr>
+            <td><b>${a.name}</b></td>
+            <td>${typeDot(a.type)}${ADAPTER_TYPE_META[a.type]}</td>
+            <td><span class="tag">${a.impl}</span></td>
+            <td>${a.version}</td>
+            <td>${switchBtn(a)}</td>
+            <td>
+              <button class="btn sm ghost" onclick="openAdapterModal('${a.id}')">编辑</button>
+              <button class="btn sm danger" onclick="deleteAdapter('${a.id}')">删除</button>
+            </td>
+          </tr>`).join('')}</tbody></table>` : `<div class="empty">该类型暂无适配器，点右上角「新建适配器」创建。</div>`}
+      </div>
+      ${rows.length ? `<div class="pager">
+        <button class="btn sm ghost" onclick="adapterPageNav(-1)" ${adapterPage===0?'disabled':''}>上一页</button>
+        <span class="pager-info">第 ${adapterPage+1} / ${pages} 页 · 共 ${filtered.length} 条</span>
+        <button class="btn sm ghost" onclick="adapterPageNav(1)" ${adapterPage>=pages-1?'disabled':''}>下一页</button>
+      </div>` : ''}
+    </div>`;
+}
+function typeDot(type){ return `<span class="type-dot ${type}"></span>`; }
+function switchBtn(a){ return `<button class="switch ${a.enabled?'on':''}" onclick="toggleAdapter('${a.id}')" title="点击切换启用状态"><span class="knob"></span><span class="lbl">${a.enabled?'已启用':'已停用'}</span></button>`; }
+function adapterOpts(type){
+  const list = state.adapters.filter(a=>a.type===type && a.enabled);
+  return list.length ? list.map(a=>`<option value="${a.name}">${a.name}</option>`).join('') : `<option value="">暂无可用适配器（请先到适配器管理启用）</option>`;
+}
+function selectAdapterFilter(type){ adapterTypeFilter = type; adapterPage = 0; renderAdapters(); }
+function adapterPageNav(delta){ adapterPage += delta; renderAdapters(); }
+function openAdapterModal(id){
+  const a = id ? state.adapters.find(x=>x.id===id) : null;
+  const type = a ? a.type : 'auth';
+  const typeOpts = Object.keys(ADAPTER_TYPE_META).map(t=>`<option value="${t}" ${t===type?'selected':''}>${ADAPTER_TYPE_META[t]}</option>`).join('');
+  const implOpts = ADAPTER_IMPLS[type].map(i=>`<option value="${i}" ${a&&a.impl===i?'selected':''}>${i}</option>`).join('');
+  openModal(`
+    <div class="modal-head"><h3>${a?'编辑适配器':'新建适配器'}</h3><span class="x" onclick="closeModal()">×</span></div>
+    <div class="modal-body">
+      <input type="hidden" id="f-adp-id" value="${a?a.id:''}">
+      <div class="grid2">
+        <div class="field"><label>名称</label><input id="f-adp-name" placeholder="如：HMAC 签名鉴权" value="${a?a.name:''}"></div>
+        <div class="field"><label>类型</label><select id="f-adp-type" onchange="onAdapterTypeChange()">${typeOpts}</select></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label>实现类</label><select id="f-adp-impl" onchange="onAdapterImplChange()">${implOpts}</select></div>
+        <div class="field"><label>版本</label><input id="f-adp-version" placeholder="1.0" value="${a?a.version:'1.0'}"></div>
+      </div>
+      <div class="field"><label>启用</label><div id="f-adp-enabled"></div></div>
+      <div class="field">
+        <label>参数配置（<span id="f-adp-params-title">${ADAPTER_TYPE_META[type]}</span>）</label>
+        <div id="f-adp-params" class="params-panel"></div>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">取消</button><button class="btn" onclick="submitAdapter()">保存</button></div>`);
+  renderAdapterEnabled(a ? a.enabled : true);
+  adapterRuleList = a ? (a.params.mappingRules || []).map(r=>({...r})) : [];
+  renderAdapterParams();
+}
+function renderAdapterEnabled(v){
+  adapterFormEnabled = v;
+  document.getElementById('f-adp-enabled').innerHTML = `<button class="switch ${v?'on':''}" onclick="renderAdapterEnabled(!adapterFormEnabled)"><span class="knob"></span><span class="lbl">${v?'启用':'停用'}</span></button>`;
+}
+function onAdapterTypeChange(){
+  const type = document.getElementById('f-adp-type').value;
+  document.getElementById('f-adp-impl').innerHTML = ADAPTER_IMPLS[type].map(i=>`<option value="${i}">${i}</option>`).join('');
+  document.getElementById('f-adp-params-title').textContent = ADAPTER_TYPE_META[type];
+  renderAdapterParams();
+}
+function onAdapterImplChange(){ renderAdapterParams(); }
+function renderAdapterParams(){
+  const impl = document.getElementById('f-adp-impl').value;
+  if(impl==='RuleFieldMappingAdapter'){ renderRuleEditor(); return; }
+  const fields = ADAPTER_FIELDS[impl] || [];
+  const id = document.getElementById('f-adp-id').value;
+  const existing = id ? (state.adapters.find(x=>x.id===id)?.params || {}) : {};
+  const box = document.getElementById('f-adp-params');
+  if(!fields.length){
+    box.innerHTML = '<div class="empty" style="padding:20px">该实现类无额外参数。</div>';
+    return;
+  }
+  box.innerHTML = fields.map(f=>{
+    const val = existing[f.key] !== undefined ? existing[f.key] : '';
+    if(f.kind==='select'){
+      return `<div class="field"><label>${f.label}</label><select id="f-p-${f.key}">${(f.options||[]).map(o=>`<option value="${o}" ${val===o?'selected':''}>${o}</option>`).join('')}</select></div>`;
+    }
+    if(f.kind==='switch'){
+      return `<div class="field"><label>${f.label}</label><select id="f-p-${f.key}"><option value="1" ${val?'selected':''}>是</option><option value="0" ${!val?'selected':''}>否</option></select></div>`;
+    }
+    if(f.kind==='textarea'){
+      return `<div class="field"><label>${f.label}</label><textarea id="f-p-${f.key}" placeholder="${f.placeholder||''}">${val}</textarea></div>`;
+    }
+    if(f.kind==='number'){
+      return `<div class="field"><label>${f.label}</label><input type="number" id="f-p-${f.key}" placeholder="${f.placeholder||''}" value="${val}"></div>`;
+    }
+    if(f.kind==='file'){
+      return `<div class="field"><label>${f.label}</label><input type="file" id="f-p-${f.key}">${val ? `<div class="hint">已选：${val}</div>` : ''}</div>`;
+    }
+    const inputType = f.secret ? 'password' : 'text';
+    return `<div class="field"><label>${f.label}</label><input type="${inputType}" id="f-p-${f.key}" placeholder="${f.placeholder||''}" value="${val}"></div>`;
+  }).join('');
+}
+function renderRuleEditor(){
+  const box = document.getElementById('f-adp-params');
+  const rows = adapterRuleList.map((r,i)=>{
+    const meta = opParamMeta(r.op);
+    const opOpts = RULE_OPS.map(o=>`<option value="${o}" ${r.op===o?'selected':''}>${o}</option>`).join('');
+    const nullOpts = Object.keys(RULE_NULL_STRATEGIES).map(k=>`<option value="${k}" ${r.nullStrategy===k?'selected':''}>${RULE_NULL_STRATEGIES[k]}</option>`).join('');
+    const paramField = meta
+      ? (meta.kind==='select'
+          ? `<div class="field"><label>${meta.label}</label><select id="r-param-${i}" onchange="onRuleChange(${i},'param',this.value)">${meta.options.map(o=>`<option value="${o}" ${r.param===o?'selected':''}>${o}</option>`).join('')}</select></div>`
+          : `<div class="field"><label>${meta.label}</label><input id="r-param-${i}" placeholder="${meta.placeholder||''}" value="${r.param}" onchange="onRuleChange(${i},'param',this.value)"></div>`)
+      : '';
+    return `
+      <div class="rule-row">
+        <div class="grid2">
+          <div class="field"><label>源字段</label><input id="r-src-${i}" placeholder="source" value="${r.sourceField}" onchange="onRuleChange(${i},'sourceField',this.value)"></div>
+          <div class="field"><label>目标字段</label><input id="r-tgt-${i}" placeholder="target" value="${r.targetField}" onchange="onRuleChange(${i},'targetField',this.value)"></div>
+        </div>
+        <div class="grid2">
+          <div class="field"><label>操作</label><select id="r-op-${i}" onchange="onRuleOpChange(${i},this.value)">${opOpts}</select></div>
+          <div class="field"><label>空值策略</label><select id="r-null-${i}" onchange="onRuleChange(${i},'nullStrategy',this.value)">${nullOpts}</select></div>
+        </div>
+        ${paramField}
+        <div style="text-align:right"><button type="button" class="btn sm danger" onclick="removeRule(${i})">删除规则</button></div>
+      </div>`;
+  }).join('');
+  box.innerHTML = `
+    <div style="color:var(--muted);font-size:12px;margin-bottom:10px">转换场景由绑定接口的入站/出站协议决定（如 json-xml）。</div>
+    ${rows || '<div class="empty" style="padding:20px">暂无规则，点下方「添加规则」。</div>'}
+    <button type="button" class="btn sm ghost" onclick="addRule()">＋ 添加规则</button>`;
+}
+function addRule(){
+  adapterRuleList.push({ sourceField:'', op:'rename', targetField:'', nullStrategy:'KEEP', param:'' });
+  renderRuleEditor();
+}
+function removeRule(i){
+  adapterRuleList.splice(i,1);
+  renderRuleEditor();
+}
+function onRuleChange(i,key,val){ adapterRuleList[i][key] = val; }
+function onRuleOpChange(i,op){
+  adapterRuleList[i].op = op;
+  adapterRuleList[i].param = '';
+  renderRuleEditor();
+}
+function submitAdapter(){
+  const id = document.getElementById('f-adp-id').value;
+  const name = document.getElementById('f-adp-name').value.trim();
+  const type = document.getElementById('f-adp-type').value;
+  const impl = document.getElementById('f-adp-impl').value;
+  const version = document.getElementById('f-adp-version').value.trim() || '1.0';
+  if(!name){ alert('请填写适配器名称'); return; }
+  const params = {};
+  if(impl==='RuleFieldMappingAdapter'){
+    params.mappingRules = adapterRuleList.map(r=>({...r}));
+  } else {
+    const existingParams = id ? (state.adapters.find(x=>x.id===id)?.params || {}) : {};
+    (ADAPTER_FIELDS[impl]||[]).forEach(f=>{
+      const el = document.getElementById('f-p-'+f.key);
+      if(!el) return;
+      if(f.kind==='file'){ params[f.key] = (el.files && el.files[0]) ? el.files[0].name : (existingParams[f.key] || ''); return; }
+      const raw = el.value;
+      if(f.kind==='switch'){ params[f.key] = (raw==='1'); }
+      else if(f.kind==='number'){ params[f.key] = raw==='' ? null : Number(raw); }
+      else { params[f.key] = raw.trim(); }
+    });
+  }
+  if(id){
+    const a = state.adapters.find(x=>x.id===id);
+    if(a){ Object.assign(a, { name, type, impl, version, enabled:adapterFormEnabled, params }); }
+  } else {
+    const maxId = state.adapters.reduce((m,x)=>Math.max(m, parseInt(x.id.replace('ADP-',''))||0), 0);
+    state.adapters.push({ id:'ADP-'+String(maxId+1).padStart(3,'0'), name, type, impl, version, enabled:adapterFormEnabled, params });
+  }
+  closeModal(); renderAdapters();
+}
+function deleteAdapter(id){
+  const a = state.adapters.find(x=>x.id===id);
+  if(!a) return;
+  if(!confirm(`确认删除适配器「${a.name}」？已引用它的接口/应用将失去该适配器。`)) return;
+  state.adapters = state.adapters.filter(x=>x.id!==id);
+  state.interfaces.forEach(i=>{
+    ['protocolIn','protocolOut','message','field'].forEach(k=>{ if(i.adapters[k]===a.name) i.adapters[k]=null; });
+    if(i.adapters.auth===a.name) i.adapters.auth=null;
+  });
+  state.apps.forEach(ap=>{ if(ap.authType===a.name) ap.authType='无鉴权'; });
+  renderAdapters();
+}
+function toggleAdapter(id){
+  const a = state.adapters.find(x=>x.id===id);
+  if(a){ a.enabled = !a.enabled; renderAdapters(); }
+}
+
+/* ===== 设计附录（第 6 章：状态机 / 错误码 / 容错机制） ===== */
+function renderAppendix(){
+  const el = document.getElementById('view-appendix');
   el.innerHTML = `
     <div class="panel">
       <div class="panel-head"><h3>顶层基适配器（Adapter）与链上下文（AdapterContext）</h3></div>
@@ -455,7 +797,7 @@ function renderAdapters(){
           <div>
             <h4 style="margin-bottom:6px;color:var(--primary)">AdapterContext 链上下文</h4>
             <div class="keyval"><span class="k">统一内部模型</span><span class="v">payload，格式无关</span></div>
-            <div class="keyval"><span class="k">元数据</span><span class="v">接口/应用/渠道/协议/traceId</span></div>
+            <div class="keyval"><span class="k">元数据</span><span class="v">接口/应用/上游应用/协议/traceId</span></div>
             <div class="keyval"><span class="k">鉴权结果</span><span class="v">appId、是否通过</span></div>
             <div class="keyval"><span class="k">错误/告警</span><span class="v">各适配器可追加收集</span></div>
           </div>
@@ -463,107 +805,100 @@ function renderAdapters(){
       </div>
     </div>
     <div class="panel">
-      <div class="panel-head"><h3>四类适配器</h3></div>
-      <div class="tabs">
-        <button class="tab ${adapterTab==='auth'?'active':''}" onclick="selectAdapterTab('auth')">鉴权适配器</button>
-        <button class="tab ${adapterTab==='proto'?'active':''}" onclick="selectAdapterTab('proto')">协议适配器</button>
-        <button class="tab ${adapterTab==='msg'?'active':''}" onclick="selectAdapterTab('msg')">报文适配器</button>
-        <button class="tab ${adapterTab==='field'?'active':''}" onclick="selectAdapterTab('field')">字段映射适配器</button>
-      </div>
-      <div style="padding:14px 18px 18px">${adapterDetail(adapterTab)}</div>
-    </div>
-    <div class="panel">
       <div class="panel-head"><h3>适配器链编排（运行时）</h3></div>
       <div class="panel-body">
         <div class="chain">
-          <span class="node">鉴权</span><span class="arr">→</span>
+          <span class="node">入站鉴权</span><span class="arr">→</span>
           <span class="node">协议解码</span><span class="arr">→</span>
           <span class="node">报文适配</span><span class="arr">→</span>
           <span class="node">字段映射</span><span class="arr">→</span>
           <span class="node core">协议编码</span><span class="arr">→</span>
+          <span class="node">出站鉴权</span><span class="arr">→</span>
           <span class="node end">调上游</span>
         </div>
         <div style="padding:0 18px 16px;color:var(--muted);font-size:13px">
           统一内部模型（UnifiedModel）为链内唯一数据载体；四种端到端转换场景 json-json / json-xml / xml-xml / xml-json 由整条链协作完成。
         </div>
       </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>出站请求状态机（Flow A）</h3></div>
+      <div class="panel-body">
+        <div class="chain">
+          <span class="node">INIT</span><span class="arr">→</span>
+          <span class="node">MAPPING</span><span class="arr">→</span>
+          <span class="node">SENDING</span><span class="arr">→</span>
+          <span class="node core">SUCCESS</span>
+        </div>
+        <div class="chain">
+          <span class="node end">SENDING</span><span class="arr">—5xx/429→</span>
+          <span class="node">RETRYING</span><span class="arr">⇄</span>
+          <span class="node end">SENDING</span>
+          <span class="arr">耗尽→</span><span class="node">COMPENSATING</span><span class="arr">→</span><span class="node core">SUCCESS</span><span class="arr">/</span><span class="node">DEAD_LETTER</span>
+        </div>
+        <div class="chain">
+          <span class="node end">SENDING</span><span class="arr">—4xx(非429)→</span><span class="node">DEAD_LETTER</span>
+          <span class="arr">·</span>
+          <span class="node end">SENDING</span><span class="arr">—超时/连接异常→</span><span class="node">UNKNOWN</span><span class="arr">—对账→</span><span class="node core">SUCCESS</span><span class="arr">/</span><span class="node">COMPENSATING</span>
+        </div>
+        <div style="padding:0 16px 14px;color:var(--muted);font-size:13px">
+          熔断闸门位于 SENDING 前：OPEN 时直接转 COMPENSATING / DEAD_LETTER，不触发重试；补偿耗尽（超最大次数）→ DEAD_LETTER。
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>入站送达状态机（Flow B）</h3></div>
+      <div class="panel-body">
+        <div class="chain">
+          <span class="node">RECEIVED</span><span class="arr">→</span>
+          <span class="node core">ERP_ACKED</span>
+        </div>
+        <div class="chain">
+          <span class="node end">RECEIVED</span><span class="arr">—送达失败→</span>
+          <span class="node">PENDING</span><span class="arr">—补偿重送→</span>
+          <span class="node core">ERP_ACKED</span><span class="arr">/</span><span class="node">DEAD_LETTER</span>
+        </div>
+        <div style="padding:0 16px 14px;color:var(--muted);font-size:13px">
+          送达失败仍回第三方 ack（第三方不重发），由补偿 worker 重送至 ERP_ACKED；重送耗尽（超最大次数）→ DEAD_LETTER。
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>统一错误码（响应 { code, msg, data }，code=0 成功）</h3></div>
+      <div class="panel-body">
+        <table><thead><tr><th>code 段</th><th>含义</th><th>示例</th></tr></thead>
+        <tbody>
+          <tr><td>0</td><td>成功</td><td>—</td></tr>
+          <tr><td>401xx</td><td>鉴权失败</td><td>40100 验签失败、40101 时间戳过期、40102 应用未启用</td></tr>
+          <tr><td>400xx</td><td>参数 / 请求错误</td><td>40001 字段缺失、40002 报文格式非法</td></tr>
+          <tr><td>404xx</td><td>资源不存在</td><td>40401 接口不存在、40402 应用不存在</td></tr>
+          <tr><td>429xx</td><td>限流 / 配额</td><td>42901 QPS 限流、42902 日配额超限、42903 上游限流（透传上游 429）</td></tr>
+          <tr><td>502xx</td><td>上游错误</td><td>50201 上游 5xx</td></tr>
+          <tr><td>504xx</td><td>上游超时</td><td>50401 上游读超时</td></tr>
+          <tr><td>500xx</td><td>平台内部错误</td><td>50000 未知异常</td></tr>
+        </tbody></table>
+        <div style="padding:0 18px 14px;color:var(--muted);font-size:13px">
+          上游返回 429 属限流语义，归入 429xx（42903）；502xx 仅表示上游 5xx（网关错误）。
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>容错机制</h3></div>
+      <div class="panel-body" style="padding:14px 18px;color:var(--muted);font-size:13px">
+        <div class="keyval"><span class="k">重试</span><span class="v">5xx / 429 短重试（指数退避，未超上限回 SENDING）</span></div>
+        <div class="keyval"><span class="k">熔断</span><span class="v">CLOSED → OPEN → HALF_OPEN；OPEN 快速失败，冷却后半开探测</span></div>
+        <div class="keyval"><span class="k">补偿</span><span class="v">重试耗尽转 COMPENSATING，补偿 worker 定时扫描重放</span></div>
+        <div class="keyval"><span class="k">死信</span><span class="v">4xx（非 429）落 dead_letter，不重试</span></div>
+        <div class="keyval"><span class="k">对账</span><span class="v">超时 / 连接异常 → UNKNOWN，查询上游收敛 SUCCESS 或 COMPENSATING</span></div>
+      </div>
     </div>`;
-}
-function selectAdapterTab(type){ adapterTab = type; renderAdapters(); }
-function adapterDetail(tab){
-  if(tab==='auth') return `
-    <div class="grid2">
-      <div>
-        <h4 style="margin-bottom:8px">AuthAdapter · authenticate(req) → AuthResult</h4>
-        <div class="keyval"><span class="k">绑定</span><span class="v">应用级默认 + 接口级覆盖</span></div>
-        <div class="keyval"><span class="k">出站 Flow A</span><span class="v">HMAC-SHA256(appId+timestamp+orderId, appSecret)</span></div>
-        <div class="keyval"><span class="k">入站 Flow B</span><span class="v">X-Partner-Signature + X-Timestamp（渠道密钥）</span></div>
-        <div class="keyval"><span class="k">失败处理</span><span class="v">401；连续失败告警/临时封禁</span></div>
-        <div class="keyval"><span class="k">密钥管理</span><span class="v">加密存储、轮换、泄漏即时失效</span></div>
-      </div>
-      <div>
-        <h4 style="margin-bottom:8px">可插拔策略（7 种）</h4>
-        ${['API Key','HMAC 签名','OAuth 2.0','Bearer Token / JWT','Basic Auth','mTLS','无鉴权'].map(x=>`<span class="tag" style="margin-bottom:6px">${x}</span>`).join('')}
-        <h4 style="margin:12px 0 8px">具体实现</h4>
-        ${['ApiKeyAuthAdapter','HmacAuthAdapter','OAuth2AuthAdapter','BearerJwtAuthAdapter','BasicAuthAdapter','MtlsAuthAdapter','NoopAuthAdapter'].map(x=>`<span class="tag" style="margin-bottom:6px">${x}</span>`).join('')}
-      </div>
-    </div>`;
-  if(tab==='proto') return `
-    <div class="grid2">
-      <div>
-        <h4 style="margin-bottom:8px">ProtocolAdapter · decode(bytes, format) / encode(model, format)</h4>
-        <div class="keyval"><span class="k">职责</span><span class="v">「格式」的唯一责任方</span></div>
-        <div class="keyval"><span class="k">绑定</span><span class="v">接口声明协议 → 适配器实现编解码</span></div>
-        <div class="keyval"><span class="k">解析失败容错</span><span class="v">错误码 + 落日志，不污染状态机</span></div>
-      </div>
-      <div>
-        <h4 style="margin-bottom:8px">编解码细节</h4>
-        <div class="keyval"><span class="k">JSON</span><span class="v">命名策略、日期格式、忽略未知字段、空值策略、数字精度</span></div>
-        <div class="keyval"><span class="k">XML</span><span class="v">根元素、命名空间、属性 vs 元素映射</span></div>
-        <div class="keyval"><span class="k">Mapper 隔离</span><span class="v">每渠道独立 ObjectMapper / XmlMapper</span></div>
-      </div>
-    </div>
-    <div style="margin-top:6px"><span class="tag">JsonProtocolAdapter</span><span class="tag">XmlProtocolAdapter</span></div>`;
-  if(tab==='msg') return `
-    <div class="grid2">
-      <div>
-        <h4 style="margin-bottom:8px">MessageAdapter · adapt(UnifiedModel)</h4>
-        <div class="keyval"><span class="k">输入</span><span class="v">第三方/ERP 报文 → 统一内部模型</span></div>
-        <div class="keyval"><span class="k">输出</span><span class="v">统一内部模型 → 目标报文</span></div>
-        <div class="keyval"><span class="k">分工</span><span class="v">报文管「外壳/骨架」，字段映射管「字段内容」</span></div>
-      </div>
-      <div>
-        <h4 style="margin-bottom:8px">报文结构转换</h4>
-        <div class="keyval"><span class="k">信封/包裹</span><span class="v">请求/响应外层结构</span></div>
-        <div class="keyval"><span class="k">报文头</span><span class="v">头部字段映射与规整</span></div>
-        <div class="keyval"><span class="k">结构适配</span><span class="v">请求/响应结构转换</span></div>
-      </div>
-    </div>
-    <div style="margin-top:6px"><span class="tag">EnvelopeMessageAdapter</span><span class="tag">HeaderMappingAdapter</span><span class="tag">按渠道定制</span></div>`;
-  return `
-    <div class="grid2">
-      <div>
-        <h4 style="margin-bottom:8px">FieldMappingAdapter · map(UnifiedModel, MappingRule)</h4>
-        <div class="keyval"><span class="k">职责</span><span class="v">管「字段内容」，格式无关</span></div>
-        <div class="keyval"><span class="k">字段级</span><span class="v">重命名、类型、枚举、默认值、条件/空值</span></div>
-        <div class="keyval"><span class="k">嵌套聚合</span><span class="v">展开/拍平、列表映射、多字段聚合</span></div>
-      </div>
-      <div>
-        <h4 style="margin-bottom:8px">四种端到端组合</h4>
-        <div class="keyval"><span class="k">json-json</span><span class="v">JSON → JSON 纯字段映射</span></div>
-        <div class="keyval"><span class="k">json-xml</span><span class="v">JSON → XML 字段映射 + 格式转换</span></div>
-        <div class="keyval"><span class="k">xml-xml</span><span class="v">XML → XML 字段映射</span></div>
-        <div class="keyval"><span class="k">xml-json</span><span class="v">XML → JSON 字段映射 + 格式转换</span></div>
-        <div class="keyval"><span class="k">说明</span><span class="v">由「协议适配器 + 字段映射」协作完成</span></div>
-      </div>
-    </div>
-    <div style="margin-top:6px"><span class="tag">RuleFieldMappingAdapter</span></div>`;
 }
 
 /* ===== 弹窗 ===== */
 function openModal(html){ document.getElementById('modal').innerHTML = html; document.getElementById('overlay').classList.add('show'); }
 function closeModal(){ document.getElementById('overlay').classList.remove('show'); }
-
+function openModal2(html){ document.getElementById('modal2').innerHTML = html; document.getElementById('overlay2').classList.add('show'); }
+function closeModal2(){ document.getElementById('overlay2').classList.remove('show'); }
 function openAppModal(){
   openModal(`
     <div class="modal-head"><h3>新建应用</h3><span class="x" onclick="closeModal()">×</span></div>
@@ -571,7 +906,7 @@ function openAppModal(){
       <div class="field"><label>应用名称</label><input id="f-app-name" placeholder="如：ERP 核心系统"></div>
       <div class="grid2">
         <div class="field"><label>类型</label><select id="f-app-type"><option>ERP</option><option>第三方</option><option>内部</option></select></div>
-        <div class="field"><label>鉴权适配器</label><select id="f-app-auth">${AUTH_TYPES.map(t=>`<option>${t}</option>`).join('')}</select></div>
+        <div class="field"><label>鉴权适配器</label><select id="f-app-auth">${adapterOpts('auth')}</select></div>
       </div>
       <div class="field"><label>描述</label><input id="f-app-desc" placeholder="可选"></div>
       <div class="hint" style="color:var(--muted);font-size:12px">无需审批，创建即签发 appId + appSecret。</div>
@@ -582,7 +917,7 @@ function submitApp(){
   const name = document.getElementById('f-app-name').value.trim();
   if(!name){ alert('请填写应用名称'); return; }
   const type = document.getElementById('f-app-type').value;
-  const auth = document.getElementById('f-app-auth').value;
+  const auth = document.getElementById('f-app-auth').value || '无鉴权';
   const desc = document.getElementById('f-app-desc').value.trim();
   const appId = 'APP-' + Math.random().toString(36).slice(2,7).toUpperCase();
   state.apps.push({ appId, name, type, authType:auth, status:'草稿', secret:'sk_new_xxxx…', desc:desc||'—', groups:[] });
@@ -617,22 +952,29 @@ function openInterfaceModal(){
       <div class="field"><label>接口名称</label><input id="f-if-name" placeholder="如：订单推送"></div>
       <div class="grid2">
         <div class="field"><label>HTTP 方法</label><select id="f-if-method"><option>POST</option><option>GET</option><option>PUT</option><option>DELETE</option></select></div>
-        <div class="field"><label>协议</label><select id="f-if-proto"><option>JSON</option><option>XML</option></select></div>
+        <div class="field"><label>入站协议</label><select id="f-if-proto-in" onchange="syncProtoAdapter()"><option>JSON</option><option>XML</option></select></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label>出站协议</label><select id="f-if-proto-out" onchange="syncProtoAdapter()"><option>JSON</option><option>XML</option></select></div>
+        <div class="field"><label>出站协议适配器（编码）</label><select id="f-adp-proto-out">${adapterOpts('protocol')}</select></div>
       </div>
       <div class="field"><label>平台侧路径</label><input id="f-if-path" placeholder="/api/orders"></div>
-      <div class="field"><label>上游地址</label><input id="f-if-upstream" placeholder="http://localhost:8101/order"></div>
+      <div class="field"><label>上游应用</label><select id="f-if-upstream-app">${appOpts}</select></div>
+      <div class="field"><label>上游路径</label><input id="f-if-upstream-path" placeholder="/order"></div>
       <div class="grid2">
         <div class="field"><label>归属应用</label><select id="f-if-app" onchange="populateGroups()">${appOpts}</select></div>
         <div class="field"><label>归属分组</label><select id="f-if-group"><option value="">— 请先选应用 —</option></select></div>
       </div>
       <div class="grid2">
-        <div class="field"><label>协议适配器</label><select id="f-adp-proto"><option>JsonProtocolAdapter</option><option>XmlProtocolAdapter</option></select></div>
-        <div class="field"><label>报文适配器</label><select id="f-adp-msg"><option>EnvelopeMessageAdapter</option><option>HeaderMappingAdapter</option></select></div>
+        <div class="field"><label>入站协议适配器（解码）</label><select id="f-adp-proto-in">${adapterOpts('protocol')}</select></div>
+        <div class="field"><label>报文适配器</label><select id="f-adp-msg">${adapterOpts('message')}</select></div>
       </div>
-      <div class="field"><label>字段映射适配器</label><select id="f-adp-field"><option>RuleFieldMappingAdapter</option></select></div>
+      <div class="field"><label>字段映射适配器</label><select id="f-adp-field">${adapterOpts('field')}</select></div>
+      <div class="field"><label>鉴权适配器</label><select id="f-adp-auth"><option value="">继承应用（默认）</option>${adapterOpts('auth')}</select></div>
     </div>
     <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">取消</button><button class="btn" onclick="submitInterface()">创建</button></div>`);
   populateGroups();
+  syncProtoAdapter();
 }
 function populateGroups(){
   const appId = document.getElementById('f-if-app').value;
@@ -642,22 +984,38 @@ function populateGroups(){
   if(app.groups.length===0){ sel.innerHTML = '<option value="">— 该应用暂无分组 —</option>'; return; }
   sel.innerHTML = app.groups.map(g=>`<option value="${g.name}">${g.name}</option>`).join('');
 }
+function syncProtoAdapter(){
+  const inP = document.getElementById('f-if-proto-in').value;
+  const outP = document.getElementById('f-if-proto-out').value;
+  setProtoAdapter('f-adp-proto-in', inP==='XML' ? 'XmlProtocolAdapter' : 'JsonProtocolAdapter');
+  setProtoAdapter('f-adp-proto-out', outP==='XML' ? 'XmlProtocolAdapter' : 'JsonProtocolAdapter');
+}
+function setProtoAdapter(selId, impl){
+  const sel = document.getElementById(selId);
+  const a = state.adapters.find(x=>x.type==='protocol' && x.enabled && x.impl===impl);
+  if(a && sel) sel.value = a.name;
+}
 function submitInterface(){
   const name = document.getElementById('f-if-name').value.trim();
   const path = document.getElementById('f-if-path').value.trim();
   const appId = document.getElementById('f-if-app').value;
   const group = document.getElementById('f-if-group').value;
+  const upstreamApp = document.getElementById('f-if-upstream-app').value;
+  const upstreamPath = document.getElementById('f-if-upstream-path').value.trim();
   if(!name || !path){ alert('请填写接口名称与路径'); return; }
   if(!appId || !group){ alert('请选择归属应用与分组'); return; }
+  if(!upstreamApp){ alert('请选择上游应用'); return; }
   const method = document.getElementById('f-if-method').value;
-  const proto = document.getElementById('f-if-proto').value;
-  const upstream = document.getElementById('f-if-upstream').value.trim() || 'http://localhost:9999/up';
-  const adpProto = document.getElementById('f-adp-proto').value;
+  const protoIn = document.getElementById('f-if-proto-in').value;
+  const protoOut = document.getElementById('f-if-proto-out').value;
+  const adpProtoIn = document.getElementById('f-adp-proto-in').value;
+  const adpProtoOut = document.getElementById('f-adp-proto-out').value;
   const adpMsg = document.getElementById('f-adp-msg').value;
+  const adpField = document.getElementById('f-adp-field').value;
+  const adpAuth = document.getElementById('f-adp-auth').value;
   const id = 'IF' + String(state.interfaces.length+1).padStart(3,'0');
-  const field = 'RuleFieldMappingAdapter (' + (proto==='JSON'?'json-json':'json-xml') + ')';
-  state.interfaces.push({ id, name, path, method, protocol:proto, upstream, appId, group, status:'草稿',
-    adapters:{ protocol:adpProto, message:adpMsg, field },
+  state.interfaces.push({ id, name, path, method, protocolIn:protoIn, protocolOut:protoOut, upstreamApp, upstreamPath, appId, group, status:'草稿',
+    adapters:{ protocolIn:adpProtoIn, protocolOut:adpProtoOut, message:adpMsg, field:adpField, auth:adpAuth || null },
     config:{ timeout:3000, retries:4, idempotent:true } });
   const app = state.apps.find(x=>x.appId===appId);
   const g = app.groups.find(x=>x.name===group);
