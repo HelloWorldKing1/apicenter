@@ -89,6 +89,7 @@
   .tab{padding:7px 14px;border-radius:6px;border:1px solid var(--line);background:#fff;color:var(--text);cursor:pointer;font-size:13px;transition:.15s}
   .tab:hover{border-color:var(--primary);color:var(--primary)}
   .tab.active{background:var(--primary);border-color:var(--primary);color:#fff}
+  .tab.sm{padding:5px 10px;font-size:12px}
   /* 弹窗 */
   .overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:100}
   .overlay.show{display:flex}
@@ -132,6 +133,10 @@
   table.mt th{background:#fafbfc;font-weight:600;color:var(--muted)}
   table.mt td input,table.mt td select{width:100%;padding:5px 8px;border:1px solid var(--line);border-radius:4px;font-size:13px;font-family:inherit;background:#fff}
   table.mt td input:focus,table.mt td select:focus{outline:none;border-color:var(--primary)}
+  .bcontrol{padding:6px 10px;border:1px solid var(--line);border-radius:6px;font-size:13px;font-family:inherit;background:#fff;color:var(--text)}
+  .bcontrol:focus{outline:none;border-color:var(--primary)}
+  .btextarea{width:100%;padding:8px 12px;border:1px solid var(--line);border-radius:6px;font-size:13px;font-family:inherit;background:#fff}
+  .btextarea:focus{outline:none;border-color:var(--primary)}
 </style>
 </head>
 <body>
@@ -193,30 +198,33 @@ const state = {
   interfaces: [
     { id:'IF001', name:'订单推送', path:'/api/orders', method:'POST', ifType:'outbound', protocolIn:'JSON', protocolOut:'JSON', upstreamApp:'PARTNER_A', upstreamPath:'/order',
       appId:'ERP-CORE', group:'订单', status:'已发布', desc:'ERP 推送订单到第三方 A',
-      platReqParams:[ { name:'orderNo', type:'string', location:'query', required:true, sample:'SO20260831001' } ],
-      platReqBody:'',
-      upReqParams:[ { name:'orderId', type:'string', location:'query', required:true, sample:'' } ],
-      upReqBody:'',
+      platReqParams:[ { name:'orderNo', type:'string', required:true, sample:'SO20260831001' } ],
+      platBody:{ type:'none', raw:'', form:[] },
+      upReqParams:[ { name:'orderId', type:'string', required:true, sample:'' } ],
+      upBody:{ type:'none', raw:'', form:[] },
       upRespFields:[ { name:'result', type:'string', desc:'上游结果' } ],
-      adapters:{ protocolIn:'JSON 协议编解码', protocolOut:'JSON 协议编解码', message:'信封报文适配', field:'规则字段映射' },
+      fieldMappings:[ { source:'orderNo', op:'rename', target:'orderId', nullStrategy:'KEEP' } ],
+      adapters:{ protocolIn:'JSON 协议编解码', protocolOut:'JSON 协议编解码', message:'信封报文适配' },
       config:{ timeout:3000, retries:4, idempotent:true } },
     { id:'IF002', name:'库存同步', path:'/api/stock', method:'POST', ifType:'outbound', protocolIn:'JSON', protocolOut:'XML', upstreamApp:'PARTNER_B', upstreamPath:'/stock',
       appId:'ERP-CORE', group:'库存', status:'已发布', desc:'同步库存到第三方 B（XML）',
-      platReqParams:[ { name:'sku', type:'string', location:'query', required:true, sample:'SKU001' } ],
-      platReqBody:'',
-      upReqParams:[ { name:'skuCode', type:'string', location:'query', required:true, sample:'' } ],
-      upReqBody:'',
+      platReqParams:[ { name:'sku', type:'string', required:true, sample:'SKU001' } ],
+      platBody:{ type:'none', raw:'', form:[] },
+      upReqParams:[ { name:'skuCode', type:'string', required:true, sample:'' } ],
+      upBody:{ type:'none', raw:'', form:[] },
       upRespFields:[ { name:'resp', type:'string', desc:'上游响应' } ],
-      adapters:{ protocolIn:'JSON 协议编解码', protocolOut:'XML 协议编解码', message:'报文头映射适配', field:'规则字段映射' },
+      fieldMappings:[ { source:'sku', op:'rename', target:'skuCode', nullStrategy:'KEEP' } ],
+      adapters:{ protocolIn:'JSON 协议编解码', protocolOut:'XML 协议编解码', message:'报文头映射适配' },
       config:{ timeout:3000, retries:4, idempotent:true } },
     { id:'IF003', name:'订单状态回调', path:'/callback/{appId}/order-status', method:'POST', ifType:'inbound', protocolIn:'JSON', protocolOut:'JSON', upstreamApp:'ERP-CORE', upstreamPath:'/callback',
       appId:'PARTNER_A', group:'回调', status:'已发布', desc:'第三方 A 回调订单状态到 ERP',
-      platReqParams:[ { name:'orderNo', type:'string', location:'query', required:true, sample:'SO20260831001' }, { name:'status', type:'string', location:'query', required:true, sample:'DONE' } ],
-      platReqBody:'',
-      upReqParams:[ { name:'orderId', type:'string', location:'query', required:true, sample:'' }, { name:'state', type:'string', location:'query', required:true, sample:'1' } ],
-      upReqBody:'',
+      platReqParams:[ { name:'orderNo', type:'string', required:true, sample:'SO20260831001' }, { name:'status', type:'string', required:true, sample:'DONE' } ],
+      platBody:{ type:'none', raw:'', form:[] },
+      upReqParams:[ { name:'orderId', type:'string', required:true, sample:'' }, { name:'state', type:'string', required:true, sample:'1' } ],
+      upBody:{ type:'none', raw:'', form:[] },
       upRespFields:[ { name:'ack', type:'boolean', desc:'ERP 确认' } ],
-      adapters:{ protocolIn:'JSON 协议编解码', protocolOut:'JSON 协议编解码', message:'信封报文适配', field:'规则字段映射' },
+      fieldMappings:[ { source:'orderNo', op:'rename', target:'orderId', nullStrategy:'KEEP' }, { source:'status', op:'enumMap', target:'state', nullStrategy:'KEEP' } ],
+      adapters:{ protocolIn:'JSON 协议编解码', protocolOut:'JSON 协议编解码', message:'信封报文适配' },
       config:{ timeout:3000, retries:3, idempotent:true } }
   ],
   logs: [
@@ -553,13 +561,14 @@ function renderInterfaces(){
     <div class="panel">
       <div class="panel-head"><h3>接口列表</h3><button class="btn" onclick="openInterfaceModal()">＋ 新建接口</button></div>
       <div class="panel-body">
-        <table><thead><tr><th>名称</th><th>方法</th><th>路径</th><th>协议</th><th>归属（应用 / 分组）</th><th>状态</th><th></th></tr></thead>
+        <table><thead><tr><th>名称</th><th>类型</th><th>方法</th><th>路径</th><th>协议</th><th>状态</th><th>操作</th></tr></thead>
         <tbody>${state.interfaces.map(i=>`
           <tr onclick="openInterfaceDetail('${i.id}')">
-            <td><b>${i.name}</b></td><td><span class="tag">${i.method}</span></td><td>${i.path}</td>
+            <td><b>${i.name}</b></td><td><span class="tag">${i.ifType==='inbound'?'入站':'出站'}</span></td>
+            <td><span class="tag">${i.method}</span></td><td>${i.path}</td>
             <td><span class="tag">${i.protocolIn}</span> → <span class="tag">${i.protocolOut}</span></td>
-            <td>${i.appId} / ${i.group}</td><td>${statusBadge(i.status)}</td>
-            <td><span style="color:var(--primary)">详情 →</span></td>
+            <td>${statusBadge(i.status)}</td>
+            <td><button class="btn sm ghost" onclick="event.stopPropagation();openInterfaceModal('${i.id}')">编辑</button> <button class="btn sm danger" onclick="event.stopPropagation();deleteInterface('${i.id}')">删除</button></td>
           </tr>`).join('')}</tbody></table>
       </div>
     </div>`;
@@ -570,7 +579,7 @@ function renderInterfaceDetail(el){
   const a = state.apps.find(x=>x.appId===i.appId);
   el.innerHTML = `
     <div class="panel">
-      <div class="panel-head"><h3>${i.name} · 接口详情</h3><span class="badge ${i.status==='已发布'?'success':'gray'}">${i.status}</span></div>
+      <div class="panel-head"><h3>${i.name} · 接口详情</h3><span><span class="badge ${i.status==='已发布'?'success':'gray'}">${i.status}</span> <button class="btn sm ghost" onclick="openInterfaceModal('${i.id}')">编辑</button> <button class="btn sm danger" onclick="deleteInterface('${i.id}')">删除</button></span></div>
       <div class="panel-body" style="padding:18px">
         <div class="grid2">
           <div>
@@ -587,6 +596,7 @@ function renderInterfaceDetail(el){
             <div class="keyval"><span class="k">幂等</span><span class="v">${i.config.idempotent?'开启':'关闭'}</span></div>
             <div class="keyval"><span class="k">请求参数</span><span class="v">平台侧 ${(i.platReqParams||[]).length} · 上游侧 ${(i.upReqParams||[]).length}</span></div>
             <div class="keyval"><span class="k">响应字段</span><span class="v">${(i.upRespFields||[]).length} 个</span></div>
+            <div class="keyval"><span class="k">字段映射</span><span class="v">${(i.fieldMappings||[]).length} 条</span></div>
             <div class="keyval"><span class="k">鉴权</span><span class="v">${i.adapters.auth ? '接口级覆盖：' + i.adapters.auth : '继承应用：' + (a?a.authType:'—')}</span></div>
           </div>
         </div>
@@ -607,7 +617,6 @@ function renderInterfaceDetail(el){
           <div class="keyval"><span class="k">鉴权适配器</span><span class="v">${i.adapters.auth || '继承应用（' + (a?a.authType:'—') + '）'}</span></div>
           <div class="keyval"><span class="k">协议适配器（入站 / 出站）</span><span class="v">${i.adapters.protocolIn} / ${i.adapters.protocolOut}</span></div>
           <div class="keyval"><span class="k">报文适配器</span><span class="v">${i.adapters.message}</span></div>
-          <div class="keyval"><span class="k">字段映射适配器</span><span class="v">${i.adapters.field}</span></div>
         </div>
       </div>
     </div>`;
@@ -677,9 +686,9 @@ function renderAdapters(){
 }
 function typeDot(type){ return `<span class="type-dot ${type}"></span>`; }
 function switchBtn(a){ return `<button class="switch ${a.enabled?'on':''}" onclick="toggleAdapter('${a.id}')" title="点击切换启用状态"><span class="knob"></span><span class="lbl">${a.enabled?'已启用':'已停用'}</span></button>`; }
-function adapterOpts(type){
+function adapterOpts(type, sel){
   const list = state.adapters.filter(a=>a.type===type && a.enabled);
-  return list.length ? list.map(a=>`<option value="${a.name}">${a.name}</option>`).join('') : `<option value="">暂无可用适配器（请先到适配器管理启用）</option>`;
+  return list.length ? list.map(a=>`<option value="${a.name}" ${sel===a.name?'selected':''}>${a.name}</option>`).join('') : `<option value="">暂无可用适配器（请先到适配器管理启用）</option>`;
 }
 function selectAdapterFilter(type){ adapterTypeFilter = type; adapterPage = 0; renderAdapters(); }
 function adapterPageNav(delta){ adapterPage += delta; renderAdapters(); }
@@ -1100,63 +1109,74 @@ function submitGroup(){
   closeModal(); renderGroups();
 }
 
-function openInterfaceModal(){
-  const appOpts = state.apps.map(a=>`<option value="${a.appId}">${a.name}（${a.appId}）</option>`).join('');
+function openInterfaceModal(id){
+  const i = id ? state.interfaces.find(x=>x.id===id) : null;
+  const appOpts = state.apps.map(a=>`<option value="${a.appId}" ${i&&i.appId===a.appId?'selected':''}>${a.name}（${a.appId}）</option>`).join('');
+  const upAppOpts = state.apps.map(a=>`<option value="${a.appId}" ${i&&i.upstreamApp===a.appId?'selected':''}>${a.name}（${a.appId}）</option>`).join('');
+  const mOpts = ['POST','GET','PUT','DELETE'].map(m=>`<option ${i&&i.method===m?'selected':''}>${m}</option>`).join('');
   openModal(`
-    <div class="modal-head"><h3>新建接口</h3><span class="x" onclick="closeModal()">×</span></div>
+    <div class="modal-head"><h3>${i?'编辑接口':'新建接口'}</h3><span class="x" onclick="closeModal()">×</span></div>
     <div class="modal-body">
+      <input type="hidden" id="f-if-id" value="${i?i.id:''}">
       <div class="grid3">
-        <div class="field"><label>接口名称</label><input id="f-if-name" placeholder="如：订单推送"></div>
-        <div class="field"><label>接口类型</label><select id="f-if-type"><option value="outbound">出站中转</option><option value="inbound">入站回调</option></select></div>
-        <div class="field"><label>HTTP 方法</label><select id="f-if-method"><option>POST</option><option>GET</option><option>PUT</option><option>DELETE</option></select></div>
+        <div class="field"><label>接口名称</label><input id="f-if-name" placeholder="如：订单推送" value="${i?i.name:''}"></div>
+        <div class="field"><label>接口类型</label><select id="f-if-type"><option value="outbound" ${i&&i.ifType==='outbound'?'selected':''}>出站中转</option><option value="inbound" ${i&&i.ifType==='inbound'?'selected':''}>入站回调</option></select></div>
+        <div class="field"><label>HTTP 方法</label><select id="f-if-method">${mOpts}</select></div>
       </div>
       <div class="grid3">
-        <div class="field"><label>平台侧路径</label><input id="f-if-path" placeholder="/api/orders"></div>
-        <div class="field"><label>入站协议</label><select id="f-if-proto-in" onchange="onProtoInChange()"><option>JSON</option><option>XML</option></select></div>
-        <div class="field"><label>出站协议</label><select id="f-if-proto-out"><option>JSON</option><option>XML</option></select><div id="f-proto-same" style="margin-top:6px"></div></div>
+        <div class="field"><label>平台侧路径</label><input id="f-if-path" placeholder="/api/orders" value="${i?i.path:''}"></div>
+        <div class="field"><label>入站协议</label><select id="f-if-proto-in" onchange="onProtoInChange()"><option ${i&&i.protocolIn==='JSON'?'selected':''}>JSON</option><option ${i&&i.protocolIn==='XML'?'selected':''}>XML</option></select></div>
+        <div class="field"><label>出站协议</label><select id="f-if-proto-out"><option ${i&&i.protocolOut==='JSON'?'selected':''}>JSON</option><option ${i&&i.protocolOut==='XML'?'selected':''}>XML</option></select><div id="f-proto-same" style="margin-top:6px"></div></div>
       </div>
       <div class="grid3">
         <div class="field"><label>归属应用</label><select id="f-if-app" onchange="populateGroups()">${appOpts}</select></div>
         <div class="field"><label>归属分组</label><select id="f-if-group"><option value="">— 请先选应用 —</option></select></div>
-        <div class="field"><label>上游应用</label><select id="f-if-upstream-app">${appOpts}</select></div>
+        <div class="field"><label>上游应用</label><select id="f-if-upstream-app">${upAppOpts}</select></div>
       </div>
       <div class="grid3">
-        <div class="field"><label>上游路径</label><input id="f-if-upstream-path" placeholder="/order"></div>
-        <div class="field"><label>读超时(ms)</label><input type="number" id="f-if-timeout" value="3000"></div>
-        <div class="field"><label>最大重试</label><input type="number" id="f-if-retries" value="4"></div>
+        <div class="field"><label>上游路径</label><input id="f-if-upstream-path" placeholder="/order" value="${i?i.upstreamPath:''}"></div>
+        <div class="field"><label>读超时(ms)</label><input type="number" id="f-if-timeout" value="${i?i.config.timeout:3000}"></div>
+        <div class="field"><label>最大重试</label><input type="number" id="f-if-retries" value="${i?i.config.retries:4}"></div>
       </div>
       <div class="grid3">
         <div class="field"><label>幂等 ${helpMark('同一业务请求重复提交时自动去重并返回首次结果，防止重复下单/重复回调')}</label><div id="f-if-idempotent"></div></div>
-        <div class="field" style="grid-column:span 2"><label>描述</label><input id="f-if-desc" placeholder="可选"></div>
+        <div class="field" style="grid-column:span 2"><label>描述</label><input id="f-if-desc" placeholder="可选" value="${i && i.desc!=='—' ? i.desc : ''}"></div>
       </div>
       <div class="field"><label>请求参数</label>
         <div class="hint" style="margin-bottom:6px">平台侧（调用方 → 平台）</div>
         <div id="f-if-req-plat" class="params-panel"></div>
-        <div class="field" style="margin:8px 0 0"><label style="font-size:12px;color:var(--muted)">请求体（JSON/XML 原文，可选）</label><textarea id="f-if-body-plat" rows="3" placeholder='如 {"orderNo":"SO20260831001"}'></textarea></div>
         <div class="hint" style="margin:10px 0 6px">上游侧（平台 → 上游）</div>
         <div id="f-if-req-up" class="params-panel"></div>
-        <div class="field" style="margin:8px 0 0"><label style="font-size:12px;color:var(--muted)">请求体（JSON/XML 原文，可选）</label><textarea id="f-if-body-up" rows="3" placeholder='如 {"orderId":"1"}'></textarea></div>
+      </div>
+      <div class="field"><label>字段映射（请求方向：平台侧 → 上游侧）</label>
+        <div id="f-if-field-maps" class="params-panel"></div>
       </div>
       <div class="field"><label>响应字段</label>
-        <div class="hint" style="margin-bottom:6px">上游侧（上游 → 平台）</div>
+        <div class="hint" style="margin-bottom:6px">上游侧（上游 → 平台 → 调用方）</div>
         <div id="f-if-resp-up" class="params-panel"></div>
       </div>
       <div class="field">
         <button type="button" class="btn sm ghost" onclick="toggleAdvConfig()" style="width:100%">高级配置（适配器） ▾</button>
         <div id="f-if-adv" style="display:none;margin-top:10px">
-          <div class="field"><label>报文适配器</label><select id="f-adp-msg">${adapterOpts('message')}</select></div>
-          <div class="field"><label>字段映射适配器</label><select id="f-adp-field">${adapterOpts('field')}</select></div>
-          <div class="field"><label>鉴权适配器</label><select id="f-adp-auth"><option value="">继承应用（默认）</option>${adapterOpts('auth')}</select></div>
+          <div class="field"><label>报文适配器</label><select id="f-adp-msg">${adapterOpts('message', i?i.adapters.message:null)}</select></div>
+          <div class="field"><label>鉴权适配器</label><select id="f-adp-auth"><option value="">继承应用（默认）</option>${adapterOpts('auth', i?i.adapters.auth:null)}</select></div>
         </div>
       </div>
     </div>
-    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">取消</button><button class="btn" onclick="submitInterface()">创建</button></div>`, true);
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">取消</button><button class="btn" onclick="submitInterface()">${i?'保存':'创建'}</button></div>`, true);
   populateGroups();
+  if(i && i.group){ document.getElementById('f-if-group').value = i.group; }
+  protoSame = i ? (i.protocolIn === i.protocolOut) : true;
   renderProtoSame();
-  ifParams = { platReq:[], upReq:[], upResp:[] };
-  renderReqList('platReq');
-  renderReqList('upReq');
+  ifParams = i ? { platReq:(i.platReqParams||[]).map(r=>({...r})), upReq:(i.upReqParams||[]).map(r=>({...r})), upResp:(i.upRespFields||[]).map(r=>({...r})) } : { platReq:[], upReq:[], upResp:[] };
+  fieldMappings = i ? (i.fieldMappings||[]).map(r=>({...r})) : [];
+  ifIdem = i ? i.config.idempotent : true;
+  reqTab = { platReq:'params', upReq:'params' };
+  ifBodies = { platReq: i && i.platBody ? { type:i.platBody.type||'none', raw:i.platBody.raw||'', form:(i.platBody.form||[]).map(f=>({...f})) } : { type:'none', raw:'', form:[] }, upReq: i && i.upBody ? { type:i.upBody.type||'none', raw:i.upBody.raw||'', form:(i.upBody.form||[]).map(f=>({...f})) } : { type:'none', raw:'', form:[] } };
+  renderReqSide('platReq');
+  renderReqSide('upReq');
   renderRespList('upResp');
+  renderFieldMappings();
   renderIdemSwitch();
 }
 function populateGroups(){
@@ -1192,29 +1212,72 @@ function protoAdapterName(proto){
 let ifParams = { platReq:[], upReq:[], upResp:[] };
 const IF_PARAM_BOX = { platReq:'f-if-req-plat', upReq:'f-if-req-up', upResp:'f-if-resp-up' };
 const PARAM_TYPES = ['string','number','boolean','object','array'];
-const PARAM_LOCS = ['query','path','header'];
 let ifIdem = true;
-function renderReqList(key){
+let reqTab = { platReq:'params', upReq:'params' };
+let ifBodies = { platReq:{ type:'none', raw:'', form:[] }, upReq:{ type:'none', raw:'', form:[] } };
+const BODY_TYPES = ['none','form-data','x-www-form-urlencoded','json','xml'];
+function renderReqSide(key){
   const box = document.getElementById(IF_PARAM_BOX[key]);
+  const tab = reqTab[key];
+  box.innerHTML = `
+    <div class="tabs" style="padding:0;margin-bottom:8px">
+      <button type="button" class="tab ${tab==='params'?'active':''}" onclick="switchReqTab('${key}','params')">Params</button>
+      <button type="button" class="tab ${tab==='body'?'active':''}" onclick="switchReqTab('${key}','body')">Body</button>
+    </div>
+    ${tab==='params' ? reqParamsTableHtml(key) : bodyEditorHtml(key)}`;
+}
+function switchReqTab(key, tab){ reqTab[key] = tab; renderReqSide(key); }
+function reqParamsTableHtml(key){
   const list = ifParams[key];
   const rows = list.map((r,i)=>`
     <tr>
       <td><input value="${r.name}" onchange="onReqParamChange('${key}',${i},'name',this.value)"></td>
       <td><select onchange="onReqParamChange('${key}',${i},'type',this.value)">${PARAM_TYPES.map(t=>`<option value="${t}" ${r.type===t?'selected':''}>${t}</option>`).join('')}</select></td>
       <td><select onchange="onReqParamChange('${key}',${i},'required',this.value)"><option value="1" ${r.required?'selected':''}>必填</option><option value="0" ${!r.required?'selected':''}>可选</option></select></td>
-      <td><select onchange="onReqParamChange('${key}',${i},'location',this.value)">${PARAM_LOCS.map(l=>`<option value="${l}" ${r.location===l?'selected':''}>${l}</option>`).join('')}</select></td>
       <td><input value="${r.sample}" placeholder="示例值" onchange="onReqParamChange('${key}',${i},'sample',this.value)"></td>
       <td style="width:40px;text-align:center"><button type="button" class="btn sm danger" onclick="removeReqParam('${key}',${i})">×</button></td>
     </tr>`).join('');
-  box.innerHTML = `
+  return `
     <table class="mt">
-      <thead><tr><th style="width:22%">参数名</th><th style="width:16%">类型</th><th style="width:13%">必填</th><th style="width:13%">位置</th><th>示例值</th><th style="width:40px"></th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:16px">暂无参数</td></tr>`}</tbody>
+      <thead><tr><th style="width:26%">参数名</th><th style="width:18%">类型</th><th style="width:14%">必填</th><th>示例值</th><th style="width:40px"></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:16px">暂无参数</td></tr>`}</tbody>
     </table>
     <button type="button" class="btn sm ghost" onclick="addReqParam('${key}')" style="margin-top:8px">＋ 添加参数</button>`;
 }
-function addReqParam(key){ ifParams[key].push({ name:'', type:'string', location:'query', required:false, sample:'' }); renderReqList(key); }
-function removeReqParam(key, i){ ifParams[key].splice(i,1); renderReqList(key); }
+function bodyEditorHtml(key){
+  const b = ifBodies[key];
+  let editor = '';
+  if(b.type === 'none'){
+    editor = `<div class="empty" style="padding:16px">无请求体</div>`;
+  } else if(b.type === 'json' || b.type === 'xml'){
+    editor = `<textarea class="btextarea" rows="5" placeholder="${b.type==='json'?'{\n  "key": "value"\n}':'<root></root>'}" oninput="onBodyRawChange('${key}',this.value)">${b.raw}</textarea>`;
+  } else {
+    const rows = b.form.map((f,i)=>`
+      <tr>
+        <td><input value="${f.key}" placeholder="键" onchange="onBodyFormChange('${key}',${i},'key',this.value)"></td>
+        <td><input value="${f.value}" placeholder="值" onchange="onBodyFormChange('${key}',${i},'value',this.value)"></td>
+        <td style="width:40px;text-align:center"><button type="button" class="btn sm danger" onclick="removeBodyForm('${key}',${i})">×</button></td>
+      </tr>`).join('');
+    editor = `
+      <table class="mt">
+        <thead><tr><th style="width:40%">键</th><th>值</th><th style="width:40px"></th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:16px">暂无字段</td></tr>`}</tbody>
+      </table>
+      <button type="button" class="btn sm ghost" onclick="addBodyForm('${key}')" style="margin-top:8px">＋ 添加</button>`;
+  }
+  return `
+    <div class="tabs" style="padding:0;margin-bottom:8px">
+      ${BODY_TYPES.map(t=>`<button type="button" class="tab sm ${b.type===t?'active':''}" onclick="onBodyTypeChange('${key}','${t}')">${t}</button>`).join('')}
+    </div>
+    ${editor}`;
+}
+function onBodyTypeChange(key, type){ ifBodies[key].type = type; renderReqSide(key); }
+function onBodyRawChange(key, val){ ifBodies[key].raw = val; }
+function addBodyForm(key){ ifBodies[key].form.push({ key:'', value:'' }); renderReqSide(key); }
+function removeBodyForm(key, i){ ifBodies[key].form.splice(i,1); renderReqSide(key); }
+function onBodyFormChange(key, i, field, val){ ifBodies[key].form[i][field] = val; }
+function addReqParam(key){ ifParams[key].push({ name:'', type:'string', required:false, sample:'' }); renderReqSide(key); renderFieldMappings(); }
+function removeReqParam(key, i){ ifParams[key].splice(i,1); renderReqSide(key); renderFieldMappings(); }
 function onReqParamChange(key, i, field, val){ ifParams[key][i][field] = (field==='required') ? (val==='1') : val; }
 function renderRespList(key){
   const box = document.getElementById(IF_PARAM_BOX[key]);
@@ -1236,6 +1299,43 @@ function renderRespList(key){
 function addRespField(key){ ifParams[key].push({ name:'', type:'string', desc:'' }); renderRespList(key); }
 function removeRespField(key, i){ ifParams[key].splice(i,1); renderRespList(key); }
 function onRespFieldChange(key, i, field, val){ ifParams[key][i][field] = val; }
+let fieldMappings = [];
+const MAP_OPS = { rename:'重命名', typeCast:'类型转换', enumMap:'枚举映射', default:'默认值', condition:'条件', aggregate:'聚合' };
+const MAP_NULL = { KEEP:'保留原值', NULL:'置空', DEFAULT:'默认值', ERROR:'报错' };
+function reqParamNames(key){
+  return ifParams[key].map(p=>p.name.trim()).filter(Boolean);
+}
+function renderFieldMappings(){
+  const box = document.getElementById('f-if-field-maps');
+  const platNames = reqParamNames('platReq');
+  const upNames = reqParamNames('upReq');
+  const rows = fieldMappings.map((m,i)=>`
+    <tr>
+      <td><select onchange="onFieldMapChange(${i},'source',this.value)"><option value="">— 选平台侧字段 —</option>${platNames.map(n=>`<option value="${n}" ${m.source===n?'selected':''}>${n}</option>`).join('')}</select></td>
+      <td><select onchange="onFieldMapChange(${i},'op',this.value)">${Object.entries(MAP_OPS).map(([v,l])=>`<option value="${v}" ${m.op===v?'selected':''}>${l}</option>`).join('')}</select></td>
+      <td><select onchange="onFieldMapChange(${i},'target',this.value)"><option value="">— 选上游侧字段 —</option>${upNames.map(n=>`<option value="${n}" ${m.target===n?'selected':''}>${n}</option>`).join('')}</select></td>
+      <td><select onchange="onFieldMapChange(${i},'nullStrategy',this.value)">${Object.keys(MAP_NULL).map(k=>`<option value="${k}" ${m.nullStrategy===k?'selected':''}>${MAP_NULL[k]}</option>`).join('')}</select></td>
+      <td style="width:40px;text-align:center"><button type="button" class="btn sm danger" onclick="removeFieldMap(${i})">×</button></td>
+    </tr>`).join('');
+  box.innerHTML = `
+    <table class="mt">
+      <thead><tr><th>平台侧字段</th><th>操作</th><th>上游侧字段</th><th>空值策略</th><th style="width:40px"></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:16px">暂无映射，点下方「添加映射」</td></tr>`}</tbody>
+    </table>
+    <button type="button" class="btn sm ghost" onclick="addFieldMap()" style="margin-top:8px">＋ 添加映射</button>`;
+}
+function addFieldMap(){ fieldMappings.push({ source:'', op:'rename', target:'', nullStrategy:'KEEP' }); renderFieldMappings(); }
+function removeFieldMap(i){ fieldMappings.splice(i,1); renderFieldMappings(); }
+function onFieldMapChange(i, key, val){ fieldMappings[i][key] = val; }
+function deleteInterface(id){
+  const it = state.interfaces.find(x=>x.id===id);
+  if(!it) return;
+  if(!confirm(`确认删除接口「${it.name}」？`)) return;
+  state.interfaces = state.interfaces.filter(x=>x.id!==id);
+  state.apps.forEach(a=>a.groups.forEach(g=>{ g.ifs = g.ifs.filter(x=>x!==id); }));
+  if(currentIfId===id){ currentIfId=null; }
+  renderInterfaces();
+}
 function toggleAdvConfig(){
   const el = document.getElementById('f-if-adv');
   el.style.display = el.style.display==='none' ? 'block' : 'none';
@@ -1248,6 +1348,7 @@ function renderIdemSwitch(){
 }
 function toggleIdem(){ ifIdem = !ifIdem; renderIdemSwitch(); }
 function submitInterface(){
+  const id = document.getElementById('f-if-id').value;
   const name = document.getElementById('f-if-name').value.trim();
   const path = document.getElementById('f-if-path').value.trim();
   const appId = document.getElementById('f-if-app').value;
@@ -1265,18 +1366,33 @@ function submitInterface(){
   const timeout = parseInt(document.getElementById('f-if-timeout').value) || 3000;
   const retries = parseInt(document.getElementById('f-if-retries').value) || 0;
   const adpMsg = document.getElementById('f-adp-msg').value;
-  const adpField = document.getElementById('f-adp-field').value;
   const adpAuth = document.getElementById('f-adp-auth').value;
-  const id = 'IF' + String(state.interfaces.length+1).padStart(3,'0');
-  state.interfaces.push({ id, name, path, method, ifType, desc:desc||'—', protocolIn:protoIn, protocolOut:protoOut, upstreamApp, upstreamPath, appId, group, status:'草稿',
+  const data = {
+    name, path, method, ifType, desc:desc||'—', protocolIn:protoIn, protocolOut:protoOut, upstreamApp, upstreamPath, appId, group,
     platReqParams:ifParams.platReq.map(r=>({...r})), upReqParams:ifParams.upReq.map(r=>({...r})),
-    platReqBody:document.getElementById('f-if-body-plat').value, upReqBody:document.getElementById('f-if-body-up').value,
+    platBody:{ ...ifBodies.platReq, form:ifBodies.platReq.form.map(f=>({...f})) },
+    upBody:{ ...ifBodies.upReq, form:ifBodies.upReq.form.map(f=>({...f})) },
     upRespFields:ifParams.upResp.map(r=>({...r})),
-    adapters:{ protocolIn:protoAdapterName(protoIn), protocolOut:protoAdapterName(protoOut), message:adpMsg, field:adpField, auth:adpAuth || null },
-    config:{ timeout, retries, idempotent:ifIdem } });
-  const app = state.apps.find(x=>x.appId===appId);
-  const g = app.groups.find(x=>x.name===group);
-  if(g) g.ifs.push(id);
+    fieldMappings:fieldMappings.map(r=>({...r})),
+    adapters:{ protocolIn:protoAdapterName(protoIn), protocolOut:protoAdapterName(protoOut), message:adpMsg, auth:adpAuth || null },
+    config:{ timeout, retries, idempotent:ifIdem }
+  };
+  if(id){
+    const it = state.interfaces.find(x=>x.id===id);
+    if(it){
+      state.apps.forEach(a=>a.groups.forEach(g=>{ g.ifs = g.ifs.filter(x=>x!==id); }));
+      Object.assign(it, data);
+      const app = state.apps.find(x=>x.appId===appId);
+      const g = app && app.groups.find(x=>x.name===group);
+      if(g) g.ifs.push(id);
+    }
+  } else {
+    const nid = 'IF' + String(state.interfaces.length+1).padStart(3,'0');
+    state.interfaces.push(Object.assign({ id:nid, status:'草稿' }, data));
+    const app = state.apps.find(x=>x.appId===appId);
+    const g = app && app.groups.find(x=>x.name===group);
+    if(g) g.ifs.push(nid);
+  }
   closeModal(); navigate('interfaces');
 }
 
