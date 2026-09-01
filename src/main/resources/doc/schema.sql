@@ -3,8 +3,15 @@
 -- 依据《表结构设计.html》生成，共 15 张表：配置类 10 + 运行类 5
 -- 目标库：MySQL 8.0 InnoDB，字符集 utf8mb4
 -- 注意：与 doc_old/schema.sql（旧版 ERP demo 9 表）不是同一套，勿混用
--- 外键统一在文件末尾以 ALTER TABLE 追加，避免建表顺序依赖
+-- 不使用数据库外键约束：引用完整性由应用层保证，引用列均建索引（见各表）
 -- ============================================================
+
+-- 建库（首次部署执行；库名 / 排序规则可按部署环境调整）
+CREATE DATABASE IF NOT EXISTS apicenter
+    DEFAULT CHARACTER SET utf8mb4
+    DEFAULT COLLATE utf8mb4_0900_ai_ci;
+
+USE apicenter;
 
 -- 01 应用（供应商）：出站签名凭证与回调验签凭证两类分离；鉴权/报文适配器按 id 引用 adapter 表
 CREATE TABLE app (
@@ -64,6 +71,7 @@ CREATE TABLE interface (
     UNIQUE KEY uk_interface_code (code),
     UNIQUE KEY uk_interface_path (path),
     KEY idx_interface_app (app_id),
+    KEY idx_interface_group (group_id),
     KEY idx_interface_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='接口定义';
 
@@ -129,7 +137,7 @@ CREATE TABLE interface_field_def (
 
 -- 09 适配器定义：三类（鉴权/协议/报文）；无状态、配置驱动；凭证类参数不落此处，统一存 app
 CREATE TABLE adapter (
-    id         VARCHAR(16) NOT NULL PRIMARY KEY COMMENT '适配器标识（如 ADP-001）',
+    id         VARCHAR(16) PRIMARY KEY COMMENT '适配器标识（如 ADP-001）',
     name       VARCHAR(64) NOT NULL COMMENT '适配器名称（展示用，建议唯一；绑定一律按 id 引用）',
     type       VARCHAR(16) NOT NULL COMMENT 'auth 鉴权 / protocol 协议 / message 报文',
     impl       VARCHAR(64) NOT NULL COMMENT '实现类（HmacAuthAdapter / JsonProtocolAdapter / EnvelopeMessageAdapter 等）',
@@ -148,7 +156,8 @@ CREATE TABLE interface_adapter_binding (
     `role`       VARCHAR(16) NOT NULL COMMENT 'MESSAGE 报文 / AUTH 供应商签名（仅出站）/ CALLBACK_AUTH 回调验签（仅入站）',
     adapter_id   VARCHAR(16) COMMENT '绑定的适配器；NULL = 继承应用默认',
     version      VARCHAR(16) COMMENT '指定适配器版本（灰度切换；空 = 用适配器当前启用版本）',
-    UNIQUE KEY uk_binding (interface_id, `role`)
+    UNIQUE KEY uk_binding (interface_id, `role`),
+    KEY idx_binding_adapter (adapter_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='接口-适配器绑定';
 
 -- 11 出站请求（Flow A 状态机载体）：status 即状态机；补偿/对账 worker 按 (status, next_retry_at) 扫描
@@ -169,6 +178,7 @@ CREATE TABLE outbound_request (
     created_at    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     KEY idx_outreq_scan (status, next_retry_at),
+    KEY idx_outreq_interface (interface_id),
     KEY idx_outreq_biz (app_id, biz_id),
     KEY idx_outreq_trace (trace_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='出站请求（Flow A 状态机载体）';
@@ -190,6 +200,7 @@ CREATE TABLE inbound_delivery (
     created_at            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     KEY idx_delivery_scan (delivery_status, next_retry_at),
+    KEY idx_delivery_interface (interface_id),
     KEY idx_delivery_trace (trace_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='入站送达（Flow B 状态机载体）';
 
@@ -241,45 +252,13 @@ CREATE TABLE alert_rule (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='告警规则';
 
 -- ============================================================
--- 外键约束（统一追加，避免建表顺序依赖；dead_letter.ref_id 为多态引用不设外键）
+-- 删除策略约定（不设数据库外键，引用完整性由应用层保证）
+--   · 删适配器     → app.auth_adapter_id / callback_auth_adapter_id /
+--                    default_message_adapter_id、binding.adapter_id 置 NULL
+--                    （回退「无鉴权 / 平台默认」）
+--   · 删应用       → 级联删其分组；存在接口时禁止删除（接口以「下线」为主）
+--   · 删接口       → 级联删 6 张配置子表（snapshot/param/body/mapping/field_def/binding）；
+--                    存在运行数据（outbound_request / inbound_delivery）时仅允许下线
+--   · 删接口       → call_log.interface_id 置 NULL（日志保留，可观测数据不丢）
+--   · dead_letter.ref_id 为多态引用（指向 outbound_request.id 或 inbound_delivery.id），不约束
 -- ============================================================
-
--- app → adapter（鉴权/回调验签/默认报文，适配器删除后回退 NULL = 无鉴权/平台默认）
-ALTER TABLE app
-    ADD CONSTRAINT fk_app_auth_adapter FOREIGN KEY (auth_adapter_id) REFERENCES adapter (id) ON DELETE SET NULL,
-    ADD CONSTRAINT fk_app_callback_adapter FOREIGN KEY (callback_auth_adapter_id) REFERENCES adapter (id) ON DELETE SET NULL,
-    ADD CONSTRAINT fk_app_msg_adapter FOREIGN KEY (default_message_adapter_id) REFERENCES adapter (id) ON DELETE SET NULL;
-
--- app_group → app（应用删除级联删分组）
-ALTER TABLE app_group
-    ADD CONSTRAINT fk_group_app FOREIGN KEY (app_id) REFERENCES app (app_id) ON DELETE CASCADE;
-
--- interface → app / app_group（接口以「下线」为主，不硬删，故 RESTRICT）
-ALTER TABLE interface
-    ADD CONSTRAINT fk_interface_app FOREIGN KEY (app_id) REFERENCES app (app_id) ON DELETE RESTRICT,
-    ADD CONSTRAINT fk_interface_group FOREIGN KEY (group_id) REFERENCES app_group (id) ON DELETE RESTRICT;
-
--- interface 子表（快照/参数/请求体/字段映射/响应·ack/绑定随接口级联删除）
-ALTER TABLE interface_snapshot
-    ADD CONSTRAINT fk_snapshot_interface FOREIGN KEY (interface_id) REFERENCES interface (id) ON DELETE CASCADE;
-ALTER TABLE interface_param
-    ADD CONSTRAINT fk_param_interface FOREIGN KEY (interface_id) REFERENCES interface (id) ON DELETE CASCADE;
-ALTER TABLE interface_body
-    ADD CONSTRAINT fk_body_interface FOREIGN KEY (interface_id) REFERENCES interface (id) ON DELETE CASCADE;
-ALTER TABLE interface_field_mapping
-    ADD CONSTRAINT fk_mapping_interface FOREIGN KEY (interface_id) REFERENCES interface (id) ON DELETE CASCADE;
-ALTER TABLE interface_field_def
-    ADD CONSTRAINT fk_fielddef_interface FOREIGN KEY (interface_id) REFERENCES interface (id) ON DELETE CASCADE;
-ALTER TABLE interface_adapter_binding
-    ADD CONSTRAINT fk_binding_interface FOREIGN KEY (interface_id) REFERENCES interface (id) ON DELETE CASCADE,
-    ADD CONSTRAINT fk_binding_adapter FOREIGN KEY (adapter_id) REFERENCES adapter (id) ON DELETE SET NULL;
-
--- 运行表 → interface（接口不硬删，RESTRICT 保证运行数据可追溯）
-ALTER TABLE outbound_request
-    ADD CONSTRAINT fk_outreq_interface FOREIGN KEY (interface_id) REFERENCES interface (id) ON DELETE RESTRICT;
-ALTER TABLE inbound_delivery
-    ADD CONSTRAINT fk_delivery_interface FOREIGN KEY (interface_id) REFERENCES interface (id) ON DELETE RESTRICT;
-
--- call_log → interface（接口删除后日志置空，保留可观测数据）
-ALTER TABLE call_log
-    ADD CONSTRAINT fk_call_interface FOREIGN KEY (interface_id) REFERENCES interface (id) ON DELETE SET NULL;
