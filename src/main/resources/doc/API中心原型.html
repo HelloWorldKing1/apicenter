@@ -181,20 +181,20 @@
 /* ===== 模拟数据 ===== */
 const state = {
   apps: [
-    { appId:'TENCENT-CLOUD', name:'腾讯云', authType:'云厂商签名鉴权', callbackAuthType:'云厂商回调验签', status:'启用', secret:'sk_tc_3a9c…', baseUrl:'https://cvm.tencentcloudapi.com', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-17 10:00', updateTime:'2026-08-29 16:59', desc:'腾讯云 CVM 云服务器',
+    { appId:'TENCENT-CLOUD', name:'腾讯云', authType:'云厂商签名鉴权', callbackAuthType:'云厂商回调验签', status:'启用', secret:'sk_tc_3a9c…', baseUrl:'https://cvm.tencentcloudapi.com', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-17 10:00', updateTime:'2026-08-29 16:59', desc:'腾讯云 CVM 云服务器', contact:'运维组', qpsLimit:100, dailyQuota:50000,
       groups:[
-        { name:'云服务器', ifs:['IF001'] },
-        { name:'回调通知', ifs:['IF004'] }
+        { name:'云服务器', sortOrder:1, ifs:['IF001'] },
+        { name:'回调通知', sortOrder:2, ifs:['IF004'] }
       ]},
-    { appId:'ALIYUN', name:'阿里云', authType:'云厂商签名鉴权', callbackAuthType:'无鉴权', status:'启用', secret:'sk_ali_5b2f…', baseUrl:'https://ecs.aliyuncs.com', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-18 14:30', updateTime:'2026-08-29 16:59', desc:'阿里云 ECS 云服务器',
+    { appId:'ALIYUN', name:'阿里云', authType:'云厂商签名鉴权', callbackAuthType:'无鉴权', status:'启用', secret:'sk_ali_5b2f…', baseUrl:'https://ecs.aliyuncs.com', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-18 14:30', updateTime:'2026-08-29 16:59', desc:'阿里云 ECS 云服务器', contact:'', qpsLimit:'', dailyQuota:'',
       groups:[
-        { name:'云服务器', ifs:['IF002'] }
+        { name:'云服务器', sortOrder:1, ifs:['IF002'] }
       ]},
-    { appId:'ZHIHUIYA', name:'智慧芽', authType:'Bearer Token 鉴权', callbackAuthType:'无鉴权', status:'启用', secret:'sk_zyy_8d1e…', baseUrl:'https://connect.zhihuiya.com', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-20 09:15', updateTime:'2026-08-20 09:15', desc:'智慧芽专利检索 API',
+    { appId:'ZHIHUIYA', name:'智慧芽', authType:'Bearer Token 鉴权', callbackAuthType:'无鉴权', status:'启用', secret:'sk_zyy_8d1e…', baseUrl:'https://connect.zhihuiya.com', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-20 09:15', updateTime:'2026-08-20 09:15', desc:'智慧芽专利检索 API', contact:'', qpsLimit:'', dailyQuota:'',
       groups:[
-        { name:'专利检索', ifs:['IF003'] }
+        { name:'专利检索', sortOrder:1, ifs:['IF003'] }
       ]},
-    { appId:'AMAP', name:'高德地图', authType:'API Key 鉴权', callbackAuthType:'无鉴权', status:'启用', secret:'sk_amap_c4a7…', baseUrl:'https://restapi.amap.com', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-25 11:00', updateTime:'2026-08-25 11:00', desc:'高德地图开放平台',
+    { appId:'AMAP', name:'高德地图', authType:'API Key 鉴权', callbackAuthType:'无鉴权', status:'启用', secret:'sk_amap_c4a7…', baseUrl:'https://restapi.amap.com', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-25 11:00', updateTime:'2026-08-25 11:00', desc:'高德地图开放平台', contact:'', qpsLimit:'', dailyQuota:'',
       groups:[]}
   ],
   interfaces: [
@@ -502,6 +502,8 @@ function renderAppDetail(el){
             <div class="keyval"><span class="k">回调验签方式</span><span class="v">${a.callbackAuthType || '无鉴权'}</span></div>
             <div class="keyval"><span class="k">appSecret</span><span class="v">${a.secret}</span></div>
             <div class="keyval"><span class="k">服务地址</span><span class="v">${a.baseUrl}</span></div>
+            <div class="keyval"><span class="k">联系人</span><span class="v">${a.contact || '—'}</span></div>
+            <div class="keyval"><span class="k">QPS / 日配额</span><span class="v">${a.qpsLimit ? a.qpsLimit + ' / ' + a.dailyQuota : '不限'}</span></div>
             <div class="keyval"><span class="k">新增时间</span><span class="v">${a.createTime}</span></div>
             <div class="keyval"><span class="k">修改时间</span><span class="v">${a.updateTime}</span></div>
             <div class="keyval"><span class="k">分组数</span><span class="v">${a.groups.length}</span></div>
@@ -539,10 +541,10 @@ function renderGroups(){
         ${state.apps.map(a=>`
           <div class="tree-item" style="cursor:default"><span class="arrow">▾</span><span class="name">${a.name}</span><span class="sub">${a.appId} · ${a.groups.length} 个分组</span></div>
           <div class="tree-indent">
-            ${a.groups.map(g=>`
+            ${a.groups.slice().sort((x,y)=>(x.sortOrder||0)-(y.sortOrder||0)).map(g=>`
               <div class="tree-item" onclick="openGroupDetail('${a.appId}','${g.name}')">
                 <span class="arrow">▸</span><span class="name">分组：${g.name}</span>
-                <span class="sub">${g.ifs.length} 个接口</span>
+                <span class="sub">${g.ifs.length} 个接口 · 排序 ${g.sortOrder||0}</span>
                 <span style="margin-left:auto"><button class="btn sm ghost" onclick="event.stopPropagation();openGroupModal('${a.appId}','${g.name}')">编辑</button> <button class="btn sm danger" onclick="event.stopPropagation();deleteGroup('${a.appId}','${g.name}')">删除</button></span>
               </div>`).join('')}
             ${a.groups.length===0?'<div class="tree-item" style="cursor:default"><span class="arrow">·</span><span class="sub">暂无分组</span></div>':''}
@@ -1008,6 +1010,11 @@ function openAppModal(id){
       <div class="field"><label>服务地址（base-url）</label><input id="f-app-base-url" placeholder="如 https://cvm.tencentcloudapi.com" value="${a?a.baseUrl:''}"></div>
       <div class="field"><label>鉴权适配器</label><select id="f-app-auth" onchange="onAppAuthChange()">${adapterOpts('auth', a?a.authType:null)}<option value="__custom__">＋ 自定义鉴权适配器…</option></select><div id="f-app-auth-custom" class="params-panel" style="display:none;margin-top:10px"></div></div>
       <div class="field"><label>回调验签方式</label><select id="f-app-callback-auth">${adapterOpts('auth', a?a.callbackAuthType:null)}<option value="无鉴权" ${(!a || !a.callbackAuthType || a.callbackAuthType==='无鉴权')?'selected':''}>无鉴权</option></select></div>
+      <div class="field"><label>联系人</label><input id="f-app-contact" placeholder="如：运维组" value="${a?(a.contact||''):''}"></div>
+      <div class="grid2">
+        <div class="field"><label>QPS 限流</label><input type="number" id="f-app-qps" placeholder="空 = 不限" value="${a?(a.qpsLimit||''):''}"></div>
+        <div class="field"><label>日配额</label><input type="number" id="f-app-quota" placeholder="空 = 不限" value="${a?(a.dailyQuota||''):''}"></div>
+      </div>
       <div class="field"><label>IP 白名单</label><textarea id="f-app-ip-wl" rows="3" placeholder="使用英文逗号分割">${a?a.ipWhitelist:''}</textarea><div class="hint">多个IP请使用英文逗号分割，为空时不限制开放接口的请求IP。</div></div>
       <div class="field"><label>IP 黑名单</label><textarea id="f-app-ip-bl" rows="3" placeholder="使用英文逗号分割">${a?a.ipBlacklist:''}</textarea><div class="hint">多个IP请使用英文逗号分割，为空时不限制开放接口的请求IP。</div></div>
       <div class="field"><label>描述</label><input id="f-app-desc" placeholder="可选" value="${a && a.desc!=='—' ? a.desc : ''}"></div>
@@ -1123,19 +1130,23 @@ function submitApp(){
   const ipWhitelist = document.getElementById('f-app-ip-wl').value.trim();
   const ipBlacklist = document.getElementById('f-app-ip-bl').value.trim();
   const desc = document.getElementById('f-app-desc').value.trim();
+  const contact = document.getElementById('f-app-contact').value.trim();
+  const qpsLimit = document.getElementById('f-app-qps').value.trim();
+  const dailyQuota = document.getElementById('f-app-quota').value.trim();
   const now = nowStr();
   if(id){
     const a = state.apps.find(x=>x.appId===id);
-    if(a){ Object.assign(a, { name, baseUrl, authType:auth, callbackAuthType:callbackAuth, ipWhitelist, ipBlacklist, desc:desc||'—', updateTime:now }); }
+    if(a){ Object.assign(a, { name, baseUrl, authType:auth, callbackAuthType:callbackAuth, ipWhitelist, ipBlacklist, contact:contact||'', qpsLimit:qpsLimit||'', dailyQuota:dailyQuota||'', desc:desc||'—', updateTime:now }); }
   } else {
     const appId = 'APP-' + Math.random().toString(36).slice(2,7).toUpperCase();
-    state.apps.push({ appId, name, baseUrl, authType:auth, callbackAuthType:callbackAuth, status:'草稿', secret:'sk_new_xxxx…', ipWhitelist, ipBlacklist, createTime:now, updateTime:now, desc:desc||'—', groups:[] });
+    state.apps.push({ appId, name, baseUrl, authType:auth, callbackAuthType:callbackAuth, status:'草稿', secret:'sk_new_xxxx…', ipWhitelist, ipBlacklist, contact:contact||'', qpsLimit:qpsLimit||'', dailyQuota:dailyQuota||'', createTime:now, updateTime:now, desc:desc||'—', groups:[] });
   }
   closeModal(); navigate('apps');
 }
 
 function openGroupModal(appId, groupName){
   const editing = !!groupName;
+  const g = editing ? ((state.apps.find(x=>x.appId===appId)||{}).groups||[]).find(x=>x.name===groupName) : null;
   const appOpts = state.apps.map(a=>`<option value="${a.appId}" ${appId===a.appId?'selected':''}>${a.name}（${a.appId}）</option>`).join('');
   openModal(`
     <div class="modal-head"><h3>${editing?'编辑分组':'新建分组'}</h3><span class="x" onclick="closeModal()">×</span></div>
@@ -1143,6 +1154,7 @@ function openGroupModal(appId, groupName){
       <input type="hidden" id="f-group-old" value="${editing?groupName:''}">
       <div class="field"><label>所属应用</label><select id="f-group-app" ${editing?'disabled':''}>${appOpts}</select></div>
       <div class="field"><label>分组名称</label><input id="f-group-name" placeholder="如：订单 / 回调" value="${editing?groupName:''}"></div>
+      <div class="field"><label>排序</label><input type="number" id="f-group-sort" value="${g?(g.sortOrder||0):0}"></div>
       <div class="hint" style="color:var(--muted);font-size:12px">分组为纯组织单元，不承载配置。</div>
     </div>
     <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">取消</button><button class="btn" onclick="submitGroup()">${editing?'保存':'创建'}</button></div>`);
@@ -1153,14 +1165,16 @@ function submitGroup(){
   const name = document.getElementById('f-group-name').value.trim();
   if(!name){ alert('请填写分组名称'); return; }
   const app = state.apps.find(x=>x.appId===appId);
+  const sortOrder = parseInt(document.getElementById('f-group-sort').value) || 0;
   if(oldName){
+    const g = app.groups.find(x=>x.name===oldName);
+    if(g) g.sortOrder = sortOrder;
     if(oldName !== name){
-      const g = app.groups.find(x=>x.name===oldName);
       if(g) g.name = name;
       state.interfaces.forEach(i=>{ if(i.appId===appId && i.group===oldName){ i.group = name; } });
     }
   } else {
-    app.groups.push({ name, ifs:[] });
+    app.groups.push({ name, sortOrder, ifs:[] });
   }
   closeModal(); renderGroups();
 }
@@ -1452,6 +1466,8 @@ function submitInterface(){
   if(!targetPath){ alert(ifType==='inbound' ? '请填写回调地址' : '请填写上游路径'); return; }
   const badMap = fieldMappings.findIndex(m => !m.target || (m.op !== 'default' && !m.source));
   if(badMap >= 0){ alert(`第 ${badMap+1} 条字段映射缺少入站/出站字段`); return; }
+  const badParam = fieldMappings.findIndex(m => m.op !== 'rename' && !m.param);
+  if(badParam >= 0){ alert(`第 ${badParam+1} 条字段映射缺少操作参数`); return; }
   const method = document.getElementById('f-if-method').value;
   const protoIn = document.getElementById('f-if-proto-in').value;
   const protoOut = document.getElementById('f-if-proto-out').value;

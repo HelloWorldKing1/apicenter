@@ -2,22 +2,50 @@
 
 ## 项目概述
 
-**apicenter** —— API 三方接口统一调用平台组件。独立 Spring Boot 服务，作为 ERP 与第三方系统（PARTNER_A / PARTNER_B）之间的「连接器」：对外向 ERP 暴露统一、稳定的调用面，对内做字段适配、失败重试、可靠传输、全链路可观测。**只做连接 + 适配 + 可靠传输，不承接 ERP 业务决策。**
+**apicenter** —— API 三方接口统一调用平台组件。定位：**只做连接 + 适配 + 可靠传输，不承接业务决策。**
 
-两条核心链路：
+> **两代设计并存，先分清对象**：
+> - **现行设计 = 「API 中心」**：`src/main/resources/doc/` 下 6 份文档（设计方案 / 技术架构 / 可行性报告 / 表结构设计 / 时序图 / 原型），通用平台形态（应用=供应商，5 模块）。
+> - **现有代码 = 旧版 demo**：Java 代码按 `doc_old/设计文档.md` 实现，是「ERP 订单连接器」（PARTNER_A/B 固定两渠道）。现行设计尚未落地（排期见《可行性报告.md》）。
 
-- **Flow A 出站**（ERP → 组件 → 第三方）：ERP 调 `POST /api/orders` 推送订单 → 验签 → MapStruct 字段映射（PARTNER_A 出 JSON / PARTNER_B 出 XML）→ `@HttpExchange` 调用第三方 → 反向映射返回 ERP。失败按状态机处理：500/429 指数退避重试 → 持久化补偿 → 成功；400 → 死信；超时 → UNKNOWN 对账。
-- **Flow B 入站回调**（第三方 → 组件 → ERP）：第三方调 `POST /callback/{channel}/order-status` → 验签 → 映射为 ERP 事件 → 送达 ERP 回调 URL → ERP ack → 组件回第三方 ack。送达失败由补偿 worker 重发。
+两条核心链路（两代语义一致）：
 
-四大能力：字段映射（3.1）、失败重试（3.2）、请求日志（3.3）、定时/实时同步（3.4）。详见 `README.md` 与 `src/main/resources/doc_old/设计文档.md`（12 章）。
+- **Flow A 出站**（调用方 → 组件 → 供应商）：入站鉴权 → 适配器链（协议解码 → 报文适配 → 字段映射 → 协议编码）→ 出站鉴权（供应商签名）→ 调供应商 → 反向适配回调用方。失败按状态机处理：5xx/429 指数退避重试 → 补偿；4xx → 死信；超时 → UNKNOWN 对账。
+- **Flow B 入站回调**（供应商回调 → 组件 → 调用方）：回调验签（凭证独立于出站签名）→ 适配器链 → 送达回调地址 → 收到即回 ack 回执（与送达解耦）→ 送达失败由补偿 worker 重送。
 
-## 技术栈
+## 设计文档（现行）
+
+`src/main/resources/doc/`（6 份，互相引用闭环，改动需同步）：
+
+| 文档 | 内容 |
+|---|---|
+| `API中心设计方案.md` | 设计总纲：应用（供应商）/ 分组 / 接口 / 监控 / 适配器 5 模块；接口定义模型（出站中转 / 入站回调）；三类适配器（鉴权 / 协议 / 报文）+ 接口级字段映射；状态机 / 错误码 / 容错附录 |
+| `技术架构和实现方案.md` | 实现路径：分层架构、技术选型、适配器链引擎、出 / 入站执行引擎、M1–M5 路线图、ADR |
+| `可行性报告.md` | 技术可行性评估、工作量估算（约 88 人日）、风险与应对 |
+| `表结构设计.html` | 15 张表（配置 10 + 运行 5）+ 枚举汇总 + 原型数据模型映射对照 |
+| `API中心时序图与流程图.md` | 配置流程、Flow A / B 时序、请求处理 + 容错流程图 |
+| `API中心原型.html` | 可交互管理面原型（数据模型与交互即事实来源） |
+
+关键设计要点（与旧版 demo 的主要差异，改动前先读设计方案对应章节）：
+
+- **应用 = 供应商（上游）**：出站凭证（供应商签名）+ 回调验签凭证两类分离；调用方鉴权 / 向回调地址签名由平台统一，不在模型内（§1.2 / §3.1 / §5.3）。
+- **接口两种类型**：出站中转（上游路径 + 供应商签名 + 出站响应字段）/ 入站回调（回调地址 + 回调验签 + 出站侧送达报文必填 + ack 回执字段）；类型互斥字段按类型清空（§3.1）。
+- **适配器三类**：鉴权 / 协议 / 报文；字段映射为接口级配置（不是适配器）；协议适配器按接口协议自动推导、不参与绑定；绑定角色 = 报文 / 供应商签名 / 回调验签，应用级默认 + 接口级覆盖（§5.1 / §5.7）。
+- **字段映射**：运行时规则（source/op/target/param/nullStrategy，6 种操作），非编译期映射（§5.6）。
+- **无平台侧幂等开关**：去重依赖上游对业务键幂等（§6.3）。
+- **入站 ack = 回执**：收到即回、与送达解耦，无「调用方 ack → 供应商 ack」反向映射（§5.5 / §6.1）。
+
+## 现有代码（旧版 demo）
+
+> 以下各节描述现有 Java 代码——旧版 ERP 订单连接器 demo（按 `doc_old/设计文档.md` 12 章实现）。
+
+### 技术栈
 
 Java 21 · Spring Boot 4.1（parent `spring-boot-starter-parent:4.1.0`）· Spring Framework 7 · Jackson 3（`tools.jackson.dataformat:jackson-dataformat-xml`）· MapStruct 1.6.3 · JdbcTemplate + H2（Demo，生产换 MySQL 8）· OpenTelemetry · Micrometer/Prometheus · Lombok。
 
-持久化无 JPA/Repository，全部为 `JdbcTemplate` 直连 SQL，DDL 见 `src/main/resources/schema.sql`。
+持久化无 JPA/Repository，全部为 `JdbcTemplate` 直连 SQL，DDL 见 `src/main/resources/doc_old/schema.sql`。
 
-## 常用命令
+### 常用命令
 
 > **注意**：仓库无 Maven wrapper（无 `mvnw` / `.mvn/`），且当前机器 `mvn` 不在 PATH，需自行安装 Maven 与 JDK 21。
 
@@ -29,7 +57,7 @@ mvn package           # 打可执行 jar
 
 运行后可访问：`/` → Vue3 前端；`/h2-console` → H2 控制台；`/actuator/health` 等。
 
-## 架构与源码结构
+### 架构与源码结构
 
 根包 `com.deepx.apicenter`（`src/main/java/com/deepx/apicenter/`）：
 
@@ -46,7 +74,7 @@ mvn package           # 打可执行 jar
 
 入口：`ApicenterApplication.java`（`@SpringBootApplication` + `@EnableScheduling` + `@EnableResilientMethods`，后者启用 Spring 7 `@Retryable`）。
 
-## API 面
+### API 面
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -54,7 +82,7 @@ mvn package           # 打可执行 jar
 | POST | `/api/orders/query` | UNKNOWN 对账查询（示例级占位实现） |
 | POST | `/callback/{channel}/order-status` | Flow B 第三方回调。Header：`X-Partner-Signature` / `X-Timestamp`，用该渠道密钥验签，失败返回 401 `{"code":401,"msg":"signature invalid"}` |
 
-## 核心状态机与关键设计
+### 核心状态机与关键设计
 
 - **出站状态机**（`OrderSyncService.RequestStatus`，载体 `integration_request.status`）：`INIT → MAPPING → SENDING → RETRYING → COMPENSATING → SUCCESS / DEAD_LETTER / UNKNOWN`。
   - 5xx/429 → `PartnerInvoker` 的 `@Retryable` 短重试（maxRetries=4，指数退避 200ms×2，上限 2s）；重试耗尽仍失败 → 补偿
@@ -65,7 +93,7 @@ mvn package           # 打可执行 jar
 - **超时映射**：client 读超时（默认 3000ms，`read-timeout-ms`）触发 `ResourceAccessException` → UNKNOWN 分支。
 - 所有出站 client 由 `config/RestClientConfig` 用 `HttpServiceProxyFactory` + `RestClient` 构建（Boot 4 不自动装配 `RestClient.Builder`）。
 
-## 配置与数据模型
+### 配置与数据模型
 
 配置集中在 `src/main/resources/application.yaml`：
 
@@ -73,14 +101,17 @@ mvn package           # 打可执行 jar
 - `app.integration.max-attempts: 5`、`retry-worker-fixed-delay-ms: 3000`、`signature-tolerance-seconds: 300`
 - 绑定类：`config/ChannelProperties.java`
 
-`src/main/resources/schema.sql` 共 9 张表（H2 语法，设计映射 MySQL 8 生产）：
+`src/main/resources/doc_old/schema.sql` 共 9 张表（H2 语法，设计映射 MySQL 8 生产）：
 
 `integration_channel`（渠道）、`integration_request`（出站 outbox，状态机载体）、`integration_call_log`（AOP 调用日志）、`dead_letter`（死信）、`callback_subscription`（Flow B 订阅）、`callback_delivery`（送达/补偿记录）、`sync_watermark`（高水位游标）、`sync_job_log`（同步审计）、`idempotency_key`（`(biz_type, channel_code, biz_id)` 防重）。
+
+> 注意：现行「API 中心」表结构见 `doc/表结构设计.html`（15 张新表，命名独立），与上述旧 demo 9 表**不是同一套**，勿混用。
 
 ## 约定与注意事项（Gotchas）
 
 - **中文注释**：全库代码注释、README、设计文档均为简体中文，新代码保持中文注释。
-- **Demo 性质**：多处为示例级实现（占位 requestId/deadLetterId、日志替代真实补偿、`CompensationWorker` 有 `TODO 生产实现`）。生产需 MySQL 8、XXL-JOB、Redis 分布式锁等，代码注释中已标注。
+- **Demo 性质**：旧版 Java 代码多处为示例级实现（占位 requestId/deadLetterId、日志替代真实补偿、`CompensationWorker` 有 `TODO 生产实现`）。生产需 MySQL 8、XXL-JOB、Redis 分布式锁等，代码注释中已标注。
+- **两代设计并存**：改 doc/ 下文档时不参照旧版（doc_old、schema.sql、旧 Java 类名），避免冲突；反之改旧版代码时不混入新设计概念。
 - **MapStruct + Lombok**：通过 `maven-compiler-plugin` 的 `annotationProcessorPaths` 显式配置（compile 与 test-compile 两个 execution）。新增映射字段时确保注解处理器生效（`OrderMapperImpl` 为编译期生成）。
 - `pom.xml` 中 `wiremock.version` 属性已声明但**未作为依赖使用**（后续测试可用）。
 - 三渠道为 localhost 演示地址，应用自身不启动这些对端；第三方对端靠静态 Demo 页 / WireMock 模拟。
@@ -88,8 +119,7 @@ mvn package           # 打可执行 jar
 
 ## 文档导航
 
-- `README.md` — 设计文档与 Demo 索引（功能、接口清单、技术栈、Demo 动线）
-- `src/main/resources/doc_old/设计文档.md` — 12 章设计文档（定位/架构/链路时序/字段映射/重试补偿状态机/日志链路/定时同步/数据模型/API/验收映射）
-- `src/main/resources/doc_old/实现指南.md` — 各能力「如何实现」及代码位置
-- `src/main/resources/api演示 demo.html` — 独立静态交互演示页
+- **现行设计**（`src/main/resources/doc/`）：`API中心设计方案.md`（总纲）→ `技术架构和实现方案.md` / `可行性报告.md` / `表结构设计.html`（实现三件套）→ `API中心时序图与流程图.md` / `API中心原型.html`（流程与交互）
+- `README.md` — 项目索引
+- **旧版设计**（`src/main/resources/doc_old/`）：`设计文档.md`（12 章，现有代码依据）、`实现指南.md`、`schema.sql`、`api演示 demo.html`、其余可行性/原型说明文档
 - `src/main/resources/static/` — Vue3 前端（`/`）
