@@ -60,13 +60,12 @@ API 三方接口统一调用平台组件 —— 只做 **连接 + 适配 + 可�
 
 ### 技术栈与运行
 
-Java 21 · Spring Boot 4.1 · Spring Framework 7 · Jackson 3 · MapStruct 1.6.3 · H2（Demo）· OpenTelemetry
+Java 21 · Spring Boot 4.1 · Spring Framework 7 · Jackson 3 · MapStruct 1.6.3 · MySQL（PolarDB）· OpenTelemetry
 
 ```bash
 mvn spring-boot:run      # 启动后端 :8080
 ```
 - `/` → Vue3 前端（真实调用后端接口）
-- `/h2-console` → H2 控制台
 - 静态演示页已迁至 `doc_old/api演示 demo.html`（浏览器直接打开，交互演示两条链路与四大能力）
 
 > 接口 / 状态机 / 字段映射细节见 [设计文档.md](src/main/resources/doc_old/设计文档.md)。

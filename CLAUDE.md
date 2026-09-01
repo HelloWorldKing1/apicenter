@@ -41,7 +41,7 @@
 
 ### 技术栈
 
-Java 21 · Spring Boot 4.1（parent `spring-boot-starter-parent:4.1.0`）· Spring Framework 7 · Jackson 3（`tools.jackson.dataformat:jackson-dataformat-xml`）· MapStruct 1.6.3 · JdbcTemplate + H2（Demo，生产换 MySQL 8）· OpenTelemetry · Micrometer/Prometheus · Lombok。
+Java 21 · Spring Boot 4.1（parent `spring-boot-starter-parent:4.1.0`）· Spring Framework 7 · Jackson 3（`tools.jackson.dataformat:jackson-dataformat-xml`）· MapStruct 1.6.3 · JdbcTemplate + MySQL（PolarDB，连接信息见 application.yaml；旧版 demo 曾用 H2）· OpenTelemetry · Micrometer/Prometheus · Lombok。
 
 持久化无 JPA/Repository，全部为 `JdbcTemplate` 直连 SQL，DDL 见 `src/main/resources/doc_old/schema.sql`。
 
@@ -50,12 +50,12 @@ Java 21 · Spring Boot 4.1（parent `spring-boot-starter-parent:4.1.0`）· Spri
 > **注意**：仓库无 Maven wrapper（无 `mvnw` / `.mvn/`），且当前机器 `mvn` 不在 PATH，需自行安装 Maven 与 JDK 21。
 
 ```bash
-mvn spring-boot:run   # 启动后端 :8080（H2 内存库，schema.sql 启动时自动执行）
+mvn spring-boot:run   # 启动后端 :8080（连接 application.yaml 配置的 MySQL/PolarDB；建库脚本 doc/schema.sql 已执行）
 mvn test              # 跑测试（现有仅 1 个 contextLoads 冒烟测试）
 mvn package           # 打可执行 jar
 ```
 
-运行后可访问：`/` → Vue3 前端；`/h2-console` → H2 控制台；`/actuator/health` 等。
+运行后可访问：`/` → Vue3 前端；`/actuator/health` 等。
 
 ### 架构与源码结构
 
