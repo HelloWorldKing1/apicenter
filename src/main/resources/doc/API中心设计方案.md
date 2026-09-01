@@ -10,14 +10,15 @@
 - 核心字段：appId（全局唯一）、应用名称、联系人、创建/更新时间。
 - IP 白名单 / 黑名单：来源 IP 控制（多个 IP 用英文逗号分隔，为空时不限制请求 IP）。
 - 服务地址（base-url）：平台调用该供应商时的目标地址（供应商 API 根地址，如 https://cvm.tencentcloudapi.com）。
-- 回调地址（callback URL）：平台向该应用主动推送事件 / 送达回调的目标 URL（供应商异步回调场景）；可按业务类型配多个。
 - OAuth2 的 token URL / 授权回调地址属鉴权适配器配置（见 5.8 适配器配置元数据），不在应用级字段内。
 - 生命周期状态机：草稿 → 启用 → 停用 → 注销；停用即拒绝其请求，注销后回收 appId。
 
-### 1.2 应用密钥与凭证
-- 每应用持有一对 appId + appSecret。
-- appSecret 加密存储（可逆加密或 KMS/HSM），不落明文；不得单向哈希——HMAC 验签需用明文密钥重算签名。
-- 支持密钥轮换（新旧短暂并存，平滑切换），支持重置与即时失效。
+### 1.2 应用凭证（出站签名 / 入站验签两类）
+- 每应用持有一对 appId + appSecret，并按鉴权方向拆成两类凭证：
+  - 出站凭证（平台作为调用方签名用）：appSecret / 云厂商 secretId+secretKey / OAuth2 clientSecret / Bearer token 等。
+  - 入站验签凭证（平台验证供应商回调签名用）：回调 HMAC secret / 云厂商回调 token 等，独立于出站凭证。
+- 两类凭证均加密存储（可逆加密或 KMS/HSM），不落明文；不得单向哈希——签名/验签都需用明文密钥重算。
+- 两类凭证均支持轮换（新旧短暂并存，平滑切换）、重置与即时失效。
 
 ### 1.3 应用接入流程
 - 创建应用（填资料）→ 签发密钥 → 启用。
@@ -48,21 +49,22 @@
 
 ## 3. 接口管理
 
-### 3.1 接口定义模型（类型 / 方法 / 协议 / 应用）
+### 3.1 接口定义模型（类型 / 方法 / 协议 / 应用 / 鉴权）
 - 接口 = 平台对外暴露/代理的一个 API 定义。
-- 核心字段：接口标识、接口类型（出站中转 / 入站回调）、HTTP 方法、平台侧路径（如 /api/orders、/callback/{appId}/order-status）、应用（供应商，appId，既是归属也是上游）+ 上游路径（path，base-url 取应用的「服务地址」）、描述。
+- 核心字段：接口标识、接口类型（出站中转 / 入站回调）、HTTP 方法、平台侧路径（如 /api/orders、/callback/{appId}/instance-state）、应用（供应商，appId，既是归属也是上游）+ 目标地址（出站 = 上游路径 path；入站 = 回调地址 deliveryUrl）、描述。
 - 归属：接口属于某应用下的某分组（应用 → 分组 → 接口），新建时经两级下拉选择。
-- 协议（入站 / 出站各一，JSON/XML）：入站协议 = 调用方→平台的报文格式，出站协议 = 平台→上游的报文格式，二者可不同；组合即 json-json / json-xml / xml-xml / xml-json 四种场景，协议适配器按协议自动推导，默认「出入站一致」。
-- 请求参数：分「平台侧（调用方→平台）」与「上游侧（平台→上游）」两侧；每侧 Params（参数名 / 类型 / 必填 / 示例值）与 Body（none / form-data / x-www-form-urlencoded / json / xml）两个 tab。
-- 字段映射（请求方向：平台侧 → 上游侧）：每条 = 平台侧字段(source) + 操作 + 上游侧字段(target) + 空值策略，source/target 从两侧参数下拉选择。
-- 响应字段：上游侧（上游→平台）返回的字段列表；平台侧响应为统一信封 `{code, msg, data}`，不逐接口配置。
+- 鉴权：拆「入站鉴权（验来源）+ 出站鉴权（向目标签名）」两个独立绑定，各自选适配器、各自凭证，均为「应用级默认 + 接口级覆盖」；出站中转 = 入站验调用方 + 出站供应商签名；入站回调 = 入站验供应商回调 + 出站向回调地址签名（可选）。
+- 协议（入站 / 出站各一，JSON/XML）：入站协议 = 来源→平台的报文格式，出站协议 = 平台→目标的报文格式，二者可不同；组合即 json-json / json-xml / xml-xml / xml-json 四种场景，协议适配器按协议自动推导，默认「出入站一致」。
+- 请求参数：分「入站侧（来源→平台）」与「出站侧（平台→目标）」两侧；每侧 Params（参数名 / 类型 / 必填 / 示例值）与 Body（none / form-data / x-www-form-urlencoded / json / xml）两个 tab（入站回调的「出站侧」= 送达报文，必填）。
+- 字段映射（入站 → 出站）：每条 = 入站字段(source) + 操作 + 出站字段(target) + 空值策略，source/target 从两侧参数下拉选择。
+- 响应 / ack：出站 = 出站响应字段（出站方返回的字段列表）；入站 = ack 字段（平台回供应商的回执结构，固定 code/message，收到即回、与送达结果解耦，不回传调用方 ack）；平台侧响应为统一信封 `{code, msg, data}`，不逐接口配置。
 
 ### 3.2 接口归属与适配器链
 - 接口归属唯一应用（经分组），父子关系，不再多对多授权。
 - 接口可绑定适配器链（鉴权 / 协议 / 报文 / 字段映射），未绑定时继承应用默认。
 
 ### 3.3 接口级配置（超时 / 重试 / 幂等）
-- 读超时（默认 3000ms）。
+- 读超时（默认 3000ms）：出站 = 调上游超时；入站 = 回调地址调用超时。
 - 重试策略：最大重试次数、退避、重试条件（5xx/429）。
 - 幂等开关：是否启用幂等键校验。
 
@@ -136,24 +138,26 @@
 - 字段映射基适配器（FieldMappingAdapter）：契约 `UnifiedModel map(UnifiedModel, MappingRule)`，做字段级转换，格式无关。具体实现：RuleFieldMappingAdapter（映射规则集驱动，规则在接口级配置，见 5.6）；json-json / json-xml / xml-xml / xml-json 四种组合由「协议适配器 + 字段映射」协作完成。
 
 ### 5.3 鉴权适配器
-- 可插拔鉴权策略（按需选用）：
+- 可插拔鉴权策略（按需选用，每个策略均含「入站验证 authenticate」与「出站签名 applyCredential」两个方向，按接口/应用分别绑定）：
   - API Key（静态密钥：Header 名 + API Key 值）
   - HMAC 签名（简单 HMAC：签名算法 / 签名头 / 时间戳容差 / 防重放）
   - 云厂商签名（腾讯云 TC3 / AWS SigV4 / 阿里云 ACS3：SecretId / SecretKey / 服务名 / 地域 / 签名头）
+  - 云厂商回调验签（腾讯云事件通知 / AWS SNS / 阿里云回调签名：回调 token / 证书验签）——入站方向专用
   - OAuth 2.0 Client Credentials（机器对机器：Token 端点 / Client ID / Client Secret / Scope）
   - OAuth 2.0 授权码（授权地址 / Token 端点 / Client ID / Client Secret / 回调地址 / Scope）
   - Bearer Token（静态 token：Token / Header 名 / 前缀）
   - Basic Auth（HTTP 基础认证，仅限 HTTPS）
   - mTLS（双向证书：客户端证书 / 私钥 / CA 证书 / 校验方式）
   - 无鉴权（内网 / 演示）
-- 入站验证（平台验证调用方身份）：
-  - 调用方→平台：HMAC-SHA256(appId + timestamp + orderId, appSecret)，时间戳容差 300s，防重放。
-  - 供应商→平台（入站回调）：X-Partner-Signature + X-Timestamp，按应用密钥验签。
+- 入站鉴权（平台验证来源身份）：
+  - 出站中转：验调用方 —— HMAC-SHA256(appId + timestamp + orderId, appSecret)，时间戳容差 300s，防重放。
+  - 入站回调：验供应商 —— 用「入站验签凭证」验签（HMAC 回调 / 云厂商回调验签），独立于出站签名凭证。
   - 失败返回 401；连续失败告警 / 临时封禁（防暴力破解）。
-- 出站鉴权（平台作为调用方，向供应商证明身份）：
-  - 按供应商要求附加凭证（API Key header / 云厂商签名 / Bearer Token / OAuth2 client_credentials / mTLS 客户端证书）。
-- 密钥管理：appSecret 加密存储、轮换（新旧并存）、泄漏即时失效。
-- 绑定关系：应用级默认 + 接口级覆盖。
+- 出站鉴权（平台作为调用方，向目标证明身份）：
+  - 出站中转：按供应商要求附加凭证（API Key header / 云厂商签名 / Bearer Token / OAuth2 client_credentials / mTLS 客户端证书）。
+  - 入站回调：向回调地址附加凭证（可选，默认无）。
+- 密钥管理：出站 / 入站两类凭证均加密存储、轮换（新旧并存）、泄漏即时失效。
+- 绑定关系：入站鉴权与出站鉴权各为「应用级默认 + 接口级覆盖」两个独立绑定。
 
 ### 5.4 协议适配器（JSON / XML 编解码）
 - 接口声明协议（JSON/XML）→ 协议适配器实现对应编解码。
@@ -166,11 +170,12 @@
 - 管「外壳/骨架」：输入报文 → 统一内部模型；统一内部模型 → 输出报文。
 - 报文结构转换：信封/包裹、报文头处理。
 - 响应信封映射：剥上游信封（`envelope`，如 `data`）+ 读上游状态码（`codeField`/`successValue`）判断成败 + 错误码映射（`codeMappings`）+ 包平台统一信封 `{code, msg, data}`（`msg` 透传上游 `messageField`）。
+- 入站回调 ack：平台回供应商的「回执」结构可配置（ack 字段列表，固定 code/message）；收到回调即回，与送达结果解耦（送达失败仍回 ack，供应商不重发）。
 - 分工边界：报文适配器管报文整体结构与状态码，字段映射（接口级）管字段内容。
 
 ### 5.6 字段映射（接口级配置）
-- 字段映射在「接口级」配置，不再作为全局适配器：每条规则 = 平台侧字段(source) + 操作 + 上游侧字段(target) + 空值策略，source/target 从接口的两侧请求参数下拉选择。
-- 方向明确为「请求方向：平台侧 → 上游侧」；响应方向的反向映射暂不建模。
+- 字段映射在「接口级」配置，不再作为全局适配器：每条规则 = 入站字段(source) + 操作 + 出站字段(target) + 空值策略，source/target 从接口的两侧请求参数下拉选择。
+- 方向明确为「入站 → 出站」；响应方向的反向映射暂不建模（入站回调的 ack 是「回执」而非响应回显，故无需反向映射，送达结果只落内部状态）。
 - 操作：重命名（rename）、类型转换（typeCast）、枚举映射（enumMap）、默认值（default）、条件（condition）、聚合（aggregate）。
 - 字段级转换：重命名、类型转换、枚举映射、默认值 / 常量注入、条件与空值策略。
 
@@ -191,6 +196,7 @@
 | 鉴权 · API Key | `apiKey`、`headerName` | API Key 值（遮显）、携带密钥的 Header 名（X-API-Key / X-App-Id / X-Auth-Token / api-key） |
 | 鉴权 · HMAC | `signatureAlgorithm`、`signatureHeader`、`timestampToleranceSeconds`、`replayProtection` | 签名算法（HMAC-SHA256/SHA1/SHA512）、签名头名、时间戳容差（300s）、是否防重放 |
 | 鉴权 · 云厂商签名 | `scheme`、`secretId`、`secretKey`、`service`、`region`、`signedHeaders` | 签名规范（TC3-HMAC-SHA256 / AWS4-HMAC-SHA256 / ACS3-HMAC-SHA256）、SecretId、SecretKey、服务名、地域、签名头 |
+| 鉴权 · 云厂商回调验签 | `scheme`、`token`、`certificate` | 回调验签规范（腾讯云事件通知 / AWS SNS / 阿里云回调）、回调 token、验签证书（AWS SNS X509） |
 | 鉴权 · OAuth2 Client Credentials | `tokenUrl`、`clientId`、`clientSecret`、`scope` | token 端点、Client ID、Client Secret、Scope |
 | 鉴权 · OAuth2 授权码 | `authorizationUrl`、`tokenUrl`、`clientId`、`clientSecret`、`redirectUri`、`scope` | 授权地址、token 端点、Client ID、Client Secret、回调地址、Scope |
 | 鉴权 · Bearer Token | `token`、`headerName`、`prefix` | Token（遮显）、Header 名（Authorization / X-Auth-Token / X-Access-Token）、前缀（Bearer / Token） |
@@ -203,7 +209,7 @@
 | 报文 · 报文头（HeaderMappingAdapter） | `headerMappings[]` | 报文头字段映射规则 |
 | （字段映射为接口级配置） | 见 3.1 | 字段映射规则不再作为适配器参数，改为接口级 `fieldMappings` |
 
-字段映射规则 `fieldMappings[]` 每条（接口级）：`source`（平台侧字段）、`op`（rename / typeCast / enumMap / default / condition / aggregate）、`target`（上游侧字段）、`nullStrategy`（保留原值 / 置空 / 默认值 / 报错）。
+字段映射规则 `fieldMappings[]` 每条（接口级）：`source`（入站字段）、`op`（rename / typeCast / enumMap / default / condition / aggregate）、`target`（出站字段）、`nullStrategy`（保留原值 / 置空 / 默认值 / 报错）。
 
 错误码映射 `codeMappings[]` 每条：`from`（上游错误码）、`to`（平台错误码）。
 
