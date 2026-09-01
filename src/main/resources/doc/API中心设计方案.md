@@ -5,12 +5,12 @@
 ## 1. 应用管理
 
 ### 1.1 应用模型与生命周期
-- 应用 = 平台对接的一方外部主体（持有 appId/appSecret），既可为调用方、也可为被调用方：出站时 ERP 调用平台、第三方作为上游被调用；入站时第三方调用平台、ERP 作为回调目标被送达。
-- 被代理的第三方上游同样是「应用」，不再单列「渠道」概念。
+- 应用 = 平台对接的一方供应商（第三方上游，如腾讯云 / 阿里云 / 智慧芽），持有 appId/appSecret；平台代理调用该供应商的接口。
+- 供应商即上游：接口归属某供应商，也转发到该供应商，二者合一，不再区分「归属应用」与「上游应用」。
 - 核心字段：appId（全局唯一）、应用名称、联系人、创建/更新时间。
 - IP 白名单 / 黑名单：来源 IP 控制（多个 IP 用英文逗号分隔，为空时不限制请求 IP）。
-- 服务地址（base-url）：平台作为调用方时使用的目标地址——出站场景为第三方上游的 base-url，入站场景为 ERP 的 base-url。
-- 回调地址（callback URL）：平台向该应用主动推送事件 / 送达回调的目标 URL——入站场景为 ERP 回调 URL，出站场景为第三方异步回调 URL；可按业务类型配多个。
+- 服务地址（base-url）：平台调用该供应商时的目标地址（供应商 API 根地址，如 https://cvm.tencentcloudapi.com）。
+- 回调地址（callback URL）：平台向该应用主动推送事件 / 送达回调的目标 URL（供应商异步回调场景）；可按业务类型配多个。
 - OAuth2 的 token URL / 授权回调地址属鉴权适配器配置（见 5.8 适配器配置元数据），不在应用级字段内。
 - 生命周期状态机：草稿 → 启用 → 停用 → 注销；停用即拒绝其请求，注销后回收 appId。
 
@@ -48,9 +48,9 @@
 
 ## 3. 接口管理
 
-### 3.1 接口定义模型（类型 / 方法 / 协议 / 上游应用）
+### 3.1 接口定义模型（类型 / 方法 / 协议 / 应用）
 - 接口 = 平台对外暴露/代理的一个 API 定义。
-- 核心字段：接口标识、接口类型（出站中转 / 入站回调）、HTTP 方法、平台侧路径（如 /api/orders、/callback/{appId}/order-status）、上游应用（appId）+ 上游路径（path，base-url 取上游应用的「服务地址」）、描述。
+- 核心字段：接口标识、接口类型（出站中转 / 入站回调）、HTTP 方法、平台侧路径（如 /api/orders、/callback/{appId}/order-status）、应用（供应商，appId，既是归属也是上游）+ 上游路径（path，base-url 取应用的「服务地址」）、描述。
 - 归属：接口属于某应用下的某分组（应用 → 分组 → 接口），新建时经两级下拉选择。
 - 协议（入站 / 出站各一，JSON/XML）：入站协议 = 调用方→平台的报文格式，出站协议 = 平台→上游的报文格式，二者可不同；组合即 json-json / json-xml / xml-xml / xml-json 四种场景，协议适配器按协议自动推导，默认「出入站一致」。
 - 请求参数：分「平台侧（调用方→平台）」与「上游侧（平台→上游）」两侧；每侧 Params（参数名 / 类型 / 必填 / 示例值）与 Body（none / form-data / x-www-form-urlencoded / json / xml）两个 tab。
@@ -72,8 +72,8 @@
 - 下线后停止路由。
 
 ### 3.5 接口调用链路（出站 Flow A / 入站 Flow B）
-- Flow A 出站：ERP → 平台接口 → 适配器链（鉴权 / 协议 / 报文 / 字段映射）→ 调上游 → 反向适配 → 回 ERP。
-- Flow B 入站：上游回调 → 平台接口 → 适配器链 → 送达 ERP → ack。
+- Flow A 出站：调用方 → 平台接口 → 适配器链（鉴权 / 协议 / 报文 / 字段映射）→ 调供应商 → 反向适配 → 回调用方。
+- Flow B 入站：供应商回调 → 平台接口 → 适配器链 → 送达调用方 → ack。
 - 状态机载体：出站为出站请求记录状态，入站为送达记录状态。
 
 ### 3.6 接口级容错（熔断 / 重试 / 补偿 / 死信 / 对账）
@@ -92,7 +92,7 @@
 
 ### 4.2 成功率与延迟指标
 - Micrometer/Prometheus 指标：调用量、成功率、P50/P95/P99 延迟。
-- 按接口、应用（调用方 / 上游应用）维度聚合。
+- 按接口、应用（供应商）维度聚合。
 
 ### 4.3 链路追踪
 - OpenTelemetry 集成，span 贯穿平台→上游。
@@ -112,7 +112,7 @@
 ### 5.1 适配器体系总览
 - 四类适配器：鉴权、协议、报文、字段映射。
 - 统一适配器接口，可插拔、可扩展。
-- 适配器链：请求按固定顺序流过「入站鉴权（验证调用方）→ 协议解码 → 报文适配 → 字段映射 → 协议编码 → 出站鉴权（调用上游 / 送达 ERP 前附加凭证）」。
+- 适配器链：请求按固定顺序流过「入站鉴权（验证调用方）→ 协议解码 → 报文适配 → 字段映射 → 协议编码 → 出站鉴权（调用供应商 / 送达调用方前附加凭证）」。
 - 以「统一内部模型」为链内唯一数据载体（格式无关）。
 - 四种端到端转换场景（由整条链协作完成）：json-json / json-xml / xml-xml / xml-json（入站协议与出站协议各一、可不同，如 json-xml）。
 - 每类适配器绑定到接口 / 应用，未绑定用平台默认。
@@ -126,7 +126,7 @@
   - 适配器无状态、配置驱动，链上复用。
 - 链上下文（AdapterContext）：适配器链中传递的唯一上下文，携带：
   - 统一内部模型（payload，格式无关）。
-  - 元数据：接口标识、应用标识、上游应用标识、输入/输出协议类型、traceId。
+  - 元数据：接口标识、应用标识（供应商）、输入/输出协议类型、traceId。
   - 鉴权结果（appId、是否通过）。
   - 错误 / 告警收集（各适配器可追加）。
   - 作用：解耦上下游，新增适配器只读写上下文。
@@ -147,12 +147,11 @@
   - mTLS（双向证书：客户端证书 / 私钥 / CA 证书 / 校验方式）
   - 无鉴权（内网 / 演示）
 - 入站验证（平台验证调用方身份）：
-  - Flow A（ERP→平台）：HMAC-SHA256(appId + timestamp + orderId, appSecret)，时间戳容差 300s，防重放。
-  - Flow B（第三方→平台）：X-Partner-Signature + X-Timestamp，按应用密钥验签。
+  - 调用方→平台：HMAC-SHA256(appId + timestamp + orderId, appSecret)，时间戳容差 300s，防重放。
+  - 供应商→平台（入站回调）：X-Partner-Signature + X-Timestamp，按应用密钥验签。
   - 失败返回 401；连续失败告警 / 临时封禁（防暴力破解）。
-- 出站鉴权（平台作为调用方，向对端证明身份）：
-  - Flow A（平台→第三方上游）：按对端要求附加凭证（API Key header / 签名 / OAuth2 client_credentials 取 token / mTLS 客户端证书）。
-  - Flow B（平台→ERP 回调 URL）：按 ERP 要求附加凭证（签名 / token 等）。
+- 出站鉴权（平台作为调用方，向供应商证明身份）：
+  - 按供应商要求附加凭证（API Key header / 云厂商签名 / Bearer Token / OAuth2 client_credentials / mTLS 客户端证书）。
 - 密钥管理：appSecret 加密存储、轮换（新旧并存）、泄漏即时失效。
 - 绑定关系：应用级默认 + 接口级覆盖。
 
@@ -165,8 +164,9 @@
 
 ### 5.5 报文适配器（输入 / 输出报文转换）
 - 管「外壳/骨架」：输入报文 → 统一内部模型；统一内部模型 → 输出报文。
-- 报文结构转换：信封/包裹、请求/响应结构适配、报文头处理。
-- 分工边界：报文适配器管报文整体结构，字段映射（接口级）管字段内容。
+- 报文结构转换：信封/包裹、报文头处理。
+- 响应信封映射：剥上游信封（`envelope`，如 `data`）+ 读上游状态码（`codeField`/`successValue`）判断成败 + 错误码映射（`codeMappings`）+ 包平台统一信封 `{code, msg, data}`（`msg` 透传上游 `messageField`）。
+- 分工边界：报文适配器管报文整体结构与状态码，字段映射（接口级）管字段内容。
 
 ### 5.6 字段映射（接口级配置）
 - 字段映射在「接口级」配置，不再作为全局适配器：每条规则 = 平台侧字段(source) + 操作 + 上游侧字段(target) + 空值策略，source/target 从接口的两侧请求参数下拉选择。
@@ -199,10 +199,13 @@
 | 协议（protocol） | `format` | JSON / XML；协议适配器按接口入站 / 出站协议自动推导 |
 | 协议 · JSON | `namingStrategy`、`dateFormat`、`ignoreUnknown`、`nullHandling`、`numberPrecision` | 命名策略、日期格式、忽略未知字段、空值策略、数字精度 |
 | 协议 · XML | `rootElement`、`namespace`、`attrVsElement` | 根元素、命名空间、属性 vs 元素映射 |
-| 报文（message） | `envelope`、`headerMappings[]`、`requestTemplate`、`responseTemplate` | 信封/包裹结构、报文头映射规则、请求/响应结构模板 |
+| 报文 · 信封（EnvelopeMessageAdapter） | `envelope`、`codeField`、`successValue`、`codeMappings[]`、`messageField`、`defaultErrorCode` | 业务数据容器（data）、上游状态码字段、成功值、错误码映射、消息字段、兜底错误码 |
+| 报文 · 报文头（HeaderMappingAdapter） | `headerMappings[]` | 报文头字段映射规则 |
 | （字段映射为接口级配置） | 见 3.1 | 字段映射规则不再作为适配器参数，改为接口级 `fieldMappings` |
 
 字段映射规则 `fieldMappings[]` 每条（接口级）：`source`（平台侧字段）、`op`（rename / typeCast / enumMap / default / condition / aggregate）、`target`（上游侧字段）、`nullStrategy`（保留原值 / 置空 / 默认值 / 报错）。
+
+错误码映射 `codeMappings[]` 每条：`from`（上游错误码）、`to`（平台错误码）。
 
 配置元数据与「统一内部模型」一一对应，持久化后按 `adapterType + impl + version` 索引；接口级配置覆盖应用级默认（呼应 5.7 与接口级容错）。
 
@@ -243,15 +246,15 @@ stateDiagram-v2
 ```mermaid
 stateDiagram-v2
     [*] --> RECEIVED
-    RECEIVED --> ERP_ACKED: 送达 ERP 成功
-    RECEIVED --> PENDING: 送达失败（仍回第三方 ack）
-    PENDING --> ERP_ACKED: 补偿 worker 重送成功
+    RECEIVED --> ACKED: 送达调用方成功
+    RECEIVED --> PENDING: 送达失败（仍回供应商 ack）
+    PENDING --> ACKED: 补偿 worker 重送成功
     PENDING --> DEAD_LETTER: 重送耗尽（超最大次数）
-    ERP_ACKED --> [*]
+    ACKED --> [*]
 ```
 
-- 状态流：`RECEIVED → ERP_ACKED / PENDING`。
-- 送达失败 → PENDING（仍回第三方 ack，第三方不重发），由补偿 worker 重送至 ERP_ACKED。
+- 状态流：`RECEIVED → ACKED / PENDING`。
+- 送达失败 → PENDING（仍回供应商 ack，供应商不重发），由补偿 worker 重送至 ACKED。
 - 重送超过最大次数 → DEAD_LETTER（死信 + 告警）。
 
 ### 6.2 统一错误码与响应规范
@@ -281,7 +284,7 @@ stateDiagram-v2
 
 ### 6.3 幂等 / 对账 / 补偿机制
 
-- 幂等（平台侧）：幂等键 = `(biz_type, app_id, biz_id)`，如 `(order, PARTNER_A, 订单号)`。首次请求写入幂等键并记录结果，重复请求命中即返回首次结果（防调用方重复下单 / 重复回调）；幂等键设过期时间（如 7 天）。
+- 幂等（平台侧）：幂等键 = `(biz_type, app_id, biz_id)`，如 `(query, TENCENT-CLOUD, 请求ID)`。首次请求写入幂等键并记录结果，重复请求命中即返回首次结果（防重复调用供应商 / 重复回调）；幂等键设过期时间（如 7 天）。
 - 对账（UNKNOWN 处理）：UNKNOWN = 结果不确定（可能已达上游），不可盲目重试；通过查询接口查上游真实状态，已成功 → 收敛 SUCCESS，未到达 → 触发补偿 COMPENSATING。
 - 补偿：补偿 worker 定时扫描出站 COMPENSATING 记录与入站 PENDING 记录，按固定间隔（如 3s）重试；超过最大次数（如 5 次）转死信 + 告警；补偿重放不重复生效依赖**上游对业务键幂等**（请求携带稳定 biz_id 由上游去重），与平台侧幂等键是两回事。
 
@@ -293,4 +296,4 @@ stateDiagram-v2
 - OPEN：直接快速失败，不触发 `@Retryable` 短重试，转 COMPENSATING / DEAD_LETTER。
 - HALF_OPEN：放行少量探测请求；探测成功恢复 CLOSED，失败回到 OPEN 重新计时。
 - 与重试 / 补偿的衔接：熔断先于短重试判断；熔断触发的失败同样落调用日志与告警，冷却结束后自动半开探测。
-- 粒度：按「接口 + 上游应用」为熔断维度，避免一个坏上游拖垮所有接口。
+- 粒度：按「接口 + 供应商」为熔断维度，避免一个坏供应商拖垮所有接口。

@@ -181,67 +181,68 @@
 /* ===== 模拟数据 ===== */
 const state = {
   apps: [
-    { appId:'ERP-CORE', name:'ERP 核心系统', authType:'HMAC 签名鉴权', status:'启用', secret:'sk_erp_9f8a…', baseUrl:'http://localhost:8103', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-17 10:00', updateTime:'2026-08-29 16:59', desc:'ERP 订单/库存出站调用方',
+    { appId:'TENCENT-CLOUD', name:'腾讯云', authType:'云厂商签名鉴权', status:'启用', secret:'sk_tc_3a9c…', baseUrl:'https://cvm.tencentcloudapi.com', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-17 10:00', updateTime:'2026-08-29 16:59', desc:'腾讯云 CVM 云服务器',
       groups:[
-        { name:'订单', ifs:['IF001'] },
-        { name:'库存', ifs:['IF002'] }
+        { name:'云服务器', ifs:['IF001'] }
       ]},
-    { appId:'PARTNER_A', name:'第三方 A', authType:'API Key 鉴权', status:'启用', secret:'sk_a_7c2d…', baseUrl:'http://localhost:8101', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-18 14:30', updateTime:'2026-08-29 16:59', desc:'第三方 A 回调调用方 / 上游接收方',
+    { appId:'ALIYUN', name:'阿里云', authType:'云厂商签名鉴权', status:'启用', secret:'sk_ali_5b2f…', baseUrl:'https://ecs.aliyuncs.com', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-18 14:30', updateTime:'2026-08-29 16:59', desc:'阿里云 ECS 云服务器',
       groups:[
-        { name:'回调', ifs:['IF003'] }
+        { name:'云服务器', ifs:['IF002'] }
       ]},
-    { appId:'PARTNER_B', name:'第三方 B', authType:'API Key 鉴权', status:'启用', secret:'sk_b_5d3e…', baseUrl:'http://localhost:8102', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-20 09:15', updateTime:'2026-08-20 09:15', desc:'第三方 B 上游接收方',
-      groups:[]},
-    { appId:'INTERNAL-BI', name:'内部 BI', authType:'无鉴权', status:'草稿', secret:'—', baseUrl:'http://localhost:8104', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-25 11:00', updateTime:'2026-08-25 11:00', desc:'内部数据拉取（未启用）',
+    { appId:'ZHIHUIYA', name:'智慧芽', authType:'Bearer Token 鉴权', status:'启用', secret:'sk_zyy_8d1e…', baseUrl:'https://connect.zhihuiya.com', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-20 09:15', updateTime:'2026-08-20 09:15', desc:'智慧芽专利检索 API',
+      groups:[
+        { name:'专利检索', ifs:['IF003'] }
+      ]},
+    { appId:'AMAP', name:'高德地图', authType:'API Key 鉴权', status:'启用', secret:'sk_amap_c4a7…', baseUrl:'https://restapi.amap.com', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-25 11:00', updateTime:'2026-08-25 11:00', desc:'高德地图开放平台',
       groups:[]}
   ],
   interfaces: [
-    { id:'IF001', name:'订单推送', path:'/api/orders', method:'POST', ifType:'outbound', protocolIn:'JSON', protocolOut:'JSON', upstreamApp:'PARTNER_A', upstreamPath:'/order',
-      appId:'ERP-CORE', group:'订单', status:'已发布', desc:'ERP 推送订单到第三方 A',
-      platReqParams:[ { name:'orderNo', type:'string', required:true, sample:'SO20260831001' } ],
+    { id:'IF001', name:'查询云服务器实例', path:'/cvm/describe-instances', method:'POST', ifType:'outbound', protocolIn:'JSON', protocolOut:'JSON', upstreamPath:'/',
+      appId:'TENCENT-CLOUD', group:'云服务器', status:'已发布', desc:'查询腾讯云 CVM 实例列表',
+      platReqParams:[ { name:'region', type:'string', required:true, sample:'ap-guangzhou' }, { name:'limit', type:'number', required:false, sample:'10' } ],
       platBody:{ type:'none', raw:'', form:[] },
-      upReqParams:[ { name:'orderId', type:'string', required:true, sample:'' } ],
+      upReqParams:[ { name:'Region', type:'string', required:true, sample:'ap-guangzhou' }, { name:'Limit', type:'number', required:false, sample:'10' } ],
       upBody:{ type:'none', raw:'', form:[] },
-      upRespFields:[ { name:'result', type:'string', desc:'上游结果' } ],
-      fieldMappings:[ { source:'orderNo', op:'rename', target:'orderId', nullStrategy:'KEEP' } ],
+      upRespFields:[ { name:'TotalCount', type:'number', desc:'实例总数' }, { name:'InstanceSet', type:'array', desc:'实例列表' } ],
+      fieldMappings:[ { source:'region', op:'rename', target:'Region', nullStrategy:'KEEP' }, { source:'limit', op:'rename', target:'Limit', nullStrategy:'KEEP' } ],
       adapters:{ protocolIn:'JSON 协议编解码', protocolOut:'JSON 协议编解码', message:'信封报文适配' },
       config:{ timeout:3000, retries:4, idempotent:true } },
-    { id:'IF002', name:'库存同步', path:'/api/stock', method:'POST', ifType:'outbound', protocolIn:'JSON', protocolOut:'XML', upstreamApp:'PARTNER_B', upstreamPath:'/stock',
-      appId:'ERP-CORE', group:'库存', status:'已发布', desc:'同步库存到第三方 B（XML）',
-      platReqParams:[ { name:'sku', type:'string', required:true, sample:'SKU001' } ],
+    { id:'IF002', name:'查询 ECS 实例', path:'/ecs/describe-instances', method:'POST', ifType:'outbound', protocolIn:'JSON', protocolOut:'JSON', upstreamPath:'/',
+      appId:'ALIYUN', group:'云服务器', status:'已发布', desc:'查询阿里云 ECS 实例列表',
+      platReqParams:[ { name:'region', type:'string', required:true, sample:'cn-hangzhou' }, { name:'pageSize', type:'number', required:false, sample:'10' } ],
       platBody:{ type:'none', raw:'', form:[] },
-      upReqParams:[ { name:'skuCode', type:'string', required:true, sample:'' } ],
+      upReqParams:[ { name:'RegionId', type:'string', required:true, sample:'cn-hangzhou' }, { name:'PageSize', type:'number', required:false, sample:'10' } ],
       upBody:{ type:'none', raw:'', form:[] },
-      upRespFields:[ { name:'resp', type:'string', desc:'上游响应' } ],
-      fieldMappings:[ { source:'sku', op:'rename', target:'skuCode', nullStrategy:'KEEP' } ],
-      adapters:{ protocolIn:'JSON 协议编解码', protocolOut:'XML 协议编解码', message:'报文头映射适配' },
+      upRespFields:[ { name:'TotalCount', type:'number', desc:'总数' }, { name:'Instances', type:'array', desc:'实例列表' } ],
+      fieldMappings:[ { source:'region', op:'rename', target:'RegionId', nullStrategy:'KEEP' }, { source:'pageSize', op:'rename', target:'PageSize', nullStrategy:'KEEP' } ],
+      adapters:{ protocolIn:'JSON 协议编解码', protocolOut:'JSON 协议编解码', message:'信封报文适配' },
       config:{ timeout:3000, retries:4, idempotent:true } },
-    { id:'IF003', name:'订单状态回调', path:'/callback/{appId}/order-status', method:'POST', ifType:'inbound', protocolIn:'JSON', protocolOut:'JSON', upstreamApp:'ERP-CORE', upstreamPath:'/callback',
-      appId:'PARTNER_A', group:'回调', status:'已发布', desc:'第三方 A 回调订单状态到 ERP',
-      platReqParams:[ { name:'orderNo', type:'string', required:true, sample:'SO20260831001' }, { name:'status', type:'string', required:true, sample:'DONE' } ],
+    { id:'IF003', name:'专利号检索', path:'/patent/search', method:'POST', ifType:'outbound', protocolIn:'JSON', protocolOut:'JSON', upstreamPath:'/search/patent/patent-search-pn',
+      appId:'ZHIHUIYA', group:'专利检索', status:'已发布', desc:'按专利号检索专利（智慧芽）',
+      platReqParams:[ { name:'pn', type:'string', required:true, sample:'US11205304B2' }, { name:'limit', type:'number', required:false, sample:'10' } ],
       platBody:{ type:'none', raw:'', form:[] },
-      upReqParams:[ { name:'orderId', type:'string', required:true, sample:'' }, { name:'state', type:'string', required:true, sample:'1' } ],
+      upReqParams:[ { name:'pn', type:'string', required:true, sample:'US11205304B2' }, { name:'limit', type:'number', required:false, sample:'10' } ],
       upBody:{ type:'none', raw:'', form:[] },
-      upRespFields:[ { name:'ack', type:'boolean', desc:'ERP 确认' } ],
-      fieldMappings:[ { source:'orderNo', op:'rename', target:'orderId', nullStrategy:'KEEP' }, { source:'status', op:'enumMap', target:'state', nullStrategy:'KEEP' } ],
+      upRespFields:[ { name:'total', type:'number', desc:'总数' }, { name:'items', type:'array', desc:'专利列表' } ],
+      fieldMappings:[ { source:'pn', op:'rename', target:'pn', nullStrategy:'KEEP' }, { source:'limit', op:'rename', target:'limit', nullStrategy:'KEEP' } ],
       adapters:{ protocolIn:'JSON 协议编解码', protocolOut:'JSON 协议编解码', message:'信封报文适配' },
       config:{ timeout:3000, retries:3, idempotent:true } }
   ],
   logs: [
-    { time:'10:32:05', iface:'/api/orders', app:'ERP-CORE', code:200, ms:84,  trace:'tr-8f2a1c' },
-    { time:'10:31:48', iface:'/callback/{appId}/order-status', app:'PARTNER_A', code:200, ms:121, trace:'tr-7c19d0' },
-    { time:'10:31:20', iface:'/api/orders', app:'ERP-CORE', code:200, ms:92,  trace:'tr-2b88e7' },
-    { time:'10:30:11', iface:'/api/stock', app:'ERP-CORE', code:502, ms:3011, trace:'tr-5a77b3' },
-    { time:'10:30:02', iface:'/api/stock', app:'ERP-CORE', code:504, ms:3000, trace:'tr-6c41fa' },
-    { time:'10:29:52', iface:'/api/orders', app:'ERP-CORE', code:200, ms:66,  trace:'tr-9e04a2' },
-    { time:'10:29:30', iface:'/api/orders', app:'ERP-CORE', code:429, ms:12,  trace:'tr-3b60ef' },
-    { time:'10:29:11', iface:'/callback/{appId}/order-status', app:'PARTNER_A', code:200, ms:58, trace:'tr-1a55c8' },
-    { time:'10:28:30', iface:'/api/orders', app:'ERP-CORE', code:401, ms:7,   trace:'tr-7d30b1' },
-    { time:'10:28:02', iface:'/api/stock', app:'ERP-CORE', code:200, ms:74,  trace:'tr-4e9c06' }
+    { time:'10:32:05', iface:'/cvm/describe-instances', app:'TENCENT-CLOUD', code:200, ms:84,  trace:'tr-8f2a1c' },
+    { time:'10:31:48', iface:'/patent/search', app:'ZHIHUIYA', code:200, ms:121, trace:'tr-7c19d0' },
+    { time:'10:31:20', iface:'/cvm/describe-instances', app:'TENCENT-CLOUD', code:200, ms:92,  trace:'tr-2b88e7' },
+    { time:'10:30:11', iface:'/ecs/describe-instances', app:'ALIYUN', code:502, ms:3011, trace:'tr-5a77b3' },
+    { time:'10:30:02', iface:'/ecs/describe-instances', app:'ALIYUN', code:504, ms:3000, trace:'tr-6c41fa' },
+    { time:'10:29:52', iface:'/cvm/describe-instances', app:'TENCENT-CLOUD', code:200, ms:66,  trace:'tr-9e04a2' },
+    { time:'10:29:30', iface:'/cvm/describe-instances', app:'TENCENT-CLOUD', code:429, ms:12,  trace:'tr-3b60ef' },
+    { time:'10:29:11', iface:'/patent/search', app:'ZHIHUIYA', code:200, ms:58, trace:'tr-1a55c8' },
+    { time:'10:28:30', iface:'/cvm/describe-instances', app:'TENCENT-CLOUD', code:401, ms:7,   trace:'tr-7d30b1' },
+    { time:'10:28:02', iface:'/ecs/describe-instances', app:'ALIYUN', code:200, ms:74,  trace:'tr-4e9c06' }
   ],
   alerts: [
-    { level:'warn', text:'/api/stock 上游 5xx，已进入补偿重试', time:'10:30:12' },
-    { level:'danger', text:'ERP-CORE 近 1 分钟 QPS 超限，触发限流', time:'10:28:30' }
+    { level:'warn', text:'/ecs/describe-instances 上游 5xx，已进入补偿重试', time:'10:30:12' },
+    { level:'danger', text:'TENCENT-CLOUD 近 1 分钟 QPS 超限，触发限流', time:'10:28:30' }
   ],
   adapters: [
     { id:'ADP-001', name:'API Key 鉴权', type:'auth', impl:'ApiKeyAuthAdapter', enabled:true, version:'1.0', params:{ apiKey:'', headerName:'X-App-Id' } },
@@ -254,7 +255,7 @@ const state = {
     { id:'ADP-008', name:'云厂商签名鉴权', type:'auth', impl:'CloudSignatureAdapter', enabled:true, version:'1.0', params:{ scheme:'TC3-HMAC-SHA256', secretId:'', secretKey:'', service:'cvm', region:'ap-guangzhou', signedHeaders:'content-type;host' } },
     { id:'ADP-101', name:'JSON 协议编解码', type:'protocol', impl:'JsonProtocolAdapter', enabled:true, version:'1.0', params:{ namingStrategy:'CAMEL_CASE', dateFormat:'yyyy-MM-dd', ignoreUnknown:true, nullHandling:'OMIT', numberPrecision:'DOUBLE' } },
     { id:'ADP-102', name:'XML 协议编解码', type:'protocol', impl:'XmlProtocolAdapter', enabled:true, version:'1.0', params:{ rootElement:'request', namespace:'', attrVsElement:'ELEMENT' } },
-    { id:'ADP-201', name:'信封报文适配', type:'message', impl:'EnvelopeMessageAdapter', enabled:true, version:'1.0', params:{ envelope:'envelope', requestTemplate:'', responseTemplate:'' } },
+    { id:'ADP-201', name:'信封报文适配', type:'message', impl:'EnvelopeMessageAdapter', enabled:true, version:'1.0', params:{ envelope:'data', codeField:'code', successValue:'0', codeMappings:[ { from:'10001', to:'50201' } ], messageField:'message', defaultErrorCode:'50201' } },
     { id:'ADP-202', name:'报文头映射适配', type:'message', impl:'HeaderMappingAdapter', enabled:true, version:'1.0', params:{ headerMappings:'' } },
     { id:'ADP-301', name:'规则字段映射', type:'field', impl:'RuleFieldMappingAdapter', enabled:true, version:'1.0', params:{ mappingRules:[
       { sourceField:'orderNo', op:'rename', targetField:'orderId', nullStrategy:'KEEP', param:'' },
@@ -333,9 +334,12 @@ const ADAPTER_FIELDS = {
     { key:'attrVsElement', label:'属性/元素', kind:'select', options:['ELEMENT','ATTRIBUTE'] }
   ],
   EnvelopeMessageAdapter: [
-    { key:'envelope', label:'信封', kind:'text', placeholder:'envelope' },
-    { key:'requestTemplate', label:'请求模板', kind:'textarea' },
-    { key:'responseTemplate', label:'响应模板', kind:'textarea' }
+    { key:'envelope', label:'信封（业务数据容器）', kind:'text', placeholder:'data', hint:'业务数据所在那一层的字段名，如 data' },
+    { key:'codeField', label:'状态码字段名', kind:'text', placeholder:'code', hint:'上游响应里表示成功/失败的状态码字段，如 code' },
+    { key:'successValue', label:'成功值', kind:'text', placeholder:'0', hint:'上游状态码等于该值时视为成功，如 0' },
+    { key:'codeMappings', label:'错误码映射', kind:'codeMap', hint:'上游错误码 → 平台错误码，点加号新增一条' },
+    { key:'messageField', label:'消息字段名', kind:'text', placeholder:'message', hint:'上游响应里的错误消息字段，失败时透传到平台 msg' },
+    { key:'defaultErrorCode', label:'兜底错误码', kind:'text', placeholder:'50201', hint:'未命中错误码映射时使用的平台错误码' }
   ],
   HeaderMappingAdapter: [
     { key:'headerMappings', label:'报文头映射', kind:'textarea', placeholder:'Content-Type → contentType' }
@@ -366,7 +370,7 @@ const ADAPTER_IMPL_DESC = {
   NoopAuthAdapter: '无鉴权：无需填任何参数。',
   JsonProtocolAdapter: 'JSON 编解码：填命名策略、日期格式、忽略未知字段、空值策略、数字精度。',
   XmlProtocolAdapter: 'XML 编解码：填根元素、命名空间、属性 vs 元素。',
-  EnvelopeMessageAdapter: '信封/报文结构：填信封、请求模板、响应模板。',
+  EnvelopeMessageAdapter: '信封报文：填业务数据容器（如 data）、状态码字段/成功值、错误码映射、消息字段、兜底错误码。',
   HeaderMappingAdapter: '报文头映射：填报文头字段映射规则。',
   RuleFieldMappingAdapter: '字段映射：配置映射规则列表（源字段 / 操作 / 目标字段 / 空值策略）。'
 };
@@ -520,7 +524,6 @@ function deleteApp(id){
   if(!a) return;
   if(!confirm(`确认删除应用「${a.name}」？其下接口将一并删除，引用它的接口将解绑上游。`)) return;
   state.interfaces = state.interfaces.filter(i=>i.appId!==id);
-  state.interfaces.forEach(i=>{ if(i.upstreamApp===id){ i.upstreamApp=''; } });
   state.apps = state.apps.filter(x=>x.appId!==id);
   if(currentAppId===id){ currentAppId=null; }
   renderApps();
@@ -540,7 +543,7 @@ function renderGroups(){
               <div class="tree-item" onclick="openGroupDetail('${a.appId}','${g.name}')">
                 <span class="arrow">▸</span><span class="name">分组：${g.name}</span>
                 <span class="sub">${g.ifs.length} 个接口</span>
-                <span style="margin-left:auto;color:var(--primary)">查看 →</span>
+                <span style="margin-left:auto"><button class="btn sm ghost" onclick="event.stopPropagation();openGroupModal('${a.appId}','${g.name}')">编辑</button> <button class="btn sm danger" onclick="event.stopPropagation();deleteGroup('${a.appId}','${g.name}')">删除</button></span>
               </div>`).join('')}
             ${a.groups.length===0?'<div class="tree-item" style="cursor:default"><span class="arrow">·</span><span class="sub">暂无分组</span></div>':''}
           </div>`).join('')}
@@ -596,7 +599,7 @@ function renderInterfaceDetail(el){
             <div class="keyval"><span class="k">接口类型</span><span class="v">${i.ifType==='inbound'?'入站回调':'出站中转'}</span></div>
             <div class="keyval"><span class="k">路径</span><span class="v">${i.method} ${i.path}</span></div>
             <div class="keyval"><span class="k">协议（入站 → 出站）</span><span class="v">${i.protocolIn} → ${i.protocolOut}</span></div>
-            <div class="keyval"><span class="k">上游应用</span><span class="v">${i.upstreamApp}${i.upstreamPath}</span></div>
+            <div class="keyval"><span class="k">上游路径</span><span class="v">${i.upstreamPath}</span></div>
             <div class="keyval"><span class="k">归属</span><span class="v">${i.appId} / ${i.group}</span></div>
             <div class="keyval"><span class="k">描述</span><span class="v">${i.desc || '—'}</span></div>
           </div>
@@ -736,6 +739,7 @@ function openAdapterModal(id){
   renderAdapterEnabled(a ? a.enabled : true);
   renderImplOptions();
   adapterRuleList = a ? (a.params.mappingRules || []).map(r=>({...r})) : [];
+  codeMapList = a && Array.isArray(a.params.codeMappings) ? a.params.codeMappings.map(m=>({...m})) : [];
   renderAdapterParams();
 }
 function renderAdapterEnabled(v){
@@ -776,24 +780,42 @@ function selectImpl(impl){
   onAdapterImplChange();
 }
 document.addEventListener('click', function(){ if(implOpen){ implOpen = false; const p = document.getElementById('f-adp-impl-panel'); if(p) p.style.display = 'none'; } });
+let codeMapList = [];
+function codeMapRowsHtml(boxId){
+  const rows = codeMapList.map((m,i)=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 0">
+      <input value="${m.from}" placeholder="上游错误码，如 10001" style="flex:1" onchange="onCodeMapChange(${i},'from',this.value)">
+      <span style="color:var(--muted)">→</span>
+      <input value="${m.to}" placeholder="平台错误码，如 50201" style="flex:1" onchange="onCodeMapChange(${i},'to',this.value)">
+      <button type="button" class="btn sm danger" onclick="removeCodeMap('${boxId}',${i})">×</button>
+    </div>`).join('');
+  return (rows || '<div class="empty" style="padding:12px">暂无映射</div>') + `<button type="button" class="btn sm ghost" onclick="addCodeMap('${boxId}')">＋ 添加映射</button>`;
+}
+function addCodeMap(boxId){ codeMapList.push({ from:'', to:'' }); document.getElementById(boxId).innerHTML = codeMapRowsHtml(boxId); }
+function removeCodeMap(boxId, i){ codeMapList.splice(i,1); document.getElementById(boxId).innerHTML = codeMapRowsHtml(boxId); }
+function onCodeMapChange(i, field, val){ codeMapList[i][field] = val; }
 function paramFieldHtml(f, val, prefix){
+  const hint = f.hint ? `<div class="hint">${f.hint}</div>` : '';
   if(f.kind==='select'){
-    return `<div class="field"><label>${f.label}</label><select id="${prefix}${f.key}">${(f.options||[]).map(o=>`<option value="${o}" ${val===o?'selected':''}>${o}</option>`).join('')}</select></div>`;
+    return `<div class="field"><label>${f.label}</label><select id="${prefix}${f.key}">${(f.options||[]).map(o=>`<option value="${o}" ${val===o?'selected':''}>${o}</option>`).join('')}</select>${hint}</div>`;
   }
   if(f.kind==='switch'){
-    return `<div class="field"><label>${f.label}</label><select id="${prefix}${f.key}"><option value="1" ${val?'selected':''}>是</option><option value="0" ${!val?'selected':''}>否</option></select></div>`;
+    return `<div class="field"><label>${f.label}</label><select id="${prefix}${f.key}"><option value="1" ${val?'selected':''}>是</option><option value="0" ${!val?'selected':''}>否</option></select>${hint}</div>`;
   }
   if(f.kind==='textarea'){
-    return `<div class="field"><label>${f.label}</label><textarea id="${prefix}${f.key}" placeholder="${f.placeholder||''}">${val}</textarea></div>`;
+    return `<div class="field"><label>${f.label}</label><textarea id="${prefix}${f.key}" placeholder="${f.placeholder||''}">${val}</textarea>${hint}</div>`;
   }
   if(f.kind==='number'){
-    return `<div class="field"><label>${f.label}</label><input type="number" id="${prefix}${f.key}" placeholder="${f.placeholder||''}" value="${val}"></div>`;
+    return `<div class="field"><label>${f.label}</label><input type="number" id="${prefix}${f.key}" placeholder="${f.placeholder||''}" value="${val}">${hint}</div>`;
+  }
+  if(f.kind==='codeMap'){
+    return `<div class="field"><label>${f.label}</label><div id="${prefix}${f.key}">${codeMapRowsHtml(prefix + f.key)}</div>${hint}</div>`;
   }
   if(f.kind==='file'){
-    return `<div class="field"><label>${f.label}</label><input type="file" id="${prefix}${f.key}">${val ? `<div class="hint">已选：${val}</div>` : ''}</div>`;
+    return `<div class="field"><label>${f.label}</label><input type="file" id="${prefix}${f.key}">${val ? `<div class="hint">已选：${val}</div>` : ''}${hint}</div>`;
   }
   const inputType = f.secret ? 'password' : 'text';
-  return `<div class="field"><label>${f.label}</label><input type="${inputType}" id="${prefix}${f.key}" placeholder="${f.placeholder||''}" value="${val}"></div>`;
+  return `<div class="field"><label>${f.label}</label><input type="${inputType}" id="${prefix}${f.key}" placeholder="${f.placeholder||''}" value="${val}">${hint}</div>`;
 }
 function renderAdapterParams(){
   const impl = document.getElementById('f-adp-impl').value;
@@ -868,6 +890,7 @@ function submitAdapter(){
   } else {
     const existingParams = id ? (state.adapters.find(x=>x.id===id)?.params || {}) : {};
     (ADAPTER_FIELDS[impl]||[]).forEach(f=>{
+      if(f.kind==='codeMap') return;
       const el = document.getElementById('f-p-'+f.key);
       if(!el) return;
       if(f.kind==='file'){ params[f.key] = (el.files && el.files[0]) ? el.files[0].name : (existingParams[f.key] || ''); return; }
@@ -876,6 +899,7 @@ function submitAdapter(){
       else if(f.kind==='number'){ params[f.key] = raw==='' ? null : Number(raw); }
       else { params[f.key] = raw.trim(); }
     });
+    if((ADAPTER_FIELDS[impl]||[]).some(f=>f.kind==='codeMap')){ params.codeMappings = codeMapList.map(m=>({...m})); }
   }
   if(id){
     const a = state.adapters.find(x=>x.id===id);
@@ -921,7 +945,7 @@ function renderAppendix(){
           <div>
             <h4 style="margin-bottom:6px;color:var(--primary)">AdapterContext 链上下文</h4>
             <div class="keyval"><span class="k">统一内部模型</span><span class="v">payload，格式无关</span></div>
-            <div class="keyval"><span class="k">元数据</span><span class="v">接口/应用/上游应用/协议/traceId</span></div>
+            <div class="keyval"><span class="k">元数据</span><span class="v">接口/应用/协议/traceId</span></div>
             <div class="keyval"><span class="k">鉴权结果</span><span class="v">appId、是否通过</span></div>
             <div class="keyval"><span class="k">错误/告警</span><span class="v">各适配器可追加收集</span></div>
           </div>
@@ -975,15 +999,15 @@ function renderAppendix(){
       <div class="panel-body">
         <div class="chain">
           <span class="node">RECEIVED</span><span class="arr">→</span>
-          <span class="node core">ERP_ACKED</span>
+          <span class="node core">ACKED</span>
         </div>
         <div class="chain">
           <span class="node end">RECEIVED</span><span class="arr">—送达失败→</span>
           <span class="node">PENDING</span><span class="arr">—补偿重送→</span>
-          <span class="node core">ERP_ACKED</span><span class="arr">/</span><span class="node">DEAD_LETTER</span>
+          <span class="node core">ACKED</span><span class="arr">/</span><span class="node">DEAD_LETTER</span>
         </div>
         <div style="padding:0 16px 14px;color:var(--muted);font-size:13px">
-          送达失败仍回第三方 ack（第三方不重发），由补偿 worker 重送至 ERP_ACKED；重送耗尽（超最大次数）→ DEAD_LETTER。
+          送达失败仍回供应商 ack（供应商不重发），由补偿 worker 重送至 ACKED；重送耗尽（超最大次数）→ DEAD_LETTER。
         </div>
       </div>
     </div>
@@ -1029,7 +1053,8 @@ function openAppModal(id){
     <div class="modal-head"><h3>${a?'编辑应用':'新建应用'}</h3><span class="x" onclick="closeModal()">×</span></div>
     <div class="modal-body">
       <input type="hidden" id="f-app-id" value="${a?a.appId:''}">
-      <div class="field"><label>应用名称</label><input id="f-app-name" placeholder="如：ERP 核心系统" value="${a?a.name:''}"></div>
+      <div class="field"><label>应用名称</label><input id="f-app-name" placeholder="如：腾讯云" value="${a?a.name:''}"></div>
+      <div class="field"><label>服务地址（base-url）</label><input id="f-app-base-url" placeholder="如 https://cvm.tencentcloudapi.com" value="${a?a.baseUrl:''}"></div>
       <div class="field"><label>鉴权适配器</label><select id="f-app-auth" onchange="onAppAuthChange()">${adapterOpts('auth', a?a.authType:null)}<option value="__custom__">＋ 自定义鉴权适配器…</option></select><div id="f-app-auth-custom" class="params-panel" style="display:none;margin-top:10px"></div></div>
       <div class="field"><label>IP 白名单</label><textarea id="f-app-ip-wl" rows="3" placeholder="使用英文逗号分割">${a?a.ipWhitelist:''}</textarea><div class="hint">多个IP请使用英文逗号分割，为空时不限制开放接口的请求IP。</div></div>
       <div class="field"><label>IP 黑名单</label><textarea id="f-app-ip-bl" rows="3" placeholder="使用英文逗号分割">${a?a.ipBlacklist:''}</textarea><div class="hint">多个IP请使用英文逗号分割，为空时不限制开放接口的请求IP。</div></div>
@@ -1067,6 +1092,54 @@ function renderAppAuthCustomParams(){
   }
   box.innerHTML = fields.map(f=>paramFieldHtml(f, '', 'f-acp-')).join('');
 }
+function customAdapterField(type, selId, boxId, selected, leading){
+  return `<select id="${selId}" onchange="onCustomAdapter('${type}','${selId}','${boxId}')">${leading||''}${adapterOpts(type, selected)}<option value="__custom__">＋ 自定义…</option></select><div id="${boxId}" class="params-panel" style="display:none;margin-top:10px"></div>`;
+}
+function onCustomAdapter(type, selId, boxId){
+  const isCustom = document.getElementById(selId).value === '__custom__';
+  document.getElementById(boxId).style.display = isCustom ? 'block' : 'none';
+  if(isCustom) renderCustomAdapter(type, boxId);
+}
+function renderCustomAdapter(type, boxId){
+  const box = document.getElementById(boxId);
+  box.innerHTML = `
+    <div class="field"><label>适配器名称</label><input id="${boxId}-name" placeholder="如：自定义适配器"></div>
+    <div class="field"><label>实现类</label><select id="${boxId}-impl" onchange="renderCustomAdapterParams('${boxId}')">${ADAPTER_IMPLS[type].map(i=>`<option value="${i}">${i}</option>`).join('')}</select></div>
+    <div id="${boxId}-params"></div>
+    <div class="field" style="margin-bottom:0"><label style="font-weight:400;color:var(--muted);display:flex;align-items:center;gap:6px"><input type="checkbox" id="${boxId}-save" style="width:auto"> 保存为适配器（供其他复用）</label></div>`;
+  codeMapList = [];
+  renderCustomAdapterParams(boxId);
+}
+function renderCustomAdapterParams(boxId){
+  const impl = document.getElementById(boxId + '-impl').value;
+  const fields = ADAPTER_FIELDS[impl] || [];
+  const box = document.getElementById(boxId + '-params');
+  if(!fields.length){ box.innerHTML = '<div class="empty" style="padding:12px">该实现类无额外参数。</div>'; return; }
+  box.innerHTML = fields.map(f=>paramFieldHtml(f, '', boxId + '-p-')).join('');
+}
+function commitCustomAdapter(type, boxId){
+  const name = document.getElementById(boxId + '-name').value.trim();
+  const impl = document.getElementById(boxId + '-impl').value;
+  const save = document.getElementById(boxId + '-save').checked;
+  if(!name){ alert('请填写适配器名称'); return ''; }
+  const params = {};
+  (ADAPTER_FIELDS[impl]||[]).forEach(f=>{
+    if(f.kind==='codeMap') return;
+    const el = document.getElementById(boxId + '-p-' + f.key);
+    if(!el) return;
+    if(f.kind==='file'){ params[f.key] = (el.files && el.files[0]) ? el.files[0].name : ''; return; }
+    const raw = el.value;
+    if(f.kind==='switch'){ params[f.key] = (raw==='1'); }
+    else if(f.kind==='number'){ params[f.key] = raw==='' ? null : Number(raw); }
+    else { params[f.key] = raw.trim(); }
+  });
+  if((ADAPTER_FIELDS[impl]||[]).some(f=>f.kind==='codeMap')){ params.codeMappings = codeMapList.map(m=>({...m})); }
+  if(save){
+    const maxId = state.adapters.reduce((m,x)=>Math.max(m, parseInt(x.id.replace('ADP-',''))||0), 0);
+    state.adapters.push({ id:'ADP-'+String(maxId+1).padStart(3,'0'), name, type, impl, version:'1.0', enabled:true, params });
+  }
+  return name;
+}
 function submitApp(){
   const id = document.getElementById('f-app-id').value;
   const name = document.getElementById('f-app-name').value.trim();
@@ -1093,51 +1166,71 @@ function submitApp(){
     }
     auth = cName;
   }
+  const baseUrl = document.getElementById('f-app-base-url').value.trim();
   const ipWhitelist = document.getElementById('f-app-ip-wl').value.trim();
   const ipBlacklist = document.getElementById('f-app-ip-bl').value.trim();
   const desc = document.getElementById('f-app-desc').value.trim();
   const now = nowStr();
   if(id){
     const a = state.apps.find(x=>x.appId===id);
-    if(a){ Object.assign(a, { name, authType:auth, ipWhitelist, ipBlacklist, desc:desc||'—', updateTime:now }); }
+    if(a){ Object.assign(a, { name, baseUrl, authType:auth, ipWhitelist, ipBlacklist, desc:desc||'—', updateTime:now }); }
   } else {
     const appId = 'APP-' + Math.random().toString(36).slice(2,7).toUpperCase();
-    state.apps.push({ appId, name, authType:auth, status:'草稿', secret:'sk_new_xxxx…', ipWhitelist, ipBlacklist, createTime:now, updateTime:now, desc:desc||'—', groups:[] });
+    state.apps.push({ appId, name, baseUrl, authType:auth, status:'草稿', secret:'sk_new_xxxx…', ipWhitelist, ipBlacklist, createTime:now, updateTime:now, desc:desc||'—', groups:[] });
   }
   closeModal(); navigate('apps');
 }
 
-function openGroupModal(){
-  const appOpts = state.apps.map(a=>`<option value="${a.appId}">${a.name}（${a.appId}）</option>`).join('');
+function openGroupModal(appId, groupName){
+  const editing = !!groupName;
+  const appOpts = state.apps.map(a=>`<option value="${a.appId}" ${appId===a.appId?'selected':''}>${a.name}（${a.appId}）</option>`).join('');
   openModal(`
-    <div class="modal-head"><h3>新建分组</h3><span class="x" onclick="closeModal()">×</span></div>
+    <div class="modal-head"><h3>${editing?'编辑分组':'新建分组'}</h3><span class="x" onclick="closeModal()">×</span></div>
     <div class="modal-body">
-      <div class="field"><label>所属应用</label><select id="f-group-app">${appOpts}</select></div>
-      <div class="field"><label>分组名称</label><input id="f-group-name" placeholder="如：订单 / 回调"></div>
+      <input type="hidden" id="f-group-old" value="${editing?groupName:''}">
+      <div class="field"><label>所属应用</label><select id="f-group-app" ${editing?'disabled':''}>${appOpts}</select></div>
+      <div class="field"><label>分组名称</label><input id="f-group-name" placeholder="如：订单 / 回调" value="${editing?groupName:''}"></div>
       <div class="hint" style="color:var(--muted);font-size:12px">分组为纯组织单元，不承载配置。</div>
     </div>
-    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">取消</button><button class="btn" onclick="submitGroup()">创建</button></div>`);
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">取消</button><button class="btn" onclick="submitGroup()">${editing?'保存':'创建'}</button></div>`);
 }
 function submitGroup(){
   const appId = document.getElementById('f-group-app').value;
+  const oldName = document.getElementById('f-group-old').value;
   const name = document.getElementById('f-group-name').value.trim();
   if(!name){ alert('请填写分组名称'); return; }
   const app = state.apps.find(x=>x.appId===appId);
-  app.groups.push({ name, ifs:[] });
+  if(oldName){
+    if(oldName !== name){
+      const g = app.groups.find(x=>x.name===oldName);
+      if(g) g.name = name;
+      state.interfaces.forEach(i=>{ if(i.appId===appId && i.group===oldName){ i.group = name; } });
+    }
+  } else {
+    app.groups.push({ name, ifs:[] });
+  }
   closeModal(); renderGroups();
+}
+function deleteGroup(appId, groupName){
+  const app = state.apps.find(x=>x.appId===appId);
+  const g = app && app.groups.find(x=>x.name===groupName);
+  if(!app || !g) return;
+  if(!confirm(`确认删除分组「${groupName}」？其下 ${g.ifs.length} 个接口将一并删除。`)) return;
+  state.interfaces = state.interfaces.filter(i=>!(i.appId===appId && i.group===groupName));
+  app.groups = app.groups.filter(x=>x.name!==groupName);
+  renderGroups();
 }
 
 function openInterfaceModal(id){
   const i = id ? state.interfaces.find(x=>x.id===id) : null;
   const appOpts = state.apps.map(a=>`<option value="${a.appId}" ${i&&i.appId===a.appId?'selected':''}>${a.name}（${a.appId}）</option>`).join('');
-  const upAppOpts = state.apps.map(a=>`<option value="${a.appId}" ${i&&i.upstreamApp===a.appId?'selected':''}>${a.name}（${a.appId}）</option>`).join('');
   const mOpts = ['POST','GET','PUT','DELETE'].map(m=>`<option ${i&&i.method===m?'selected':''}>${m}</option>`).join('');
   openModal(`
     <div class="modal-head"><h3>${i?'编辑接口':'新建接口'}</h3><span class="x" onclick="closeModal()">×</span></div>
     <div class="modal-body">
       <input type="hidden" id="f-if-id" value="${i?i.id:''}">
       <div class="grid3">
-        <div class="field"><label>接口名称</label><input id="f-if-name" placeholder="如：订单推送" value="${i?i.name:''}"></div>
+        <div class="field"><label>接口名称</label><input id="f-if-name" placeholder="如：查询云服务器实例" value="${i?i.name:''}"></div>
         <div class="field"><label>接口类型</label><select id="f-if-type"><option value="outbound" ${i&&i.ifType==='outbound'?'selected':''}>出站中转</option><option value="inbound" ${i&&i.ifType==='inbound'?'selected':''}>入站回调</option></select></div>
         <div class="field"><label>HTTP 方法</label><select id="f-if-method">${mOpts}</select></div>
       </div>
@@ -1147,12 +1240,11 @@ function openInterfaceModal(id){
         <div class="field"><label>出站协议</label><select id="f-if-proto-out"><option ${i&&i.protocolOut==='JSON'?'selected':''}>JSON</option><option ${i&&i.protocolOut==='XML'?'selected':''}>XML</option></select><div id="f-proto-same" style="margin-top:6px"></div></div>
       </div>
       <div class="grid3">
-        <div class="field"><label>归属应用</label><select id="f-if-app" onchange="populateGroups()">${appOpts}</select></div>
-        <div class="field"><label>归属分组</label><select id="f-if-group"><option value="">— 请先选应用 —</option></select></div>
-        <div class="field"><label>上游应用</label><select id="f-if-upstream-app">${upAppOpts}</select></div>
+        <div class="field"><label>应用</label><select id="f-if-app" onchange="populateGroups()">${appOpts}</select></div>
+        <div class="field"><label>分组</label><select id="f-if-group"><option value="">— 请先选应用 —</option></select></div>
+        <div class="field"><label>上游路径</label><input id="f-if-upstream-path" placeholder="/order" value="${i?i.upstreamPath:''}"></div>
       </div>
       <div class="grid3">
-        <div class="field"><label>上游路径</label><input id="f-if-upstream-path" placeholder="/order" value="${i?i.upstreamPath:''}"></div>
         <div class="field"><label>读超时(ms)</label><input type="number" id="f-if-timeout" value="${i?i.config.timeout:3000}"></div>
         <div class="field"><label>最大重试</label><input type="number" id="f-if-retries" value="${i?i.config.retries:4}"></div>
       </div>
@@ -1176,8 +1268,8 @@ function openInterfaceModal(id){
       <div class="field">
         <button type="button" class="btn sm ghost" onclick="toggleAdvConfig()" style="width:100%">高级配置（适配器） ▾</button>
         <div id="f-if-adv" style="display:none;margin-top:10px">
-          <div class="field"><label>报文适配器</label><select id="f-adp-msg">${adapterOpts('message', i?i.adapters.message:null)}</select></div>
-          <div class="field"><label>鉴权适配器</label><select id="f-adp-auth"><option value="">继承应用（默认）</option>${adapterOpts('auth', i?i.adapters.auth:null)}</select></div>
+          <div class="field"><label>报文适配器</label>${customAdapterField('message', 'f-adp-msg', 'f-cust-msg', i?i.adapters.message:null)}</div>
+          <div class="field"><label>鉴权适配器</label>${customAdapterField('auth', 'f-adp-auth', 'f-cust-auth', i?i.adapters.auth:null, '<option value="">继承应用（默认）</option>')}</div>
         </div>
       </div>
     </div>
@@ -1371,11 +1463,9 @@ function submitInterface(){
   const path = document.getElementById('f-if-path').value.trim();
   const appId = document.getElementById('f-if-app').value;
   const group = document.getElementById('f-if-group').value;
-  const upstreamApp = document.getElementById('f-if-upstream-app').value;
   const upstreamPath = document.getElementById('f-if-upstream-path').value.trim();
   if(!name || !path){ alert('请填写接口名称与路径'); return; }
-  if(!appId || !group){ alert('请选择归属应用与分组'); return; }
-  if(!upstreamApp){ alert('请选择上游应用'); return; }
+  if(!appId || !group){ alert('请选择应用与分组'); return; }
   const ifType = document.getElementById('f-if-type').value;
   const method = document.getElementById('f-if-method').value;
   const protoIn = document.getElementById('f-if-proto-in').value;
@@ -1383,10 +1473,12 @@ function submitInterface(){
   const desc = document.getElementById('f-if-desc').value.trim();
   const timeout = parseInt(document.getElementById('f-if-timeout').value) || 3000;
   const retries = parseInt(document.getElementById('f-if-retries').value) || 0;
-  const adpMsg = document.getElementById('f-adp-msg').value;
-  const adpAuth = document.getElementById('f-adp-auth').value;
+  let adpMsg = document.getElementById('f-adp-msg').value;
+  if(adpMsg === '__custom__'){ adpMsg = commitCustomAdapter('message', 'f-cust-msg'); }
+  let adpAuth = document.getElementById('f-adp-auth').value;
+  if(adpAuth === '__custom__'){ adpAuth = commitCustomAdapter('auth', 'f-cust-auth'); }
   const data = {
-    name, path, method, ifType, desc:desc||'—', protocolIn:protoIn, protocolOut:protoOut, upstreamApp, upstreamPath, appId, group,
+    name, path, method, ifType, desc:desc||'—', protocolIn:protoIn, protocolOut:protoOut, upstreamPath, appId, group,
     platReqParams:ifParams.platReq.map(r=>({...r})), upReqParams:ifParams.upReq.map(r=>({...r})),
     platBody:{ ...ifBodies.platReq, form:ifBodies.platReq.form.map(f=>({...f})) },
     upBody:{ ...ifBodies.upReq, form:ifBodies.upReq.form.map(f=>({...f})) },
