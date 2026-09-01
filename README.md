@@ -23,10 +23,12 @@ API 三方接口统一调用平台组件 —— 只做 **连接 + 适配 + 可�
 |---|---|---|
 | 设计总纲 | [API中心设计方案.md](src/main/resources/doc/API中心设计方案.md) | 5 模块；接口定义模型（出站中转 / 入站回调）；三类适配器（鉴权 / 协议 / 报文）+ 接口级字段映射；状态机 / 错误码 / 容错附录 |
 | 实现方案 | [技术架构和实现方案.md](src/main/resources/doc/技术架构和实现方案.md) | 分层架构、技术选型、适配器链引擎、出 / 入站执行引擎、M1–M5 路线图、ADR |
-| 可行性报告 | [可行性报告.md](src/main/resources/doc/可行性报告.md) | 技术可行性评估、工作量估算（约 88 人日）、风险与应对 |
+| 可行性报告 | [可行性报告.md](src/main/resources/doc/可行性报告.md) | 技术可行性评估、工作量估算（约 81 人日）、风险与应对 |
 | 表结构设计 | [表结构设计.html](src/main/resources/doc/表结构设计.html) | 15 张表（配置 10 + 运行 5）+ 枚举汇总 + 原型数据模型映射对照 |
 | 时序与流程 | [API中心时序图与流程图.md](src/main/resources/doc/API中心时序图与流程图.md) | 配置流程、Flow A / B 时序、请求处理 + 容错流程图 |
 | 交互原型 | [API中心原型.html](src/main/resources/doc/API中心原型.html) | 可交互管理面原型（数据模型与交互即事实来源） |
+| 建表脚本 | [schema.sql](src/main/resources/doc/schema.sql) | MySQL 8.0，15 张表（与《表结构设计.html》一一对应） |
+| 开发计划 | [开发计划.md](src/main/resources/doc/开发计划.md) | M0–M5 里程碑 + 第一个可演示版本（fastmoss 黄金用例，断言 G1–G4） |
 
 > 两代文档勿混用：改 doc/ 下文档时不参照 doc_old / schema.sql / 旧 Java 类名；旧 demo 9 张表与现行设计 15 张新表不是同一套。
 

@@ -119,7 +119,7 @@ mvn package           # 打可执行 jar
 
 ## 文档导航
 
-- **现行设计**（`src/main/resources/doc/`）：`API中心设计方案.md`（总纲）→ `技术架构和实现方案.md` / `可行性报告.md` / `表结构设计.html`（实现三件套）→ `API中心时序图与流程图.md` / `API中心原型.html`（流程与交互）
+- **现行设计**（`src/main/resources/doc/`）：`API中心设计方案.md`（总纲）→ `技术架构和实现方案.md` / `可行性报告.md` / `表结构设计.html` + `schema.sql`（实现四件套）→ `API中心时序图与流程图.md` / `API中心原型.html`（流程与交互）→ `开发计划.md`（M0–M5 里程碑 + fastmoss 黄金用例，执行入口）
 - `README.md` — 项目索引
 - **旧版设计**（`src/main/resources/doc_old/`）：`设计文档.md`（12 章，现有代码依据）、`实现指南.md`、`schema.sql`、`api演示 demo.html`、其余可行性/原型说明文档
 - `src/main/resources/static/` — Vue3 前端（`/`）
