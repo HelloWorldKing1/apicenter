@@ -41,7 +41,7 @@ sequenceDiagram
 
     Note over GW,链: 链顺序：入站鉴权 → 协议解码 → 报文适配 → 字段映射 → 协议编码 → 出站鉴权
     调用方->>GW: POST /api/orders（X-App-Id / X-Timestamp / X-Signature）
-    GW->>链: 入站鉴权适配器（HMAC 验签）
+    GW->>链: 入站鉴权（调用方鉴权，平台统一）
     alt 验签失败
         链-->>调用方: 401 鉴权失败
     end
@@ -72,7 +72,7 @@ sequenceDiagram
 
     Note over GW,链: 链顺序：入站鉴权 → 协议解码 → 报文适配 → 字段映射 → 协议编码 → 出站鉴权
     SP->>GW: POST /callback/{appId}/instance-state（X-Partner-Signature / X-Timestamp）
-    GW->>链: 入站鉴权适配器（应用密钥验签）
+    GW->>链: 入站鉴权（回调验签）
     alt 验签失败
         链-->>SP: 401 签名无效
     end

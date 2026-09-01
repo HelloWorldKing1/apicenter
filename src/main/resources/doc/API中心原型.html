@@ -181,20 +181,20 @@
 /* ===== 模拟数据 ===== */
 const state = {
   apps: [
-    { appId:'TENCENT-CLOUD', name:'腾讯云', authType:'云厂商签名鉴权', inboundAuthType:'云厂商回调验签', status:'启用', secret:'sk_tc_3a9c…', baseUrl:'https://cvm.tencentcloudapi.com', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-17 10:00', updateTime:'2026-08-29 16:59', desc:'腾讯云 CVM 云服务器',
+    { appId:'TENCENT-CLOUD', name:'腾讯云', authType:'云厂商签名鉴权', callbackAuthType:'云厂商回调验签', status:'启用', secret:'sk_tc_3a9c…', baseUrl:'https://cvm.tencentcloudapi.com', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-17 10:00', updateTime:'2026-08-29 16:59', desc:'腾讯云 CVM 云服务器',
       groups:[
         { name:'云服务器', ifs:['IF001'] },
         { name:'回调通知', ifs:['IF004'] }
       ]},
-    { appId:'ALIYUN', name:'阿里云', authType:'云厂商签名鉴权', inboundAuthType:'无鉴权', status:'启用', secret:'sk_ali_5b2f…', baseUrl:'https://ecs.aliyuncs.com', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-18 14:30', updateTime:'2026-08-29 16:59', desc:'阿里云 ECS 云服务器',
+    { appId:'ALIYUN', name:'阿里云', authType:'云厂商签名鉴权', callbackAuthType:'无鉴权', status:'启用', secret:'sk_ali_5b2f…', baseUrl:'https://ecs.aliyuncs.com', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-18 14:30', updateTime:'2026-08-29 16:59', desc:'阿里云 ECS 云服务器',
       groups:[
         { name:'云服务器', ifs:['IF002'] }
       ]},
-    { appId:'ZHIHUIYA', name:'智慧芽', authType:'Bearer Token 鉴权', inboundAuthType:'无鉴权', status:'启用', secret:'sk_zyy_8d1e…', baseUrl:'https://connect.zhihuiya.com', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-20 09:15', updateTime:'2026-08-20 09:15', desc:'智慧芽专利检索 API',
+    { appId:'ZHIHUIYA', name:'智慧芽', authType:'Bearer Token 鉴权', callbackAuthType:'无鉴权', status:'启用', secret:'sk_zyy_8d1e…', baseUrl:'https://connect.zhihuiya.com', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-20 09:15', updateTime:'2026-08-20 09:15', desc:'智慧芽专利检索 API',
       groups:[
         { name:'专利检索', ifs:['IF003'] }
       ]},
-    { appId:'AMAP', name:'高德地图', authType:'API Key 鉴权', inboundAuthType:'无鉴权', status:'启用', secret:'sk_amap_c4a7…', baseUrl:'https://restapi.amap.com', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-25 11:00', updateTime:'2026-08-25 11:00', desc:'高德地图开放平台',
+    { appId:'AMAP', name:'高德地图', authType:'API Key 鉴权', callbackAuthType:'无鉴权', status:'启用', secret:'sk_amap_c4a7…', baseUrl:'https://restapi.amap.com', ipWhitelist:'', ipBlacklist:'', createTime:'2026-08-25 11:00', updateTime:'2026-08-25 11:00', desc:'高德地图开放平台',
       groups:[]}
   ],
   interfaces: [
@@ -207,7 +207,7 @@ const state = {
       outRespFields:[ { name:'TotalCount', type:'number', desc:'实例总数' }, { name:'InstanceSet', type:'array', desc:'实例列表' } ],
       fieldMappings:[ { source:'region', op:'rename', target:'Region', nullStrategy:'KEEP' }, { source:'limit', op:'rename', target:'Limit', nullStrategy:'KEEP' } ],
       adapters:{ protocolIn:'JSON 协议编解码', protocolOut:'JSON 协议编解码', message:'信封报文适配' },
-      config:{ timeout:3000, retries:4, idempotent:true } },
+      config:{ timeout:3000, retries:4 } },
     { id:'IF002', name:'查询 ECS 实例', path:'/ecs/describe-instances', method:'POST', ifType:'outbound', protocolIn:'JSON', protocolOut:'JSON', upstreamPath:'/',
       appId:'ALIYUN', group:'云服务器', status:'已发布', desc:'查询阿里云 ECS 实例列表',
       inReqParams:[ { name:'region', type:'string', required:true, sample:'cn-hangzhou' }, { name:'pageSize', type:'number', required:false, sample:'10' } ],
@@ -217,7 +217,7 @@ const state = {
       outRespFields:[ { name:'TotalCount', type:'number', desc:'总数' }, { name:'Instances', type:'array', desc:'实例列表' } ],
       fieldMappings:[ { source:'region', op:'rename', target:'RegionId', nullStrategy:'KEEP' }, { source:'pageSize', op:'rename', target:'PageSize', nullStrategy:'KEEP' } ],
       adapters:{ protocolIn:'JSON 协议编解码', protocolOut:'JSON 协议编解码', message:'信封报文适配' },
-      config:{ timeout:3000, retries:4, idempotent:true } },
+      config:{ timeout:3000, retries:4 } },
     { id:'IF003', name:'专利号检索', path:'/patent/search', method:'POST', ifType:'outbound', protocolIn:'JSON', protocolOut:'JSON', upstreamPath:'/search/patent/patent-search-pn',
       appId:'ZHIHUIYA', group:'专利检索', status:'已发布', desc:'按专利号检索专利（智慧芽）',
       inReqParams:[ { name:'pn', type:'string', required:true, sample:'US11205304B2' }, { name:'limit', type:'number', required:false, sample:'10' } ],
@@ -227,7 +227,7 @@ const state = {
       outRespFields:[ { name:'total', type:'number', desc:'总数' }, { name:'items', type:'array', desc:'专利列表' } ],
       fieldMappings:[ { source:'pn', op:'rename', target:'pn', nullStrategy:'KEEP' }, { source:'limit', op:'rename', target:'limit', nullStrategy:'KEEP' } ],
       adapters:{ protocolIn:'JSON 协议编解码', protocolOut:'JSON 协议编解码', message:'信封报文适配' },
-      config:{ timeout:3000, retries:3, idempotent:true } },
+      config:{ timeout:3000, retries:3 } },
     { id:'IF004', name:'实例状态变更回调', path:'/callback/tencent/instance-state', method:'POST', ifType:'inbound', protocolIn:'JSON', protocolOut:'JSON',
       appId:'TENCENT-CLOUD', group:'回调通知', status:'已发布', desc:'腾讯云实例状态变更异步回调', deliveryUrl:'http://localhost:9000/webhook/instance-state',
       inReqParams:[ { name:'instanceId', type:'string', required:true, sample:'ins-abc123' }, { name:'state', type:'string', required:true, sample:'RUNNING' } ],
@@ -237,7 +237,7 @@ const state = {
       ackFields:[ { name:'code', type:'number', desc:'返回码' }, { name:'message', type:'string', desc:'消息' } ],
       fieldMappings:[ { source:'instanceId', op:'rename', target:'instanceId', nullStrategy:'KEEP' }, { source:'state', op:'rename', target:'status', nullStrategy:'KEEP' } ],
       adapters:{ protocolIn:'JSON 协议编解码', protocolOut:'JSON 协议编解码', message:'信封报文适配' },
-      config:{ timeout:3000, retries:3, idempotent:true } }
+      config:{ timeout:3000, retries:3 } }
   ],
   logs: [
     { time:'10:32:05', iface:'/cvm/describe-instances', app:'TENCENT-CLOUD', code:200, ms:84,  trace:'tr-8f2a1c' },
@@ -467,7 +467,7 @@ function renderApps(){
     <div class="panel">
       <div class="panel-head"><h3>应用列表</h3><button class="btn" onclick="openAppModal()">＋ 新建应用</button></div>
       <div class="panel-body">
-        <table><thead><tr><th>appId</th><th>名称</th><th>鉴权方式</th><th>状态</th><th>新增时间</th><th>修改时间</th><th>操作</th></tr></thead>
+        <table><thead><tr><th>appId</th><th>名称</th><th>供应商签名</th><th>状态</th><th>新增时间</th><th>修改时间</th><th>操作</th></tr></thead>
         <tbody>${state.apps.map(a=>`
           <tr onclick="openAppDetail('${a.appId}')">
             <td><b>${a.appId}</b></td><td>${a.name}</td>
@@ -499,7 +499,7 @@ function renderAppDetail(el){
           </div>
           <div>
             <div class="keyval"><span class="k">出站鉴权</span><span class="v">${a.authType}</span></div>
-            <div class="keyval"><span class="k">入站验签方式</span><span class="v">${a.inboundAuthType || '无鉴权'}</span></div>
+            <div class="keyval"><span class="k">回调验签方式</span><span class="v">${a.callbackAuthType || '无鉴权'}</span></div>
             <div class="keyval"><span class="k">appSecret</span><span class="v">${a.secret}</span></div>
             <div class="keyval"><span class="k">服务地址</span><span class="v">${a.baseUrl}</span></div>
             <div class="keyval"><span class="k">新增时间</span><span class="v">${a.createTime}</span></div>
@@ -606,12 +606,10 @@ function renderInterfaceDetail(el){
           <div>
             <div class="keyval"><span class="k">读超时</span><span class="v">${i.config.timeout}ms</span></div>
             <div class="keyval"><span class="k">最大重试</span><span class="v">${i.config.retries} 次</span></div>
-            <div class="keyval"><span class="k">幂等</span><span class="v">${i.config.idempotent?'开启':'关闭'}</span></div>
             <div class="keyval"><span class="k">请求参数</span><span class="v">入站 ${(i.inReqParams||[]).length} · 出站 ${(i.outReqParams||[]).length}</span></div>
             <div class="keyval"><span class="k">${i.ifType==='inbound'?'ack 字段':'出站响应字段'}</span><span class="v">${((i.ifType==='inbound'?i.ackFields:i.outRespFields)||[]).length} 个</span></div>
             <div class="keyval"><span class="k">字段映射</span><span class="v">${(i.fieldMappings||[]).length} 条</span></div>
-            <div class="keyval"><span class="k">入站鉴权</span><span class="v">${i.adapters.inboundAuth ? i.adapters.inboundAuth : '继承应用：' + (a?(a.inboundAuthType||'无鉴权'):'—')}</span></div>
-            <div class="keyval"><span class="k">出站鉴权</span><span class="v">${i.adapters.auth ? i.adapters.auth : '继承应用：' + (a?a.authType:'—')}</span></div>
+            <div class="keyval"><span class="k">${i.ifType==='inbound'?'回调验签':'供应商签名'}</span><span class="v">${i.ifType==='inbound' ? (i.adapters.callbackAuth ? i.adapters.callbackAuth : '继承应用：' + (a?(a.callbackAuthType||'无鉴权'):'—')) : (i.adapters.auth ? i.adapters.auth : '继承应用：' + (a?a.authType:'—'))}</span></div>
           </div>
         </div>
       </div>
@@ -628,8 +626,8 @@ function renderInterfaceDetail(el){
           <span class="node">出站鉴权</span>
         </div>
         <div style="padding:0 18px 16px">
-          <div class="keyval"><span class="k">入站鉴权</span><span class="v">${i.adapters.inboundAuth || '继承应用（' + (a?(a.inboundAuthType||'无鉴权'):'—') + '）'}</span></div>
-          <div class="keyval"><span class="k">出站鉴权</span><span class="v">${i.adapters.auth || '继承应用（' + (a?a.authType:'—') + '）'}</span></div>
+          <div class="keyval"><span class="k">入站鉴权</span><span class="v">${i.ifType==='inbound' ? (i.adapters.callbackAuth || '继承应用（' + (a?(a.callbackAuthType||'无鉴权'):'—') + '）') : '平台统一（调用方鉴权，范围外）'}</span></div>
+          <div class="keyval"><span class="k">出站鉴权</span><span class="v">${i.ifType==='inbound' ? '平台统一（回调地址签名，范围外）' : (i.adapters.auth || '继承应用（' + (a?a.authType:'—') + '）')}</span></div>
           <div class="keyval"><span class="k">协议适配器（入站 / 出站）</span><span class="v">${i.adapters.protocolIn} / ${i.adapters.protocolOut}</span></div>
           <div class="keyval"><span class="k">报文适配器</span><span class="v">${i.adapters.message}</span></div>
         </div>
@@ -870,9 +868,9 @@ function deleteAdapter(id){
   state.interfaces.forEach(i=>{
     ['protocolIn','protocolOut','message'].forEach(k=>{ if(i.adapters[k]===a.name) i.adapters[k]=null; });
     if(i.adapters.auth===a.name) i.adapters.auth=null;
-    if(i.adapters.inboundAuth===a.name) i.adapters.inboundAuth=null;
+    if(i.adapters.callbackAuth===a.name) i.adapters.callbackAuth=null;
   });
-  state.apps.forEach(ap=>{ if(ap.authType===a.name) ap.authType='无鉴权'; if(ap.inboundAuthType===a.name) ap.inboundAuthType='无鉴权'; });
+  state.apps.forEach(ap=>{ if(ap.authType===a.name) ap.authType='无鉴权'; if(ap.callbackAuthType===a.name) ap.callbackAuthType='无鉴权'; });
   renderAdapters();
 }
 function toggleAdapter(id){
@@ -890,7 +888,7 @@ function renderAppendix(){
         <div class="grid2">
           <div>
             <h4 style="margin-bottom:6px;color:var(--primary)">Adapter 契约</h4>
-            <div class="keyval"><span class="k">type()</span><span class="v">标识四类：鉴权/协议/报文/字段映射</span></div>
+            <div class="keyval"><span class="k">type()</span><span class="v">标识三类：鉴权/协议/报文</span></div>
             <div class="keyval"><span class="k">order()</span><span class="v">链内执行顺序</span></div>
             <div class="keyval"><span class="k">supports(ctx)</span><span class="v">是否适用于当前请求</span></div>
             <div class="keyval"><span class="k">process(ctx)</span><span class="v">执行并返回上下文</span></div>
@@ -1009,7 +1007,7 @@ function openAppModal(id){
       <div class="field"><label>应用名称</label><input id="f-app-name" placeholder="如：腾讯云" value="${a?a.name:''}"></div>
       <div class="field"><label>服务地址（base-url）</label><input id="f-app-base-url" placeholder="如 https://cvm.tencentcloudapi.com" value="${a?a.baseUrl:''}"></div>
       <div class="field"><label>鉴权适配器</label><select id="f-app-auth" onchange="onAppAuthChange()">${adapterOpts('auth', a?a.authType:null)}<option value="__custom__">＋ 自定义鉴权适配器…</option></select><div id="f-app-auth-custom" class="params-panel" style="display:none;margin-top:10px"></div></div>
-      <div class="field"><label>入站验签方式（回调验签）</label><select id="f-app-inbound-auth">${adapterOpts('auth', a?a.inboundAuthType:null)}<option value="无鉴权" ${(!a || !a.inboundAuthType || a.inboundAuthType==='无鉴权')?'selected':''}>无鉴权</option></select></div>
+      <div class="field"><label>回调验签方式</label><select id="f-app-callback-auth">${adapterOpts('auth', a?a.callbackAuthType:null)}<option value="无鉴权" ${(!a || !a.callbackAuthType || a.callbackAuthType==='无鉴权')?'selected':''}>无鉴权</option></select></div>
       <div class="field"><label>IP 白名单</label><textarea id="f-app-ip-wl" rows="3" placeholder="使用英文逗号分割">${a?a.ipWhitelist:''}</textarea><div class="hint">多个IP请使用英文逗号分割，为空时不限制开放接口的请求IP。</div></div>
       <div class="field"><label>IP 黑名单</label><textarea id="f-app-ip-bl" rows="3" placeholder="使用英文逗号分割">${a?a.ipBlacklist:''}</textarea><div class="hint">多个IP请使用英文逗号分割，为空时不限制开放接口的请求IP。</div></div>
       <div class="field"><label>描述</label><input id="f-app-desc" placeholder="可选" value="${a && a.desc!=='—' ? a.desc : ''}"></div>
@@ -1099,7 +1097,7 @@ function submitApp(){
   const name = document.getElementById('f-app-name').value.trim();
   if(!name){ alert('请填写应用名称'); return; }
   let auth = document.getElementById('f-app-auth').value || '无鉴权';
-  let inboundAuth = document.getElementById('f-app-inbound-auth').value || '无鉴权';
+  let callbackAuth = document.getElementById('f-app-callback-auth').value || '无鉴权';
   if(auth === '__custom__'){
     const cName = document.getElementById('f-app-auth-c-name').value.trim();
     const cImpl = document.getElementById('f-app-auth-c-impl').value;
@@ -1128,10 +1126,10 @@ function submitApp(){
   const now = nowStr();
   if(id){
     const a = state.apps.find(x=>x.appId===id);
-    if(a){ Object.assign(a, { name, baseUrl, authType:auth, inboundAuthType:inboundAuth, ipWhitelist, ipBlacklist, desc:desc||'—', updateTime:now }); }
+    if(a){ Object.assign(a, { name, baseUrl, authType:auth, callbackAuthType:callbackAuth, ipWhitelist, ipBlacklist, desc:desc||'—', updateTime:now }); }
   } else {
     const appId = 'APP-' + Math.random().toString(36).slice(2,7).toUpperCase();
-    state.apps.push({ appId, name, baseUrl, authType:auth, inboundAuthType:inboundAuth, status:'草稿', secret:'sk_new_xxxx…', ipWhitelist, ipBlacklist, createTime:now, updateTime:now, desc:desc||'—', groups:[] });
+    state.apps.push({ appId, name, baseUrl, authType:auth, callbackAuthType:callbackAuth, status:'草稿', secret:'sk_new_xxxx…', ipWhitelist, ipBlacklist, createTime:now, updateTime:now, desc:desc||'—', groups:[] });
   }
   closeModal(); navigate('apps');
 }
@@ -1204,8 +1202,7 @@ function openInterfaceModal(id){
         <div class="field"><label>最大重试</label><input type="number" id="f-if-retries" value="${i?i.config.retries:4}"></div>
       </div>
       <div class="grid3">
-        <div class="field"><label>幂等 ${helpMark('同一业务请求重复提交时自动去重并返回首次结果，防止重复下单/重复回调')}</label><div id="f-if-idempotent"></div></div>
-        <div class="field" style="grid-column:span 2"><label>描述</label><input id="f-if-desc" placeholder="可选" value="${i && i.desc!=='—' ? i.desc : ''}"></div>
+        <div class="field" style="grid-column:span 3"><label>描述</label><input id="f-if-desc" placeholder="可选" value="${i && i.desc!=='—' ? i.desc : ''}"></div>
       </div>
       <div class="field"><label>请求参数</label>
         <div class="hint" style="margin-bottom:6px">入站侧（来源 → 平台）</div>
@@ -1228,8 +1225,8 @@ function openInterfaceModal(id){
         <button type="button" class="btn sm ghost" onclick="toggleAdvConfig()" style="width:100%">高级配置（适配器） ▾</button>
         <div id="f-if-adv" style="display:none;margin-top:10px">
           <div class="field"><label>报文适配器</label>${customAdapterField('message', 'f-adp-msg', 'f-cust-msg', i?i.adapters.message:null)}</div>
-          <div class="field"><label>入站鉴权（验来源）</label>${customAdapterField('auth', 'f-adp-in-auth', 'f-cust-in-auth', i?i.adapters.inboundAuth:null, '<option value="">继承应用（默认）</option>')}</div>
-          <div class="field"><label>出站鉴权（向目标签名）</label>${customAdapterField('auth', 'f-adp-auth', 'f-cust-auth', i?i.adapters.auth:null, '<option value="">继承应用（默认）</option>')}</div>
+          <div class="field" id="f-if-sign-auth-area"><label>供应商签名（出站鉴权）</label>${customAdapterField('auth', 'f-adp-auth', 'f-cust-auth', i?i.adapters.auth:null, '<option value="">继承应用（默认）</option>')}</div>
+          <div class="field" id="f-if-callback-auth-area"><label>回调验签（入站鉴权）</label>${customAdapterField('auth', 'f-adp-callback-auth', 'f-cust-callback-auth', i?i.adapters.callbackAuth:null, '<option value="">继承应用（默认）</option>')}</div>
         </div>
       </div>
     </div>
@@ -1240,7 +1237,6 @@ function openInterfaceModal(id){
   renderProtoSame();
   ifParams = i ? { inReq:(i.inReqParams||[]).map(r=>({...r})), outReq:(i.outReqParams||[]).map(r=>({...r})), outResp:(i.outRespFields||[]).map(r=>({...r})), ack:(i.ackFields||[]).map(r=>({...r})) } : { inReq:[], outReq:[], outResp:[], ack:[] };
   fieldMappings = i ? (i.fieldMappings||[]).map(r=>({...r})) : [];
-  ifIdem = i ? i.config.idempotent : true;
   reqTab = { inReq:'params', outReq:'params' };
   ifBodies = { inReq: i && i.inBody ? { type:i.inBody.type||'none', raw:i.inBody.raw||'', form:(i.inBody.form||[]).map(f=>({...f})) } : { type:'none', raw:'', form:[] }, outReq: i && i.outBody ? { type:i.outBody.type||'none', raw:i.outBody.raw||'', form:(i.outBody.form||[]).map(f=>({...f})) } : { type:'none', raw:'', form:[] } };
   renderReqSide('inReq');
@@ -1248,7 +1244,6 @@ function openInterfaceModal(id){
   renderRespList('outResp');
   renderRespList('ack');
   renderFieldMappings();
-  renderIdemSwitch();
   onIfTypeChange();
 }
 function populateGroups(){
@@ -1284,7 +1279,6 @@ function protoAdapterName(proto){
 let ifParams = { inReq:[], outReq:[], outResp:[], ack:[] };
 const IF_PARAM_BOX = { inReq:'f-if-req-in', outReq:'f-if-req-out', outResp:'f-if-resp-out', ack:'f-if-ack' };
 const PARAM_TYPES = ['string','number','boolean','object','array'];
-let ifIdem = true;
 let reqTab = { inReq:'params', outReq:'params' };
 let ifBodies = { inReq:{ type:'none', raw:'', form:[] }, outReq:{ type:'none', raw:'', form:[] } };
 const BODY_TYPES = ['none','form-data','x-www-form-urlencoded','json','xml'];
@@ -1374,6 +1368,16 @@ function onRespFieldChange(key, i, field, val){ ifParams[key][i][field] = val; }
 let fieldMappings = [];
 const MAP_OPS = { rename:'重命名', typeCast:'类型转换', enumMap:'枚举映射', default:'默认值', condition:'条件', aggregate:'聚合' };
 const MAP_NULL = { KEEP:'保留原值', NULL:'置空', DEFAULT:'默认值', ERROR:'报错' };
+function mapOpParamMeta(op){
+  switch(op){
+    case 'typeCast': return { kind:'select', options:['STRING','INT','DECIMAL','DATE','BOOL'] };
+    case 'enumMap':  return { kind:'text', placeholder:'PENDING→0, DONE→1' };
+    case 'default':  return { kind:'text', placeholder:'默认值' };
+    case 'condition':return { kind:'text', placeholder:'amount > 0' };
+    case 'aggregate':return { kind:'select', options:['CONCAT','SUM','MAX','MIN'] };
+    default: return null;
+  }
+}
 function reqParamNames(key){
   return ifParams[key].map(p=>p.name.trim()).filter(Boolean);
 }
@@ -1381,24 +1385,33 @@ function renderFieldMappings(){
   const box = document.getElementById('f-if-field-maps');
   const inNames = reqParamNames('inReq');
   const outNames = reqParamNames('outReq');
-  const rows = fieldMappings.map((m,i)=>`
+  const rows = fieldMappings.map((m,i)=>{
+    const meta = mapOpParamMeta(m.op);
+    const paramCell = meta
+      ? (meta.kind==='select'
+          ? `<select onchange="onFieldMapChange(${i},'param',this.value)">${meta.options.map(o=>`<option value="${o}" ${m.param===o?'selected':''}>${o}</option>`).join('')}</select>`
+          : `<input placeholder="${meta.placeholder||''}" value="${m.param||''}" onchange="onFieldMapChange(${i},'param',this.value)">`)
+      : '<span style="color:var(--muted)">—</span>';
+    return `
     <tr>
       <td><select onchange="onFieldMapChange(${i},'source',this.value)"><option value="">— 选入站字段 —</option>${inNames.map(n=>`<option value="${n}" ${m.source===n?'selected':''}>${n}</option>`).join('')}</select></td>
       <td><select onchange="onFieldMapChange(${i},'op',this.value)">${Object.entries(MAP_OPS).map(([v,l])=>`<option value="${v}" ${m.op===v?'selected':''}>${l}</option>`).join('')}</select></td>
       <td><select onchange="onFieldMapChange(${i},'target',this.value)"><option value="">— 选出站字段 —</option>${outNames.map(n=>`<option value="${n}" ${m.target===n?'selected':''}>${n}</option>`).join('')}</select></td>
+      <td>${paramCell}</td>
       <td><select onchange="onFieldMapChange(${i},'nullStrategy',this.value)">${Object.keys(MAP_NULL).map(k=>`<option value="${k}" ${m.nullStrategy===k?'selected':''}>${MAP_NULL[k]}</option>`).join('')}</select></td>
       <td style="width:40px;text-align:center"><button type="button" class="btn sm danger" onclick="removeFieldMap(${i})">×</button></td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
   box.innerHTML = `
     <table class="mt">
-      <thead><tr><th>入站字段</th><th>操作</th><th>出站字段</th><th>空值策略</th><th style="width:40px"></th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:16px">暂无映射，点下方「添加映射」</td></tr>`}</tbody>
+      <thead><tr><th>入站字段</th><th>操作</th><th>出站字段</th><th>操作参数</th><th>空值策略</th><th style="width:40px"></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:16px">暂无映射，点下方「添加映射」</td></tr>`}</tbody>
     </table>
     <button type="button" class="btn sm ghost" onclick="addFieldMap()" style="margin-top:8px">＋ 添加映射</button>`;
 }
-function addFieldMap(){ fieldMappings.push({ source:'', op:'rename', target:'', nullStrategy:'KEEP' }); renderFieldMappings(); }
+function addFieldMap(){ fieldMappings.push({ source:'', op:'rename', target:'', param:'', nullStrategy:'KEEP' }); renderFieldMappings(); }
 function removeFieldMap(i){ fieldMappings.splice(i,1); renderFieldMappings(); }
-function onFieldMapChange(i, key, val){ fieldMappings[i][key] = val; }
+function onFieldMapChange(i, key, val){ fieldMappings[i][key] = val; if(key==='op'){ fieldMappings[i].param = ''; renderFieldMappings(); } }
 function deleteInterface(id){
   const it = state.interfaces.find(x=>x.id===id);
   if(!it) return;
@@ -1415,10 +1428,6 @@ function toggleAdvConfig(){
 function helpMark(text){
   return `<span class="qmark" tabindex="0" onclick="this.classList.toggle('open')" onfocus="this.classList.add('open')" onblur="this.classList.remove('open')">?<span class="tip">${text}</span></span>`;
 }
-function renderIdemSwitch(){
-  document.getElementById('f-if-idempotent').innerHTML = `<button class="switch ${ifIdem?'on':''}" onclick="toggleIdem()"><span class="knob"></span><span class="lbl">${ifIdem?'开启':'关闭'}</span></button>`;
-}
-function toggleIdem(){ ifIdem = !ifIdem; renderIdemSwitch(); }
 function onIfTypeChange(){
   const inbound = document.getElementById('f-if-type').value === 'inbound';
   const label = document.getElementById('f-if-target-label');
@@ -1427,6 +1436,8 @@ function onIfTypeChange(){
   if(input){ input.placeholder = inbound ? '如 http://localhost:9000/webhook' : '/order'; }
   document.getElementById('f-if-resp-out-area').style.display = inbound ? 'none' : '';
   document.getElementById('f-if-ack-area').style.display = inbound ? '' : 'none';
+  document.getElementById('f-if-sign-auth-area').style.display = inbound ? 'none' : '';
+  document.getElementById('f-if-callback-auth-area').style.display = inbound ? '' : 'none';
 }
 function submitInterface(){
   const id = document.getElementById('f-if-id').value;
@@ -1439,7 +1450,7 @@ function submitInterface(){
   if(!appId || !group){ alert('请选择应用与分组'); return; }
   const ifType = document.getElementById('f-if-type').value;
   if(!targetPath){ alert(ifType==='inbound' ? '请填写回调地址' : '请填写上游路径'); return; }
-  const badMap = fieldMappings.findIndex(m => !m.source || !m.target);
+  const badMap = fieldMappings.findIndex(m => !m.target || (m.op !== 'default' && !m.source));
   if(badMap >= 0){ alert(`第 ${badMap+1} 条字段映射缺少入站/出站字段`); return; }
   const method = document.getElementById('f-if-method').value;
   const protoIn = document.getElementById('f-if-proto-in').value;
@@ -1451,8 +1462,8 @@ function submitInterface(){
   if(adpMsg === '__custom__'){ adpMsg = commitCustomAdapter('message', 'f-cust-msg'); }
   let adpAuth = document.getElementById('f-adp-auth').value;
   if(adpAuth === '__custom__'){ adpAuth = commitCustomAdapter('auth', 'f-cust-auth'); }
-  let adpInAuth = document.getElementById('f-adp-in-auth').value;
-  if(adpInAuth === '__custom__'){ adpInAuth = commitCustomAdapter('auth', 'f-cust-in-auth'); }
+  let adpCallbackAuth = document.getElementById('f-adp-callback-auth').value;
+  if(adpCallbackAuth === '__custom__'){ adpCallbackAuth = commitCustomAdapter('auth', 'f-cust-callback-auth'); }
   const data = {
     name, path, method, ifType, desc:desc||'—', protocolIn:protoIn, protocolOut:protoOut, appId, group,
     upstreamPath: ifType==='outbound' ? targetPath : '',
@@ -1463,8 +1474,8 @@ function submitInterface(){
     outRespFields: ifType==='outbound' ? ifParams.outResp.map(r=>({...r})) : [],
     ackFields: ifType==='inbound' ? ifParams.ack.map(r=>({...r})) : [],
     fieldMappings:fieldMappings.map(r=>({...r})),
-    adapters:{ protocolIn:protoAdapterName(protoIn), protocolOut:protoAdapterName(protoOut), message:adpMsg, auth:adpAuth || null, inboundAuth:adpInAuth || null },
-    config:{ timeout, retries, idempotent:ifIdem }
+    adapters:{ protocolIn:protoAdapterName(protoIn), protocolOut:protoAdapterName(protoOut), message:adpMsg, auth: ifType==='outbound' ? (adpAuth || null) : null, callbackAuth: ifType==='inbound' ? (adpCallbackAuth || null) : null },
+    config:{ timeout, retries }
   };
   if(id){
     const it = state.interfaces.find(x=>x.id===id);

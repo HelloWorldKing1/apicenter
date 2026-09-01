@@ -1,6 +1,6 @@
 # API 中心 · 重新设计方案
 
-> 5 个功能模块即顶层：应用管理、分组管理、接口管理、接口监控、适配器。定位为基础 API 中转 + 字段映射，支持 JSON 与 XML 协议。适配器整合鉴权、协议、报文、字段映射四类，按适配器链编排。可靠性、可观测等横切能力归入相关模块；第 6 章为状态机 / 错误码 / 容错机制附录。
+> 5 个功能模块即顶层：应用管理、分组管理、接口管理、接口监控、适配器。定位为基础 API 中转 + 字段映射，支持 JSON 与 XML 协议。适配器整合鉴权、协议、报文三类，字段映射为接口级配置，按适配器链编排。可靠性、可观测等横切能力归入相关模块；第 6 章为状态机 / 错误码 / 容错机制附录。
 
 ## 1. 应用管理
 
@@ -13,10 +13,10 @@
 - OAuth2 的 token URL / 授权回调地址属鉴权适配器配置（见 5.8 适配器配置元数据），不在应用级字段内。
 - 生命周期状态机：草稿 → 启用 → 停用 → 注销；停用即拒绝其请求，注销后回收 appId。
 
-### 1.2 应用凭证（出站签名 / 入站验签两类）
+### 1.2 应用凭证（出站签名 / 回调验签两类）
 - 每应用持有一对 appId + appSecret，并按鉴权方向拆成两类凭证：
   - 出站凭证（平台作为调用方签名用）：appSecret / 云厂商 secretId+secretKey / OAuth2 clientSecret / Bearer token 等。
-  - 入站验签凭证（平台验证供应商回调签名用）：回调 HMAC secret / 云厂商回调 token 等，独立于出站凭证。
+  - 回调验签凭证（平台验证供应商回调签名用，仅入站回调接口）：回调 HMAC secret / 云厂商回调 token 等，独立于出站凭证。
 - 两类凭证均加密存储（可逆加密或 KMS/HSM），不落明文；不得单向哈希——签名/验签都需用明文密钥重算。
 - 两类凭证均支持轮换（新旧短暂并存，平滑切换）、重置与即时失效。
 
@@ -53,7 +53,7 @@
 - 接口 = 平台对外暴露/代理的一个 API 定义。
 - 核心字段：接口标识、接口类型（出站中转 / 入站回调）、HTTP 方法、平台侧路径（如 /api/orders、/callback/{appId}/instance-state）、应用（供应商，appId，既是归属也是上游）+ 目标地址（出站 = 上游路径 path；入站 = 回调地址 deliveryUrl）、描述。
 - 归属：接口属于某应用下的某分组（应用 → 分组 → 接口），新建时经两级下拉选择。
-- 鉴权：拆「入站鉴权（验来源）+ 出站鉴权（向目标签名）」两个独立绑定，各自选适配器、各自凭证，均为「应用级默认 + 接口级覆盖」；出站中转 = 入站验调用方 + 出站供应商签名；入站回调 = 入站验供应商回调 + 出站向回调地址签名（可选）。
+- 鉴权：出站中转接口只配「供应商签名」（出站鉴权，应用级默认 + 接口级覆盖）；入站回调接口只配「回调验签」（入站鉴权，应用级默认 + 接口级覆盖）；调用方鉴权 / 向回调地址签名由平台统一处理，不在接口模型内。
 - 协议（入站 / 出站各一，JSON/XML）：入站协议 = 来源→平台的报文格式，出站协议 = 平台→目标的报文格式，二者可不同；组合即 json-json / json-xml / xml-xml / xml-json 四种场景，协议适配器按协议自动推导，默认「出入站一致」。
 - 请求参数：分「入站侧（来源→平台）」与「出站侧（平台→目标）」两侧；每侧 Params（参数名 / 类型 / 必填 / 示例值）与 Body（none / form-data / x-www-form-urlencoded / json / xml）两个 tab（入站回调的「出站侧」= 送达报文，必填）。
 - 字段映射（入站 → 出站）：每条 = 入站字段(source) + 操作 + 出站字段(target) + 空值策略，source/target 从两侧参数下拉选择。
@@ -63,10 +63,9 @@
 - 接口归属唯一应用（经分组），父子关系，不再多对多授权。
 - 接口可绑定适配器链（鉴权 / 协议 / 报文 / 字段映射），未绑定时继承应用默认。
 
-### 3.3 接口级配置（超时 / 重试 / 幂等）
+### 3.3 接口级配置（超时 / 重试）
 - 读超时（默认 3000ms）：出站 = 调上游超时；入站 = 回调地址调用超时。
 - 重试策略：最大重试次数、退避、重试条件（5xx/429）。
-- 幂等开关：是否启用幂等键校验。
 
 ### 3.4 接口生命周期（草稿 / 发布 / 下线 / 版本）
 - 草稿 → 发布 → 下线。
@@ -112,16 +111,16 @@
 ## 5. 适配器
 
 ### 5.1 适配器体系总览
-- 四类适配器：鉴权、协议、报文、字段映射。
+- 三类适配器：鉴权、协议、报文；字段映射为接口级配置（见 5.6），作为链上固定步骤而非全局适配器。
 - 统一适配器接口，可插拔、可扩展。
-- 适配器链：请求按固定顺序流过「入站鉴权（验证调用方）→ 协议解码 → 报文适配 → 字段映射 → 协议编码 → 出站鉴权（调用供应商 / 送达调用方前附加凭证）」。
+- 适配器链：请求按固定顺序流过「入站鉴权（验来源：调用方 / 供应商回调）→ 协议解码 → 报文适配 → 字段映射 → 协议编码 → 出站鉴权（向供应商 / 回调地址附加凭证）」；其中调用方鉴权与向回调地址签名由平台统一处理，不在接口模型内。
 - 以「统一内部模型」为链内唯一数据载体（格式无关）。
 - 四种端到端转换场景（由整条链协作完成）：json-json / json-xml / xml-xml / xml-json（入站协议与出站协议各一、可不同，如 json-xml）。
 - 每类适配器绑定到接口 / 应用，未绑定用平台默认。
 
 ### 5.2 基适配器设计
-- 顶层基适配器（Adapter）：所有适配器的统一契约（接口），四类适配器均实现它。核心方法：
-  - `AdapterType type()`：标识四类（鉴权 / 协议 / 报文 / 字段映射）。
+- 顶层基适配器（Adapter）：所有适配器的统一契约（接口），三类适配器均实现它。核心方法：
+  - `AdapterType type()`：标识三类（鉴权 / 协议 / 报文）。
   - `int order()`：链内执行顺序。
   - `boolean supports(AdapterContext ctx)`：是否适用于当前请求。
   - `AdapterContext process(AdapterContext ctx)`：执行并返回（可能已变更的）上下文。
@@ -132,10 +131,10 @@
   - 鉴权结果（appId、是否通过）。
   - 错误 / 告警收集（各适配器可追加）。
   - 作用：解耦上下游，新增适配器只读写上下文。
-- 鉴权基适配器（AuthAdapter）：双向契约——`AuthResult authenticate(RequestContext req)`（入站：验证调用方，输入原始请求 Header / 参数 / 时间戳 / 报文摘要，输出通过 / 拒绝 + appId）+ `void applyCredential(OutboundRequest out)`（出站：作为调用方向对端附加凭证，如签名 / token / 证书）。具体实现：ApiKeyAuthAdapter、HmacAuthAdapter、CloudSignatureAdapter、OAuth2ClientCredentialsAdapter、OAuth2AuthorizationCodeAdapter、BearerTokenAuthAdapter、BasicAuthAdapter、MtlsAuthAdapter、NoopAuthAdapter。
+- 鉴权基适配器（AuthAdapter）：双向契约——`AuthResult authenticate(RequestContext req)`（入站：验证来源——调用方或供应商回调，输入原始请求 Header / 参数 / 时间戳 / 报文摘要，输出通过 / 拒绝 + appId）+ `void applyCredential(OutboundRequest out)`（出站：作为调用方向对端附加凭证，如签名 / token / 证书）。具体实现：ApiKeyAuthAdapter、HmacAuthAdapter、CloudSignatureAdapter、CloudCallbackSignatureAdapter、OAuth2ClientCredentialsAdapter、OAuth2AuthorizationCodeAdapter、BearerTokenAuthAdapter、BasicAuthAdapter、MtlsAuthAdapter、NoopAuthAdapter。
 - 协议基适配器（ProtocolAdapter）：契约（双向）`UnifiedModel decode(bytes, format)` / `bytes encode(UnifiedModel, format)`，是「格式」的唯一责任方。具体实现：JsonProtocolAdapter、XmlProtocolAdapter。
 - 报文基适配器（MessageAdapter）：契约 `UnifiedModel adapt(UnifiedModel)`，做报文结构转换（信封/包裹、报文头、请求/响应结构）。具体实现按应用定制（EnvelopeMessageAdapter、HeaderMappingAdapter 等）。
-- 字段映射基适配器（FieldMappingAdapter）：契约 `UnifiedModel map(UnifiedModel, MappingRule)`，做字段级转换，格式无关。具体实现：RuleFieldMappingAdapter（映射规则集驱动，规则在接口级配置，见 5.6）；json-json / json-xml / xml-xml / xml-json 四种组合由「协议适配器 + 字段映射」协作完成。
+- 字段映射（接口级配置，链上固定步骤）：做字段级转换，格式无关，规则在接口级配置（见 5.6 / 3.1），不作为全局适配器实例；json-json / json-xml / xml-xml / xml-json 四种组合由「协议适配器 + 字段映射」协作完成。
 
 ### 5.3 鉴权适配器
 - 可插拔鉴权策略（按需选用，每个策略均含「入站验证 authenticate」与「出站签名 applyCredential」两个方向，按接口/应用分别绑定）：
@@ -149,15 +148,15 @@
   - Basic Auth（HTTP 基础认证，仅限 HTTPS）
   - mTLS（双向证书：客户端证书 / 私钥 / CA 证书 / 校验方式）
   - 无鉴权（内网 / 演示）
-- 入站鉴权（平台验证来源身份）：
-  - 出站中转：验调用方 —— HMAC-SHA256(appId + timestamp + orderId, appSecret)，时间戳容差 300s，防重放。
-  - 入站回调：验供应商 —— 用「入站验签凭证」验签（HMAC 回调 / 云厂商回调验签），独立于出站签名凭证。
+- 回调验签（供应商 → 平台，仅入站回调接口）：
+  - 用「回调验签凭证」验签（HMAC 回调 / 云厂商回调验签），独立于出站签名凭证。
   - 失败返回 401；连续失败告警 / 临时封禁（防暴力破解）。
+  - 调用方鉴权（平台自己的客户，如 ERP）由平台统一处理，不在本模型内。
 - 出站鉴权（平台作为调用方，向目标证明身份）：
   - 出站中转：按供应商要求附加凭证（API Key header / 云厂商签名 / Bearer Token / OAuth2 client_credentials / mTLS 客户端证书）。
   - 入站回调：向回调地址附加凭证（可选，默认无）。
 - 密钥管理：出站 / 入站两类凭证均加密存储、轮换（新旧并存）、泄漏即时失效。
-- 绑定关系：入站鉴权与出站鉴权各为「应用级默认 + 接口级覆盖」两个独立绑定。
+- 绑定关系：出站鉴权与回调验签各为「应用级默认 + 接口级覆盖」两个独立绑定；回调验签仅对入站回调接口生效。
 
 ### 5.4 协议适配器（JSON / XML 编解码）
 - 接口声明协议（JSON/XML）→ 协议适配器实现对应编解码。
@@ -174,7 +173,7 @@
 - 分工边界：报文适配器管报文整体结构与状态码，字段映射（接口级）管字段内容。
 
 ### 5.6 字段映射（接口级配置）
-- 字段映射在「接口级」配置，不再作为全局适配器：每条规则 = 入站字段(source) + 操作 + 出站字段(target) + 空值策略，source/target 从接口的两侧请求参数下拉选择。
+- 字段映射在「接口级」配置，不再作为全局适配器：每条规则 = 入站字段(source) + 操作 + 出站字段(target) + 操作参数(param，可选) + 空值策略，source/target 从接口的两侧请求参数下拉选择；枚举映射 / 默认值 / 条件 / 聚合 / 类型转换等参数化操作需填 param。
 - 方向明确为「入站 → 出站」；响应方向的反向映射暂不建模（入站回调的 ack 是「回执」而非响应回显，故无需反向映射，送达结果只落内部状态）。
 - 操作：重命名（rename）、类型转换（typeCast）、枚举映射（enumMap）、默认值（default）、条件（condition）、聚合（aggregate）。
 - 字段级转换：重命名、类型转换、枚举映射、默认值 / 常量注入、条件与空值策略。
@@ -189,7 +188,7 @@
 
 适配器「无状态、配置驱动」——配置元数据即适配器运行时读取的全部参数。每类适配器配置均含统一外层字段 + 各自 `params`：
 
-- 统一外层：`adapterType`（auth / protocol / message / field）、`impl`（具体实现类）、`enabled`（启用 / 停用）、`version`（版本，用于版本化 / 灰度）、`params`（该类适配器的具体参数，见下表）。
+- 统一外层：`adapterType`（auth / protocol / message）、`impl`（具体实现类）、`enabled`（启用 / 停用）、`version`（版本，用于版本化 / 灰度）、`params`（该类适配器的具体参数，见下表）。
 
 | 适配器 | params 关键字段 | 说明 |
 |---|---|---|
@@ -209,7 +208,7 @@
 | 报文 · 报文头（HeaderMappingAdapter） | `headerMappings[]` | 报文头字段映射规则 |
 | （字段映射为接口级配置） | 见 3.1 | 字段映射规则不再作为适配器参数，改为接口级 `fieldMappings` |
 
-字段映射规则 `fieldMappings[]` 每条（接口级）：`source`（入站字段）、`op`（rename / typeCast / enumMap / default / condition / aggregate）、`target`（出站字段）、`nullStrategy`（保留原值 / 置空 / 默认值 / 报错）。
+字段映射规则 `fieldMappings[]` 每条（接口级）：`source`（入站字段，`default` 常量注入时可空）、`op`（rename / typeCast / enumMap / default / condition / aggregate）、`target`（出站字段）、`param`（操作参数，如枚举映射表 `PENDING→0, DONE→1` / 默认值 / 条件表达式 / 聚合方式，仅参数化操作需要）、`nullStrategy`（保留原值 / 置空 / 默认值 / 报错）。
 
 错误码映射 `codeMappings[]` 每条：`from`（上游错误码）、`to`（平台错误码）。
 
@@ -288,11 +287,10 @@ stateDiagram-v2
 
 > 说明：上游返回 429 属限流语义，归入 429xx（42903）；502xx 仅表示上游 5xx（网关错误）。
 
-### 6.3 幂等 / 对账 / 补偿机制
+### 6.3 对账 / 补偿机制
 
-- 幂等（平台侧）：幂等键 = `(biz_type, app_id, biz_id)`，如 `(query, TENCENT-CLOUD, 请求ID)`。首次请求写入幂等键并记录结果，重复请求命中即返回首次结果（防重复调用供应商 / 重复回调）；幂等键设过期时间（如 7 天）。
 - 对账（UNKNOWN 处理）：UNKNOWN = 结果不确定（可能已达上游），不可盲目重试；通过查询接口查上游真实状态，已成功 → 收敛 SUCCESS，未到达 → 触发补偿 COMPENSATING。
-- 补偿：补偿 worker 定时扫描出站 COMPENSATING 记录与入站 PENDING 记录，按固定间隔（如 3s）重试；超过最大次数（如 5 次）转死信 + 告警；补偿重放不重复生效依赖**上游对业务键幂等**（请求携带稳定 biz_id 由上游去重），与平台侧幂等键是两回事。
+- 补偿：补偿 worker 定时扫描出站 COMPENSATING 记录与入站 PENDING 记录，按固定间隔（如 3s）重试；超过最大次数（如 5 次）转死信 + 告警；补偿重放不重复生效依赖**上游对业务键幂等**（请求携带稳定 biz_id 由上游去重）。
 
 ### 6.4 熔断机制
 
