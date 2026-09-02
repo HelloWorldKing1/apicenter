@@ -2,7 +2,7 @@ spring:
   application:
     name: apicenter
   datasource:
-    # API 中心（现行设计）· MySQL（PolarDB，doc/schema.sql 已执行建库）
+    # API 中心 · MySQL（PolarDB）。建库脚本：doc/schema.sql（15 张表，已执行）
     # 安全建议：提交前将密码改为环境变量占位，如 password: ${APICENTER_DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://pritechdb123.mysql.polardb.rds.aliyuncs.com:3306/apicenter?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&autoReconnect=true&failOverReadOnly=false
@@ -12,27 +12,13 @@ spring:
 server:
   port: 8080
 
+# API 中心运行参数（业务配置全部落库，此处仅基础设施参数）
 app:
-  integration:
-    max-attempts: 5
+  api-center:
+    # 补偿 worker 扫描间隔（设计 §6.3：按 (status, next_retry_at) 扫描 COMPENSATING / PENDING 记录）
     retry-worker-fixed-delay-ms: 3000
-    signature-tolerance-seconds: 300
-    channels:
-      PARTNER_A:
-        base-url: http://localhost:8101
-        auth-token: token-a
-        signature-secret: secret-a
-        read-timeout-ms: 3000
-      PARTNER_B:
-        base-url: http://localhost:8102
-        auth-token: token-b
-        signature-secret: secret-b
-        read-timeout-ms: 3000
-      ERP:
-        base-url: http://localhost:8103
-        auth-token: erp-token
-        signature-secret: erp-secret
-        read-timeout-ms: 3000
+    # UNKNOWN 超时自动降级为 COMPENSATING 的时长（M0-03 §3.1，M4 实现）
+    unknown-ttl-minutes: 10
 
 management:
   endpoints:

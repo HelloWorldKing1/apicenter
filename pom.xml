@@ -12,10 +12,11 @@
     <artifactId>apicenter</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>apicenter</name>
-    <description>apicenter</description>
+    <description>API 中心 —— 三方接口统一调用平台(连接 + 适配 + 可靠传输)</description>
     <properties>
         <java.version>21</java.version>
         <mapstruct.version>1.6.3</mapstruct.version>
+        <!-- WireMock 版本(M2 集成测试 mock 对端使用,当前未作为依赖引入) -->
         <wiremock.version>3.9.1</wiremock.version>
     </properties>
     <dependencies>
@@ -54,7 +55,7 @@
             <version>${mapstruct.version}</version>
         </dependency>
 
-        <!-- PARTNER_B 渠道的 XML 序列化/反序列化（Jackson 3 的 XML 模块）
+        <!-- XML 协议编解码（协议适配器 XmlProtocolAdapter 用；Jackson 3 的 XML 模块）
              版本由 Spring Boot 4.1 BOM 管理，无需显式指定 -->
         <dependency>
             <groupId>tools.jackson.dataformat</groupId>

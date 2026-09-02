@@ -4,14 +4,23 @@
 
 **apicenter** —— API 三方接口统一调用平台组件。定位：**只做连接 + 适配 + 可靠传输，不承接业务决策。**
 
-> **两代设计并存，先分清对象**：
-> - **现行设计 = 「API 中心」**：`src/main/resources/doc/` 下 6 份文档（设计方案 / 技术架构 / 可行性报告 / 表结构设计 / 时序图 / 原型），通用平台形态（应用=供应商，5 模块）。
-> - **现有代码 = 旧版 demo**：Java 代码按 `doc_old/设计文档.md` 实现，是「ERP 订单连接器」（PARTNER_A/B 固定两渠道）。现行设计尚未落地（排期见《可行性报告.md》）。
+> 旧版「ERP 订单连接器」demo 已于 2026-09-02 删除（commit `ad55cea`），完整保留在 git 历史中（`git show ed95446:<path>` 可查旧实现，如 SignatureService 验签、LoggingAspect 脱敏）。当前工程按现行「API 中心」设计重建。
 
-两条核心链路（两代语义一致）：
+两条核心链路：
 
 - **Flow A 出站**（调用方 → 组件 → 供应商）：入站鉴权 → 适配器链（协议解码 → 报文适配 → 字段映射 → 协议编码）→ 出站鉴权（供应商签名）→ 调供应商 → 反向适配回调用方。失败按状态机处理：5xx/429 指数退避重试 → 补偿；4xx → 死信；超时 → UNKNOWN 对账。
 - **Flow B 入站回调**（供应商回调 → 组件 → 调用方）：回调验签（凭证独立于出站签名）→ 适配器链 → 送达回调地址 → 收到即回 ack 回执（与送达解耦）→ 送达失败由补偿 worker 重送。
+
+## 当前开发状态（2026-09-02）
+
+| 项 | 状态 |
+|---|---|
+| 设计文档 | 已定稿：`src/main/resources/doc/` 6 份 + schema.sql（15 张表） |
+| M0 契约设计 | 已起草待评审：`doc/开发文档/` M0-01/02/03（每份末尾有「待评审确认点」共 9 项） |
+| 旧 demo 代码 | 已删除（commit `ad55cea`），git 历史可查 |
+| 数据库 | MySQL PolarDB 已按新 schema 建库（连接信息见 application.yaml） |
+| 工程代码 | 仅骨架（入口类 + 冒烟测试），M1 起落地 |
+| 未拍板决策 | ① M0 评审 9 点（含 Aviator 选型 D10、协议参数首期范围 D5）；② 凭证轮换存储方案（设计 §1.2 要「新旧短暂并存」但 app 表凭证仅单列，M1 凭证管理前置） |
 
 ## 设计文档（现行）
 
@@ -21,12 +30,20 @@
 |---|---|
 | `API中心设计方案.md` | 设计总纲：应用（供应商）/ 分组 / 接口 / 监控 / 适配器 5 模块；接口定义模型（出站中转 / 入站回调）；三类适配器（鉴权 / 协议 / 报文）+ 接口级字段映射；状态机 / 错误码 / 容错附录 |
 | `技术架构和实现方案.md` | 实现路径：分层架构、技术选型、适配器链引擎、出 / 入站执行引擎、M1–M5 路线图、ADR |
-| `可行性报告.md` | 技术可行性评估、工作量估算（约 88 人日）、风险与应对 |
+| `可行性报告.md` | 技术可行性评估、工作量估算（约 81 人日）、风险与应对 |
 | `表结构设计.html` | 15 张表（配置 10 + 运行 5）+ 枚举汇总 + 原型数据模型映射对照 |
 | `API中心时序图与流程图.md` | 配置流程、Flow A / B 时序、请求处理 + 容错流程图 |
 | `API中心原型.html` | 可交互管理面原型（数据模型与交互即事实来源） |
 
-关键设计要点（与旧版 demo 的主要差异，改动前先读设计方案对应章节）：
+`doc/开发文档/`（M0 契约，草稿待评审）：
+
+| 文档 | 内容 |
+|---|---|
+| `M0-01链引擎契约设计.md` | UnifiedModel / Adapter / AdapterContext、六阶段链编排、绑定继承 / 覆盖解析、协议自动推导、平台默认兜底（Noop 直通）、链缓存与状态机边界 |
+| `M0-02动态映射语义规范.md` | 6 操作 × param 语法、类型注册表转换矩阵、condition 沙箱（Aviator 选型）、null_strategy 四值、24 例预期输出矩阵 |
+| `M0-03通用客户端与对账协议.md` | 通用 ExchangeClient（动态 URI / 凭证组装）、异常→状态机映射表、UNKNOWN 对账三分支（M2 人工 / M4 降级 / v1.1 自动查询） |
+
+关键设计要点（改动前先读设计方案对应章节）：
 
 - **应用 = 供应商（上游）**：出站凭证（供应商签名）+ 回调验签凭证两类分离；调用方鉴权 / 向回调地址签名由平台统一，不在模型内（§1.2 / §3.1 / §5.3）。
 - **接口两种类型**：出站中转（上游路径 + 供应商签名 + 出站响应字段）/ 入站回调（回调地址 + 回调验签 + 出站侧送达报文必填 + ack 回执字段）；类型互斥字段按类型清空（§3.1）。
@@ -35,91 +52,72 @@
 - **无平台侧幂等开关**：去重依赖上游对业务键幂等（§6.3）。
 - **入站 ack = 回执**：收到即回、与送达解耦，无「调用方 ack → 供应商 ack」反向映射（§5.5 / §6.1）。
 
-## 现有代码（旧版 demo）
+## 技术栈
 
-> 以下各节描述现有 Java 代码——旧版 ERP 订单连接器 demo（按 `doc_old/设计文档.md` 12 章实现）。
+Java 21 · Spring Boot 4.1（parent `spring-boot-starter-parent:4.1.0`）· Spring Framework 7 · Jackson 3（`tools.jackson.dataformat:jackson-dataformat-xml`）· MapStruct 1.6.3（仅固定结构映射）· JdbcTemplate + MySQL（PolarDB，连接信息见 application.yaml）· OpenTelemetry · Micrometer/Prometheus · Lombok。
 
-### 技术栈
+持久化无 JPA/Repository，全部为 `JdbcTemplate` 直连 SQL，DDL 见 `src/main/resources/doc/schema.sql`。
 
-Java 21 · Spring Boot 4.1（parent `spring-boot-starter-parent:4.1.0`）· Spring Framework 7 · Jackson 3（`tools.jackson.dataformat:jackson-dataformat-xml`）· MapStruct 1.6.3 · JdbcTemplate + MySQL（PolarDB，连接信息见 application.yaml；旧版 demo 曾用 H2）· OpenTelemetry · Micrometer/Prometheus · Lombok。
+> 待定：动态映射 condition 表达式内核 **Aviator**（M0-02 D10，评审通过后 M2 引入依赖）。
 
-持久化无 JPA/Repository，全部为 `JdbcTemplate` 直连 SQL，DDL 见 `src/main/resources/doc_old/schema.sql`。
+## 常用命令
 
-### 常用命令
-
-> **注意**：仓库无 Maven wrapper（无 `mvnw` / `.mvn/`），且当前机器 `mvn` 不在 PATH，需自行安装 Maven 与 JDK 21。
+> **注意**：仓库无 Maven wrapper（无 `mvnw` / `.mvn/`），且当前机器 `mvn` 不在 PATH，需自行安装 Maven 与 JDK 21（机器现有 JDK 25，`--release 21` 可编译，但建议装 21 对齐）。
 
 ```bash
-mvn spring-boot:run   # 启动后端 :8080（连接 application.yaml 配置的 MySQL/PolarDB；建库脚本 doc/schema.sql 已执行）
-mvn test              # 跑测试（现有仅 1 个 contextLoads 冒烟测试）
+mvn spring-boot:run   # 启动后端 :8080（连接 application.yaml 配置的 MySQL/PolarDB；库已按 doc/schema.sql 建好）
+mvn test              # 跑测试（当前仅 1 个 contextLoads 冒烟测试）
 mvn package           # 打可执行 jar
 ```
 
-运行后可访问：`/` → Vue3 前端；`/actuator/health` 等。
+运行后可访问：`/actuator/health` 等（管理面前端 M1 落地）。
 
-### 架构与源码结构
+## 架构与源码结构
 
-根包 `com.deepx.apicenter`（`src/main/java/com/deepx/apicenter/`）：
+根包 `com.deepx.apicenter`（`src/main/java/com/deepx/apicenter/`），按技术架构分层规划（M1 起逐步落地）：
 
-| 包 | 职责 | 关键类 |
+| 包 | 职责 | 落地里程碑 |
 |---|---|---|
-| `controller/` | REST 入口（Flow A/B） | `OrderController`（/api）、`CallbackController`（/callback） |
-| `service/` | 业务编排 | `OrderSyncService`（出站状态机）、`CallbackDeliveryService`（入站送达）、`PartnerInvoker`（@Retryable 调用）、`SignatureService`（HMAC 验签） |
-| `client/` | 声明式 HTTP 客户端（`@HttpExchange`） | `PartnerAClient`（JSON）、`PartnerBClient`（XML）、`ErpCallbackClient` |
-| `mapper/` | MapStruct 字段映射 | `OrderMapper`（元→分、时间格式、嵌套聚合、状态枚举→数字） |
-| `dto/` | Java record 传输模型 | `OrderDto`（统一订单）、`PartnerAOrderRequest` / `PartnerBOrderRequest`、`PartnerResponse`、`ErpOrderResponse`、`OrderStatusCallbackDto` |
-| `config/` | 配置与 Bean 装配 | `ChannelProperties`（`@ConfigurationProperties("app.integration")`）、`RestClientConfig`（构建各渠道 client） |
-| `aspect/` | AOP | `LoggingAspect`（service 方法日志、traceId、敏感头/手机号脱敏） |
-| `worker/` | 定时任务 | `CompensationWorker`（3s 扫描补偿）、`IncrementalSyncJob`（60s 高水位增量拉取） |
+| `controller/` | 管理面 REST（应用 / 分组 / 接口 / 监控 / 适配器 5 模块）+ 接入层路由 | M1 / M2 |
+| `service/` | 业务编排：配置校验、状态机流转 | M1 |
+| `repository/` | JdbcTemplate 数据访问（15 张表） | M1 |
+| `engine/` | 适配器链引擎 + 出站 / 入站执行引擎（M0-01 契约） | M2 / M3 |
+| `adapter/` | 鉴权 / 协议 / 报文三类适配器实现 | M2 |
+| `mapping/` | 动态字段映射引擎（M0-02 规范，6 操作运行时解释器） | M2 |
+| `client/` | 通用声明式 HTTP 客户端（M0-03 契约，动态 URI / 凭证组装） | M2 |
+| `worker/` | 补偿 / 对账 worker（按 (status, next_retry_at) 扫描） | M2 / M4 |
+| `aspect/` | AOP 调用日志、traceId、脱敏 | M4 |
+| `config/` | 配置与 Bean 装配 | M1 |
 
 入口：`ApicenterApplication.java`（`@SpringBootApplication` + `@EnableScheduling` + `@EnableResilientMethods`，后者启用 Spring 7 `@Retryable`）。
 
-### API 面
+## 核心状态机与容错（设计 §6）
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| POST | `/api/orders` | Flow A 推送订单。Header：`X-App-Id` / `X-Timestamp` / `X-Signature`。验签：`HMAC-SHA256(appId + timestamp + orderId, erp-secret)`，时间戳容差 300s，失败返回 401 |
-| POST | `/api/orders/query` | UNKNOWN 对账查询（示例级占位实现） |
-| POST | `/callback/{channel}/order-status` | Flow B 第三方回调。Header：`X-Partner-Signature` / `X-Timestamp`，用该渠道密钥验签，失败返回 401 `{"code":401,"msg":"signature invalid"}` |
-
-### 核心状态机与关键设计
-
-- **出站状态机**（`OrderSyncService.RequestStatus`，载体 `integration_request.status`）：`INIT → MAPPING → SENDING → RETRYING → COMPENSATING → SUCCESS / DEAD_LETTER / UNKNOWN`。
-  - 5xx/429 → `PartnerInvoker` 的 `@Retryable` 短重试（maxRetries=4，指数退避 200ms×2，上限 2s）；重试耗尽仍失败 → 补偿
+- **出站状态机**（载体 `outbound_request.status`）：`INIT → MAPPING → SENDING → RETRYING → COMPENSATING → SUCCESS / DEAD_LETTER / UNKNOWN`。
+  - 5xx/429 → 短重试（`@Retryable`，指数退避，上限 `interface.max_retries`）；重试耗尽 → 补偿
   - 4xx（非 429）→ 写 `dead_letter` → DEAD_LETTER，不重试
-  - 读超时 / 连接异常 → UNKNOWN → 对账（当前示例直接置 SUCCESS）
-- **`@Retryable` 必须放在独立类 `PartnerInvoker`** 中，而不是 `OrderSyncService` 内部——Spring AOP 自调用不触发代理（见 `PartnerInvoker` 类注释）。
-- **入站送达状态**（`callback_delivery.delivery_status`）：RECEIVED → ERP_ACKED / PENDING（失败时仍回 ack，第三方不重发，由 `CompensationWorker` 重送）。
-- **超时映射**：client 读超时（默认 3000ms，`read-timeout-ms`）触发 `ResourceAccessException` → UNKNOWN 分支。
-- 所有出站 client 由 `config/RestClientConfig` 用 `HttpServiceProxyFactory` + `RestClient` 构建（Boot 4 不自动装配 `RestClient.Builder`）。
+  - 读超时 / 连接异常 → UNKNOWN → 对账（M2 人工 / M4 超时自动降级，见 M0-03 §3）
+  - **`@Retryable` 必须放在独立 Invoker 类**——Spring AOP 自调用不触发代理
+- **入站送达状态**（载体 `inbound_delivery.delivery_status`）：`RECEIVED → ACKED / PENDING → ACKED / DEAD_LETTER`；送达失败仍回 ack（供应商不重发），补偿 worker 重送（按 `callback_url_snapshot`）。
+- **熔断（M4）**：三态 CLOSED/OPEN/HALF_OPEN，闸门置于 @Retryable Invoker 调用前，粒度「接口 + 供应商」。
+- **链失败不污染状态机**（M0-01 D7）：解码 / 映射 / 编码 / 验签失败直接错误响应 + call_log，不落运行表。
 
-### 配置与数据模型
+## 配置与数据模型
 
-配置集中在 `src/main/resources/application.yaml`：
-
-- `app.integration.channels`：`PARTNER_A` / `PARTNER_B` / `ERP` 三渠道，各含 `base-url`（localhost:8101/8102/8103）、`auth-token`、`signature-secret`、`read-timeout-ms`（3000）
-- `app.integration.max-attempts: 5`、`retry-worker-fixed-delay-ms: 3000`、`signature-tolerance-seconds: 300`
-- 绑定类：`config/ChannelProperties.java`
-
-`src/main/resources/doc_old/schema.sql` 共 9 张表（H2 语法，设计映射 MySQL 8 生产）：
-
-`integration_channel`（渠道）、`integration_request`（出站 outbox，状态机载体）、`integration_call_log`（AOP 调用日志）、`dead_letter`（死信）、`callback_subscription`（Flow B 订阅）、`callback_delivery`（送达/补偿记录）、`sync_watermark`（高水位游标）、`sync_job_log`（同步审计）、`idempotency_key`（`(biz_type, channel_code, biz_id)` 防重）。
-
-> 注意：现行「API 中心」表结构见 `doc/表结构设计.html`（15 张新表，命名独立），与上述旧 demo 9 表**不是同一套**，勿混用。
+- 配置集中在 `src/main/resources/application.yaml`：仅基础设施参数（datasource、`retry-worker-fixed-delay-ms: 3000`、`unknown-ttl-minutes: 10`）；业务配置（应用 / 接口 / 适配器 / 字段映射）全部落库。
+- `src/main/resources/doc/schema.sql`：15 张表（配置 10 + 运行 5），无数据库外键（引用完整性应用层保证，引用列建索引），与《表结构设计.html》逐表一致。
 
 ## 约定与注意事项（Gotchas）
 
 - **中文注释**：全库代码注释、README、设计文档均为简体中文，新代码保持中文注释。
-- **Demo 性质**：旧版 Java 代码多处为示例级实现（占位 requestId/deadLetterId、日志替代真实补偿、`CompensationWorker` 有 `TODO 生产实现`）。生产需 MySQL 8、XXL-JOB、Redis 分布式锁等，代码注释中已标注。
-- **两代设计并存**：改 doc/ 下文档时不参照旧版（doc_old、schema.sql、旧 Java 类名），避免冲突；反之改旧版代码时不混入新设计概念。
-- **MapStruct + Lombok**：通过 `maven-compiler-plugin` 的 `annotationProcessorPaths` 显式配置（compile 与 test-compile 两个 execution）。新增映射字段时确保注解处理器生效（`OrderMapperImpl` 为编译期生成）。
-- `pom.xml` 中 `wiremock.version` 属性已声明但**未作为依赖使用**（后续测试可用）。
-- 三渠道为 localhost 演示地址，应用自身不启动这些对端；第三方对端靠静态 Demo 页 / WireMock 模拟。
-- 测试仅 1 个 `@SpringBootTest contextLoads()` 冒烟测试（`src/test/java/com/deepx/apicenter/ApicenterApplicationTests.java`），启动需 8080 端口空闲。
+- **MapStruct + Lombok**：通过 `maven-compiler-plugin` 的 `annotationProcessorPaths` 显式配置（compile 与 test-compile 两个 execution）。MapStruct 只用于固定结构映射（统一信封组装、实体 ↔ DTO），动态映射走规则解释器（M0-02）。
+- **Boot 4 不自动装配 `RestClient.Builder`**：声明式客户端用 `HttpServiceProxyFactory` + `RestClient` 手动构建（旧 demo 经验，git 历史可查）。
+- **Jackson 3 包名**：`tools.jackson.*`，非 `com.fasterxml.jackson.*`。
+- `pom.xml` 中 `wiremock.version` 已声明但未作为依赖使用（M2 集成测试 mock 对端可用）。
+- 旧 demo 实现仅供参考（git 历史 `ed95446` 及之前），不照搬渠道特化逻辑（PARTNER_A/B、订单字段、高水位同步均不适用于新设计）。
 
 ## 文档导航
 
 - **现行设计**（`src/main/resources/doc/`）：`API中心设计方案.md`（总纲）→ `技术架构和实现方案.md` / `可行性报告.md` / `表结构设计.html` + `schema.sql`（实现四件套）→ `API中心时序图与流程图.md` / `API中心原型.html`（流程与交互）→ `开发计划.md`（M0–M5 里程碑 + fastmoss 黄金用例，执行入口）
+- **M0 契约**（`src/main/resources/doc/开发文档/`）：链引擎 / 映射语义 / 客户端对账三份（草稿待评审，M2 编码依据）
 - `README.md` — 项目索引
-- **旧版设计**（`src/main/resources/doc_old/`）：`设计文档.md`（12 章，现有代码依据）、`实现指南.md`、`schema.sql`、`api演示 demo.html`、其余可行性/原型说明文档
-- `src/main/resources/static/` — Vue3 前端（`/`）
