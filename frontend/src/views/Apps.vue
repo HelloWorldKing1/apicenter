@@ -123,6 +123,7 @@
       </el-descriptions>
 
       <h4>凭证（遮显，永不回显明文）</h4>
+      <p class="cred-hint">出站签名 / 回调验签的密钥统一在此维护（适配器只配置用法，如 Header 名、前缀、算法）</p>
       <el-table :data="detail.credentials" size="small">
         <el-table-column prop="kind" label="类型" width="110">
           <template #default="{ row }">{{ row.kind === 'OUTBOUND' ? '出站签名' : '回调验签' }}</template>
@@ -317,6 +318,7 @@ const statusType = (s) => ({ DRAFT: 'info', ENABLED: 'success', DISABLED: 'warni
 .toolbar { display: flex; justify-content: space-between; margin-bottom: 14px; }
 .cred-actions { margin-top: 14px; display: flex; gap: 8px; }
 h4 { margin: 20px 0 10px; color: #303133; }
+.cred-hint { font-size: 12px; color: #909399; margin: -4px 0 10px; }
 .adapter-pick { display: flex; width: 100%; }
 .adapter-pick .el-select { flex: 1; margin-right: 8px; }
 </style>

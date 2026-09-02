@@ -14,7 +14,7 @@
         <el-switch v-else-if="f.kind === 'switch'" v-model="modelValue.params[f.key]" />
         <el-input v-else-if="f.kind === 'textarea'" v-model="modelValue.params[f.key]" type="textarea" :rows="3" />
         <el-input v-else-if="f.kind === 'codeMap'" v-model="modelValue.params[f.key]" placeholder="上游码→平台码，逗号分隔" />
-        <el-input v-else-if="f.kind === 'secret'" disabled placeholder="凭证统一在应用凭证管理中配置" />
+        <el-input v-else-if="f.kind === 'secret'" disabled placeholder="凭证值请到「应用管理 → 点击应用 → 凭证」中维护" />
         <el-input v-else v-model="modelValue.params[f.key]" />
       </el-form-item>
     </template>
