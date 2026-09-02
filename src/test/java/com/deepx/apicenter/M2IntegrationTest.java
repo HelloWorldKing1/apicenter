@@ -37,10 +37,12 @@ import java.util.List;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.configureFor;
-import static com.github.tomakehurst.wiremock.client.WireMock.equalToPattern;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
+import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.stubFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.options;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -176,8 +178,8 @@ class M2IntegrationTest {
         assertThat(row.status()).isEqualTo("SUCCESS");
         assertThat(row.attemptCount()).isEqualTo(1);
         // 凭证头被附加（Bearer 出站鉴权生效）
-        wireMock.verify(post("/shop/v1/creatorList")
-                .withHeader("Authorization", equalToPattern("Bearer m2-golden-token")));
+        wireMock.verify(postRequestedFor(urlEqualTo("/shop/v1/creatorList"))
+                .withHeader("Authorization", equalTo("Bearer m2-golden-token")));
     }
 
     // ---------- G2 上游 4xx → 死信 ----------
@@ -211,7 +213,7 @@ class M2IntegrationTest {
                 .hasMessageContaining("补偿队列");
         OutboundRequestRow row = outboundRequestRepository.findByBizId(TEST_APP, "biz-g3").get(0);
         assertThat(row.status()).isEqualTo("COMPENSATING");
-        wireMock.verify(2, post("/shop/v1/creatorList")); // 首送 + 1 次短重试
+        wireMock.verify(2, postRequestedFor(urlEqualTo("/shop/v1/creatorList"))); // 首送 + 1 次短重试
 
         // 上游恢复 → 补偿 worker 重放 → SUCCESS
         stubFor(post("/shop/v1/creatorList").willReturn(okJson(GOLDEN_RESPONSE)));
