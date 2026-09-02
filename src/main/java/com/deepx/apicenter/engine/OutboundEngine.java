@@ -175,14 +175,20 @@ public class OutboundEngine {
         return ApiResult.ok(dataNode);
     }
 
-    /** 补偿重放（CompensationWorker 调用）：按 in_payload 重走链（配置/凭证取最新），重放安全依赖上游幂等 */
+    /**
+     * 补偿重放（CompensationWorker 调用）：同一 outbound_request 记录上按 in_payload 重走链
+     * （配置/凭证取最新）；重放安全依赖上游对 biz_id 幂等（ADR 5）。
+     */
     public void replay(OutboundRequestRow row) {
         InterfaceRow iface = interfaceRepository.findById(row.interfaceId())
                 .orElseThrow(() -> BizException.ifaceNotFound(row.interfaceId()));
         log.info("补偿重放 outbound_request {}（attempt {}/{}）", row.id(), row.attemptCount() + 1, row.maxAttempts());
+        outboundRequestRepository.incrementAttempt(row.id());
         try {
-            ApiResult<?> result = execute(iface, row.inPayload() == null ? new byte[0] : row.inPayload().getBytes(),
-                    row.bizId(), row.traceId());
+            ApiResult<?> result = doInvoke(row.id(), iface,
+                    row.inPayload() == null ? new byte[0]
+                            : row.inPayload().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    row.traceId());
             log.info("补偿重放 outbound_request {} 结果 code={}", row.id(), result.code());
         } catch (BizException e) {
             log.warn("补偿重放 outbound_request {} 失败：{}", row.id(), e.getMessage());
@@ -195,7 +201,7 @@ public class OutboundEngine {
         return outboundRequestRepository.insert(new OutboundRequestRow(
                 0, iface.id(), iface.appId(), bizId,
                 body == null ? null : new String(body, java.nio.charset.StandardCharsets.UTF_8),
-                null, null, "INIT", 0,
+                null, null, "INIT", 1, // 首送即第 1 次尝试
                 iface.maxRetries() + 1, null, null, traceId, null, null));
     }
 

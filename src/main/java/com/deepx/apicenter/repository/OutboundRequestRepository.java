@@ -59,17 +59,34 @@ public class OutboundRequestRepository {
                 .stream().findFirst();
     }
 
-    /** 状态流转（含诊断字段与下次重试时间；传 null 表示不改） */
+    /** 按业务键查（测试断言 / 对账定位用） */
+    public List<OutboundRequestRow> findByBizId(String appId, String bizId) {
+        return jdbc.query("SELECT * FROM outbound_request WHERE app_id = ? AND biz_id = ? ORDER BY id DESC",
+                OutboundRequestRow.MAPPER, appId, bizId);
+    }
+
+    /** 测试 / 运维清理：按应用删除运行数据（含其死信） */
+    public int deleteByApp(String appId) {
+        jdbc.update("DELETE FROM dead_letter WHERE ref_id IN (SELECT id FROM outbound_request WHERE app_id = ?)", appId);
+        return jdbc.update("DELETE FROM outbound_request WHERE app_id = ?", appId);
+    }
+
+    /** 状态流转（含诊断字段与下次重试时间；传 null 表示不改）。attempt_count 由 incrementAttempt 显式维护 */
     public int updateState(long id, String status, String outPayload, String respPayload,
                            LocalDateTime nextRetryAt, String errorCode) {
         return jdbc.update("""
                 UPDATE outbound_request
                 SET status = ?, out_payload = COALESCE(?, out_payload), resp_payload = COALESCE(?, resp_payload),
-                    next_retry_at = ?, error_code = COALESCE(?, error_code), attempt_count = attempt_count + 1
+                    next_retry_at = ?, error_code = COALESCE(?, error_code)
                 WHERE id = ?
                 """, status, outPayload, respPayload,
                 nextRetryAt == null ? null : java.sql.Timestamp.valueOf(nextRetryAt),
                 errorCode, id);
+    }
+
+    /** 尝试次数 +1（补偿重放前调用；首送时 attempt_count=1） */
+    public int incrementAttempt(long id) {
+        return jdbc.update("UPDATE outbound_request SET attempt_count = attempt_count + 1 WHERE id = ?", id);
     }
 
     /** 补偿 worker 扫描：到期可重试的 COMPENSATING 记录（按 (status, next_retry_at) 索引） */
