@@ -47,7 +47,7 @@ public class UpstreamInvoker {
             throw new HttpServerErrorException(resp.getStatusCode(), "上游 5xx");
         }
         if (resp.getStatusCode().value() == 429) {
-            throw new TooManyRequests(resp.getStatusCode(), "上游 429 限流");
+            throw new TooManyRequests("上游 429 限流", resp.getHeaders(), new byte[0], null);
         }
         return resp; // 2xx 与 4xx 非 429 直接返回，由 OutboundEngine 分类
     }

@@ -82,7 +82,7 @@ public class JsonProtocolAdapter implements Adapter {
         }
         if (node.isObject()) {
             LinkedHashMap<String, UnifiedModel.UNode> fields = new LinkedHashMap<>();
-            node.fields().forEachRemaining(e -> fields.put(e.getKey(), toUnified(e.getValue())));
+            node.properties().forEach(e -> fields.put(e.getKey(), toUnified(e.getValue())));
             return new UnifiedModel.ObjectNode(fields, Map.of());
         }
         if (node.isArray()) {

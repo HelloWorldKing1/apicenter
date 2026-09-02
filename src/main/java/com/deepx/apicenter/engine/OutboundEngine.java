@@ -171,7 +171,7 @@ public class OutboundEngine {
         if (!envelope.success()) {
             // 业务失败：状态机 SUCCESS（传输层已获明确结果），业务码透传（C2）
             return ApiResult.error(parseCode(envelope.code(), 50201),
-                    envelope.msg() == null ? "上游业务失败" : envelope.msg(), null);
+                    envelope.msg() == null ? "上游业务失败" : envelope.msg());
         }
         return ApiResult.ok(dataNode);
     }
@@ -228,7 +228,7 @@ public class OutboundEngine {
         }
         if (node.isObject()) {
             java.util.LinkedHashMap<String, UnifiedModel.UNode> fields = new java.util.LinkedHashMap<>();
-            node.fields().forEachRemaining(e -> fields.put(e.getKey(), toUnified(e.getValue())));
+            node.properties().forEach(e -> fields.put(e.getKey(), toUnified(e.getValue())));
             return new UnifiedModel.ObjectNode(fields, java.util.Map.of());
         }
         if (node.isArray()) {

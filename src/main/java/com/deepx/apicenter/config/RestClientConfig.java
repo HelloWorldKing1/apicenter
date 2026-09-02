@@ -23,7 +23,6 @@ public class RestClientConfig {
     public ExchangeClient exchangeClient() {
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory();
         requestFactory.setReadTimeout(Duration.ofMillis(3000));
-        requestFactory.setConnectTimeout(Duration.ofMillis(3000));
         RestClient restClient = RestClient.builder()
                 .requestFactory(requestFactory)
                 .build();

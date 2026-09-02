@@ -93,7 +93,7 @@ public class EnvelopeMessageAdapter implements Adapter {
         }
         JsonNode node = params.get("codeMappings");
         if (node.isObject()) {
-            node.fields().forEachRemaining(e -> mappings.put(e.getKey(), e.getValue().asText()));
+            node.properties().forEach(e -> mappings.put(e.getKey(), e.getValue().asText()));
         } else if (node.isTextual()) {
             // 兼容逗号对格式：FROM→TO, FROM2→TO2
             for (String pair : node.asText().split(",")) {

@@ -89,7 +89,7 @@ public class ChainEngine {
             if (step == null) {
                 continue; // 无该阶段槽位（如 Flow A 入站鉴权 Noop 占位）
             }
-            step.execute(ctx);
+            ctx = step.execute(ctx);
         }
         return ctx;
     }
@@ -227,10 +227,10 @@ public class ChainEngine {
 
     // ---------- 内部类型 ----------
 
-    /** 链步骤：适配器实例或固定步骤 */
+    /** 链步骤：适配器实例或固定步骤（统一返回上下文，适配器可替换 payload 等可变载体） */
     @FunctionalInterface
     private interface ChainStep {
-        void execute(AdapterContext ctx);
+        AdapterContext execute(AdapterContext ctx);
     }
 
     private record Chain(Map<ChainPhase, ChainStep> steps) {
