@@ -15,6 +15,7 @@ import com.deepx.apicenter.exception.BizException;
 import com.deepx.apicenter.model.InterfaceRow;
 import com.deepx.apicenter.repository.AppRepository;
 import com.deepx.apicenter.repository.CredentialRepository;
+import com.deepx.apicenter.repository.InterfaceRepository;
 import com.deepx.apicenter.service.AppService;
 import com.deepx.apicenter.service.CredentialService;
 import com.deepx.apicenter.service.GroupService;
@@ -56,11 +57,15 @@ class M1IntegrationTest {
     private CredentialRepository credentialRepository;
     @Autowired
     private AppRepository appRepository;
+    @Autowired
+    private InterfaceRepository interfaceRepository;
 
-    /** 清理本测试类产生的数据（seed 的 fastmoss 数据不动） */
+    /** 清理本测试类产生的数据（接口及子表 + 应用；seed 的 fastmoss 数据不动） */
     @AfterEach
     void cleanup() {
         if (appRepository.existsById(TEST_APP)) {
+            jdbcTemplate.queryForList("SELECT id FROM interface WHERE app_id = ?", Long.class, TEST_APP)
+                    .forEach(interfaceRepository::deleteCascade);
             appRepository.deleteCascade(TEST_APP);
         }
     }

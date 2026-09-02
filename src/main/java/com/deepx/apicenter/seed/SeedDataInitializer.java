@@ -11,6 +11,7 @@ import com.deepx.apicenter.dto.InterfaceDtos.ParamDto;
 import com.deepx.apicenter.model.AdapterRow;
 import com.deepx.apicenter.repository.AdapterRepository;
 import com.deepx.apicenter.repository.AppRepository;
+import com.deepx.apicenter.repository.InterfaceRepository;
 import com.deepx.apicenter.service.AppService;
 import com.deepx.apicenter.service.CredentialService;
 import com.deepx.apicenter.service.GroupService;
@@ -55,6 +56,8 @@ public class SeedDataInitializer implements ApplicationRunner {
     private final CredentialService credentialService;
     private final GroupService groupService;
     private final InterfaceService interfaceService;
+    private final InterfaceRepository interfaceRepository;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     public SeedDataInitializer(@Value("${app.api-center.seed.enabled:true}") boolean seedEnabled,
                                AppRepository appRepository,
@@ -62,7 +65,9 @@ public class SeedDataInitializer implements ApplicationRunner {
                                AppService appService,
                                CredentialService credentialService,
                                GroupService groupService,
-                               InterfaceService interfaceService) {
+                               InterfaceService interfaceService,
+                               InterfaceRepository interfaceRepository,
+                               org.springframework.jdbc.core.JdbcTemplate jdbcTemplate) {
         this.seedEnabled = seedEnabled;
         this.appRepository = appRepository;
         this.adapterRepository = adapterRepository;
@@ -70,6 +75,8 @@ public class SeedDataInitializer implements ApplicationRunner {
         this.credentialService = credentialService;
         this.groupService = groupService;
         this.interfaceService = interfaceService;
+        this.interfaceRepository = interfaceRepository;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @Override
@@ -78,9 +85,14 @@ public class SeedDataInitializer implements ApplicationRunner {
             log.info("种子导入已关闭（app.api-center.seed.enabled=false）");
             return;
         }
-        if (appRepository.existsById("fastmoss")) {
-            log.info("fastmoss 种子已存在，跳过导入（幂等）");
+        if (seedIntact()) {
+            log.info("fastmoss 种子完整，跳过导入（幂等）");
             return;
+        }
+        if (appRepository.existsById("fastmoss")) {
+            // 存在但不完整（如外部导入只含主表、参数子表缺失）→ 清理后重建
+            log.warn("fastmoss 种子数据不完整，清理后重建");
+            cleanFastmossSeed();
         }
         log.info("开始导入 fastmoss 黄金用例种子…");
         seedAdapters();
@@ -89,6 +101,30 @@ public class SeedDataInitializer implements ApplicationRunner {
         long groupId = seedGroup();
         seedInterface(groupId);
         log.info("fastmoss 黄金用例种子导入完成");
+    }
+
+    /**
+     * 种子完整性校验：应用 + 凭证 + 接口主表 + 参数子表（黄金用例 8 条参数）。
+     * 存在但缺参数/接口 → 视为不完整，走清理重建（seed 只管理 fastmoss 自身数据）。
+     */
+    private boolean seedIntact() {
+        if (!appRepository.existsById("fastmoss")) {
+            return false;
+        }
+        if (credentialService.listViews("fastmoss").stream()
+                .noneMatch(v -> "OUTBOUND".equals(v.kind()) && "ACTIVE".equals(v.status()))) {
+            return false;
+        }
+        return interfaceService.list("fastmoss", null).stream()
+                .filter(i -> "IF-FM-001".equals(i.code()))
+                .anyMatch(i -> i.params().size() == 8);
+    }
+
+    /** 仅清理 fastmoss 种子数据（接口及 6 子表、分组、凭证、应用），不触碰其他配置 */
+    private void cleanFastmossSeed() {
+        jdbcTemplate.queryForList("SELECT id FROM interface WHERE app_id = ?", Long.class, "fastmoss")
+                .forEach(interfaceRepository::deleteCascade);
+        appRepository.deleteCascade("fastmoss");
     }
 
     // ---------- 各实体种子（走业务 service 保证校验一致） ----------
