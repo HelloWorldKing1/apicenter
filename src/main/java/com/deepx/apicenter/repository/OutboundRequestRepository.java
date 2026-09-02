@@ -1,0 +1,91 @@
+package com.deepx.apicenter.repository;
+
+import com.deepx.apicenter.model.OutboundRequestRow;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
+import org.springframework.stereotype.Repository;
+
+import java.sql.PreparedStatement;
+import java.sql.Statement;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * outbound_request 运行表数据访问（Flow A 状态机载体）+ 死信写入（dead_letter 表）。
+ * 补偿 worker 按 (status, next_retry_at) 扫描（设计 §6.3 / 技术架构 §2.3 表驱动状态机）。
+ */
+@Repository
+public class OutboundRequestRepository {
+
+    private final JdbcTemplate jdbc;
+
+    public OutboundRequestRepository(JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
+    }
+
+    /** 创建出站请求记录（status=INIT）并返回自增主键 */
+    public long insert(OutboundRequestRow row) {
+        KeyHolder kh = new GeneratedKeyHolder();
+        jdbc.update(con -> {
+            PreparedStatement ps = con.prepareStatement("""
+                    INSERT INTO outbound_request (interface_id, app_id, biz_id, in_payload, out_payload,
+                                                  resp_payload, status, attempt_count, max_attempts,
+                                                  next_retry_at, error_code, trace_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, Statement.RETURN_GENERATED_KEYS);
+            ps.setLong(1, row.interfaceId());
+            ps.setString(2, row.appId());
+            ps.setString(3, row.bizId());
+            ps.setString(4, row.inPayload());
+            ps.setString(5, row.outPayload());
+            ps.setString(6, row.respPayload());
+            ps.setString(7, row.status());
+            ps.setInt(8, row.attemptCount());
+            ps.setInt(9, row.maxAttempts());
+            ps.setTimestamp(10, row.nextRetryAt() == null ? null
+                    : java.sql.Timestamp.valueOf(row.nextRetryAt()));
+            ps.setString(11, row.errorCode());
+            ps.setString(12, row.traceId());
+            return ps;
+        }, kh);
+        Number key = kh.getKey();
+        return key == null ? -1 : key.longValue();
+    }
+
+    public Optional<OutboundRequestRow> findById(long id) {
+        return jdbc.query("SELECT * FROM outbound_request WHERE id = ?", OutboundRequestRow.MAPPER, id)
+                .stream().findFirst();
+    }
+
+    /** 状态流转（含诊断字段与下次重试时间；传 null 表示不改） */
+    public int updateState(long id, String status, String outPayload, String respPayload,
+                           LocalDateTime nextRetryAt, String errorCode) {
+        return jdbc.update("""
+                UPDATE outbound_request
+                SET status = ?, out_payload = COALESCE(?, out_payload), resp_payload = COALESCE(?, resp_payload),
+                    next_retry_at = ?, error_code = COALESCE(?, error_code), attempt_count = attempt_count + 1
+                WHERE id = ?
+                """, status, outPayload, respPayload,
+                nextRetryAt == null ? null : java.sql.Timestamp.valueOf(nextRetryAt),
+                errorCode, id);
+    }
+
+    /** 补偿 worker 扫描：到期可重试的 COMPENSATING 记录（按 (status, next_retry_at) 索引） */
+    public List<OutboundRequestRow> findDueCompensating(LocalDateTime now) {
+        return jdbc.query("""
+                SELECT * FROM outbound_request
+                WHERE status = 'COMPENSATING' AND (next_retry_at IS NULL OR next_retry_at <= ?)
+                ORDER BY next_retry_at LIMIT 100
+                """, OutboundRequestRow.MAPPER, java.sql.Timestamp.valueOf(now));
+    }
+
+    /** 死信落库（设计 §6.1：4xx / 重试耗尽 / 补偿耗尽） */
+    public void insertDeadLetter(String bizType, long refId, String reason, String payload) {
+        jdbc.update("""
+                INSERT INTO dead_letter (biz_type, ref_id, reason, payload, status)
+                VALUES (?, ?, ?, ?, 'PENDING')
+                """, bizType, refId, reason, payload);
+    }
+}

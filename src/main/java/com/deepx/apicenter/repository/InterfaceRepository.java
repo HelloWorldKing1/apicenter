@@ -54,6 +54,11 @@ public class InterfaceRepository {
         return jdbc.query(SELECT_SQL + " WHERE i.id = ?", InterfaceRow.MAPPER, id).stream().findFirst();
     }
 
+    /** 平台侧路径路由（执行面 M2 接入层用） */
+    public Optional<InterfaceRow> findByPath(String path) {
+        return jdbc.query(SELECT_SQL + " WHERE i.path = ?", InterfaceRow.MAPPER, path).stream().findFirst();
+    }
+
     public boolean existsByCode(String code) {
         Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM interface WHERE code = ?", Integer.class, code);
         return n != null && n > 0;
