@@ -1,15 +1,16 @@
 -- ============================================================
 -- API 中心（现行设计）· 建表脚本
 -- 依据《表结构设计.html》生成，共 16 张表：配置类 11 + 运行类 5
--- 目标库：MySQL 8.0 InnoDB，字符集 utf8mb4
+-- 目标库：MySQL 5.7 / 8.0 InnoDB（双兼容），字符集 utf8mb4
 -- 注意：与 doc_old/schema.sql（旧版 ERP demo 9 表）不是同一套，勿混用
 -- 不使用数据库外键约束：引用完整性由应用层保证，引用列均建索引（见各表）
 -- ============================================================
 
 -- 建库（首次部署执行；库名 / 排序规则可按部署环境调整）
+-- collation 用 general_ci：MySQL 5.7 / 8.0 双兼容（0900_ai_ci 为 8.0 专属，5.7 会报错）
 CREATE DATABASE IF NOT EXISTS apicenter
     DEFAULT CHARACTER SET utf8mb4
-    DEFAULT COLLATE utf8mb4_0900_ai_ci;
+    DEFAULT COLLATE utf8mb4_general_ci;
 
 USE apicenter;
 

@@ -2,12 +2,12 @@ spring:
   application:
     name: apicenter
   datasource:
-    # API 中心 · MySQL（PolarDB）。建库脚本：doc/schema.sql（15 张表，已执行）
+    # API 中心 · MySQL（PolarDB，MySQL 5.7/8.0 双兼容）。建库脚本：doc/schema.sql（16 张表，已双兼容）
     # 安全建议：提交前将密码改为环境变量占位，如 password: ${APICENTER_DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://pritechdb123.mysql.polardb.rds.aliyuncs.com:3306/apicenter?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&autoReconnect=true&failOverReadOnly=false
-    username: pritechroot
-    password: Pritech123!
+    url: jdbc:mysql://alicloud.mysql.polardb.rds.aliyuncs.com:3306/apicenter?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&autoReconnect=true&failOverReadOnly=false
+    username: rootuser
+    password: "mysql1qaz!QAZ"
 
 server:
   port: 8080

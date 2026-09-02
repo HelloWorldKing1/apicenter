@@ -261,12 +261,13 @@ class M1IntegrationTest {
 
         // 用旧 version（1）提交 → 冲突（更新成功版本已自增为 2 后再用 1 提交应失败）
         InterfaceResponse fresh = interfaceService.detail(id);
+        InterfaceRequest base = baseOutboundReq(groupId); // 子表用请求 DTO 类型（与响应 model 类型不同）
         InterfaceRequest staleReq = new InterfaceRequest(
                 fresh.code(), "改名字", fresh.ifType(), fresh.method(), fresh.path(),
                 fresh.protocolIn(), fresh.protocolOut(), fresh.appId(), fresh.groupId(),
                 fresh.upstreamPath(), fresh.callbackUrl(), null,
                 fresh.timeoutMs(), fresh.maxRetries(), null, 1, // 旧 version
-                fresh.params(), fresh.bodies(), fresh.mappings(), fresh.fieldDefs(), fresh.bindings());
+                base.params(), base.bodies(), base.mappings(), base.fieldDefs(), base.bindings());
         interfaceService.update(id, staleReq); // 第一次用当前 version 成功
         assertThatThrownBy(() -> interfaceService.update(id, staleReq))
                 .isInstanceOf(BizException.class)

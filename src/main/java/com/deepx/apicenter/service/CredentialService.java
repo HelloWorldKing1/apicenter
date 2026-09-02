@@ -111,7 +111,7 @@ public class CredentialService {
                 credentialRepository.updateStatus(old.id(), "ROTATING", null,
                         LocalDateTime.now().plusHours(24)));
         credentialRepository.insert(new CredentialRow(0, appId, req.kind(),
-                cryptoService.encrypt(req.credential()), "ACTIVE", null, null, null));
+                cryptoService.encrypt(req.credential()), "ACTIVE", null, null, null, null));
     }
 
     /**
@@ -123,7 +123,7 @@ public class CredentialService {
         validateKind(req.kind());
         credentialRepository.retireAll(appId, req.kind());
         credentialRepository.insert(new CredentialRow(0, appId, req.kind(),
-                cryptoService.encrypt(req.credential()), "ACTIVE", null, null, null));
+                cryptoService.encrypt(req.credential()), "ACTIVE", null, null, null, null));
     }
 
     /**
