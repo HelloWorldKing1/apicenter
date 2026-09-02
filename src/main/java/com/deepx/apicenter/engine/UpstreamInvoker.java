@@ -61,17 +61,19 @@ public class UpstreamInvoker {
     /** 通用出站调度：URL / 方法 / Header / Body 全参数化（M0-03 C1 契约语义） */
     private ResponseEntity<byte[]> dispatch(OutboundRequestSpec spec) {
         String method = spec.method() == null ? "POST" : spec.method().toUpperCase();
+        java.util.function.Consumer<org.springframework.http.HttpHeaders> headerSetter =
+                h -> spec.headers().forEach(h::addAll);
         // GET / DELETE 不带 body（RestClient 对 GET 带 body 的兼容性保守处理）
         if ("GET".equals(method) || "DELETE".equals(method)) {
             return restClient.method(HttpMethod.valueOf(method))
                     .uri(URI.create(spec.url()))
-                    .headers(h -> h.addAll(spec.headers()))
+                    .headers(headerSetter)
                     .retrieve()
                     .toEntity(byte[].class);
         }
         return restClient.method(HttpMethod.valueOf(method))
                 .uri(URI.create(spec.url()))
-                .headers(h -> h.addAll(spec.headers()))
+                .headers(headerSetter)
                 .body(spec.body())
                 .retrieve()
                 .toEntity(byte[].class);
