@@ -20,12 +20,12 @@ public interface ExchangeClient {
     @HttpExchange(method = "POST", url = "{url}", contentType = "application/octet-stream")
     ResponseEntity<byte[]> post(@PathVariable("url") String url,
                                 @RequestHeader("headers") Map<String, String> headers,
-                                @RequestBody("body") byte[] body);
+                                @RequestBody byte[] body);
 
     @HttpExchange(method = "PUT", url = "{url}", contentType = "application/octet-stream")
     ResponseEntity<byte[]> put(@PathVariable("url") String url,
                                @RequestHeader("headers") Map<String, String> headers,
-                               @RequestBody("body") byte[] body);
+                               @RequestBody byte[] body);
 
     @HttpExchange(method = "GET", url = "{url}", contentType = "application/octet-stream")
     ResponseEntity<byte[]> get(@PathVariable("url") String url,
