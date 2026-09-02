@@ -328,8 +328,11 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRoute } from 'vue-router'
 import http from '@/api/http'
 import ParamTable from '@/components/ParamTable.vue'
+
+const route = useRoute()
 
 const BODY_TYPES = ['none', 'form-data', 'x-www-form-urlencoded', 'json', 'xml']
 /** raw 编辑器占位示例（属性内嵌多行字符串含双引号会破坏模板解析，提为常量） */
@@ -363,7 +366,14 @@ async function load() {
     loading.value = false
   }
 }
-onMounted(load)
+onMounted(async () => {
+  await load()
+  // 从分组管理「分组详情 → 点击接口」跳转而来，自动打开接口详情
+  const id = Number(route.query.id)
+  if (id) {
+    openDetail({ id })
+  }
+})
 
 // ---------- 表单 ----------
 const dialog = reactive({ visible: false, isEdit: false, editId: 0 })
