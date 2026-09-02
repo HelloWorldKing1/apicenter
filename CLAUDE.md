@@ -19,7 +19,7 @@
 | M0 契约设计 | **已评审通过 v1.0（2026-09-02）**：`doc/开发文档/` M0-01/02/03（9 个确认点全部通过） |
 | 旧 demo 代码 | 已删除（commit `ad55cea`），git 历史可查 |
 | 数据库 | MySQL PolarDB 已按新 schema 建库（连接信息见 application.yaml） |
-| 工程代码 | 仅骨架（入口类 + 冒烟测试），M1 起落地 |
+| 工程代码 | **M1 已落地**：管理面后端（应用 / 分组 / 接口 / 适配器 / 凭证）+ Vue3 前端（`frontend/`），待编译验证与联调 |
 | 未拍板决策 | 无（M0 全部评审通过，2026-09-02） |
 
 ## 设计文档（现行）
@@ -67,11 +67,16 @@ Java 21 · Spring Boot 4.1（parent `spring-boot-starter-parent:4.1.0`）· Spri
 
 ```bash
 mvn spring-boot:run   # 启动后端 :8080（连接 application.yaml 配置的 MySQL/PolarDB；库已按 doc/schema.sql 建好）
-mvn test              # 跑测试（当前仅 1 个 contextLoads 冒烟测试）
+mvn test              # 跑测试（CryptoServiceTest 纯单测 + M1IntegrationTest 集成，后者连开发 PolarDB）
 mvn package           # 打可执行 jar
+
+cd frontend
+npm install           # 首次安装前端依赖（Node 22）
+npm run dev           # 前端 dev server :5173（/api 代理到 8080）
+npm run build         # 构建产物输出到 src/main/resources/static/（后端直接 serve）
 ```
 
-运行后可访问：`/actuator/health` 等（管理面前端 M1 落地）。
+运行后可访问：管理面 `http://localhost:5173`（dev）/ `http://localhost:8080`（build 产物）；`/actuator/health` 健康检查。启动时 SeedDataInitializer 幂等导入 fastmoss 黄金用例种子（`app.api-center.seed.enabled` 可关）。
 
 ## 架构与源码结构
 
@@ -91,6 +96,8 @@ mvn package           # 打可执行 jar
 | `config/` | 配置与 Bean 装配 | M1 |
 
 入口：`ApicenterApplication.java`（`@SpringBootApplication` + `@EnableScheduling` + `@EnableResilientMethods`，后者启用 Spring 7 `@Retryable`）。
+
+前端 `frontend/`（Vue3 + Vite + Element Plus，M1 设计 §4）：`src/views/` 六页面（Dashboard / Apps / Groups / Interfaces / Adapters / Monitor）+ `components/ParamTable` 参数编辑 + `api/http.js` 统一信封解包；原型交互平移自 `doc/API中心原型.html`。管理面 REST 前缀 `/api/admin`（controller/admin 五个 Controller），统一信封 `{code, msg, data}`。
 
 ## 核心状态机与容错（设计 §6）
 

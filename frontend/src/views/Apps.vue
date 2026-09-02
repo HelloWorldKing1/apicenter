@@ -1,0 +1,253 @@
+<template>
+  <div>
+    <el-card shadow="never">
+      <div class="toolbar">
+        <el-input v-model="keyword" placeholder="按名称 / 标识搜索" clearable style="width: 240px" @input="load" />
+        <el-button type="primary" @click="openCreate">＋ 新建应用</el-button>
+      </div>
+
+      <el-table :data="apps" v-loading="loading" @row-click="openDetail">
+        <el-table-column prop="appId" label="应用标识" width="180" />
+        <el-table-column prop="name" label="应用名称" width="160" />
+        <el-table-column label="状态" width="90">
+          <template #default="{ row }">
+            <el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="baseUrl" label="服务地址" show-overflow-tooltip />
+        <el-table-column label="分组 / 接口" width="110">
+          <template #default="{ row }">{{ row.groupCount }} / {{ row.ifaceCount }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="200">
+          <template #default="{ row }">
+            <el-button link type="primary" @click.stop="openEdit(row)">编辑</el-button>
+            <el-button link type="success" v-if="['DRAFT','DISABLED'].includes(row.status)"
+                       @click.stop="doAction(row, 'enable')">启用</el-button>
+            <el-button link type="warning" v-if="row.status === 'ENABLED'"
+                       @click.stop="doAction(row, 'disable')">停用</el-button>
+            <el-button link type="info" v-if="row.status === 'DISABLED'"
+                       @click.stop="doAction(row, 'cancel')">注销</el-button>
+            <el-button link type="danger" @click.stop="remove(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <!-- 新建 / 编辑弹窗(原型应用弹窗平移) -->
+    <el-dialog v-model="dialog.visible" :title="dialog.isEdit ? '编辑应用' : '新建应用'" width="640px">
+      <el-form :model="form" label-width="130px">
+        <el-form-item label="应用标识" required>
+          <el-input v-model="form.appId" :disabled="dialog.isEdit" placeholder="全局唯一,如 TENCENT-CLOUD" />
+        </el-form-item>
+        <el-form-item label="应用名称" required>
+          <el-input v-model="form.name" placeholder="供应商名称,如 FastMoss" />
+        </el-form-item>
+        <el-form-item label="服务地址 base-url">
+          <el-input v-model="form.baseUrl" placeholder="供应商 API 根地址,如 https://openapi.fastmoss.com" />
+        </el-form-item>
+        <el-form-item label="供应商签名适配器">
+          <el-select v-model="form.authAdapterId" clearable placeholder="出站鉴权(应用级默认,接口可覆盖)">
+            <el-option v-for="a in authAdapters" :key="a.id" :label="`${a.name}（${a.impl}）`" :value="a.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="回调验签适配器">
+          <el-select v-model="form.callbackAuthAdapterId" clearable placeholder="仅入站回调接口生效">
+            <el-option v-for="a in authAdapters" :key="a.id" :label="`${a.name}（${a.impl}）`" :value="a.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="默认报文适配器">
+          <el-select v-model="form.defaultMessageAdapterId" clearable placeholder="默认直通(Noop)">
+            <el-option v-for="a in messageAdapters" :key="a.id" :label="`${a.name}（${a.impl}）`" :value="a.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="联系人"><el-input v-model="form.contact" /></el-form-item>
+        <el-form-item label="QPS 限流">
+          <el-input-number v-model="form.qpsLimit" :min="0" placeholder="空/0 = 不限" />
+        </el-form-item>
+        <el-form-item label="日调用量上限">
+          <el-input-number v-model="form.dailyQuota" :min="0" placeholder="空/0 = 不限" />
+        </el-form-item>
+        <el-form-item label="IP 白名单">
+          <el-input v-model="form.ipWhitelist" type="textarea" :rows="2" placeholder="英文逗号分隔,空 = 不限制" />
+        </el-form-item>
+        <el-form-item label="IP 黑名单">
+          <el-input v-model="form.ipBlacklist" type="textarea" :rows="2" placeholder="英文逗号分隔,空 = 不限制" />
+        </el-form-item>
+        <el-form-item label="描述"><el-input v-model="form.desc" type="textarea" :rows="2" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dialog.visible = false">取消</el-button>
+        <el-button type="primary" @click="save">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 详情抽屉(含凭证遮显 + 轮换操作) -->
+    <el-drawer v-model="detail.visible" :title="`应用详情 · ${detail.row.appId || ''}`" size="560px">
+      <el-descriptions :column="2" border v-if="detail.row.appId">
+        <el-descriptions-item label="名称">{{ detail.row.name }}</el-descriptions-item>
+        <el-descriptions-item label="状态">
+          <el-tag :type="statusType(detail.row.status)">{{ statusText(detail.row.status) }}</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="服务地址" :span="2">{{ detail.row.baseUrl || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="QPS 限流">{{ detail.row.qpsLimit || '不限' }}</el-descriptions-item>
+        <el-descriptions-item label="日配额">{{ detail.row.dailyQuota || '不限' }}</el-descriptions-item>
+        <el-descriptions-item label="IP 白名单" :span="2">{{ detail.row.ipWhitelist || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="IP 黑名单" :span="2">{{ detail.row.ipBlacklist || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="创建时间">{{ detail.row.createdAt?.replace('T', ' ').slice(0, 19) || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="描述" :span="2">{{ detail.row.desc || '—' }}</el-descriptions-item>
+      </el-descriptions>
+
+      <h4>凭证（遮显，永不回显明文）</h4>
+      <el-table :data="detail.credentials" size="small">
+        <el-table-column prop="kind" label="类型" width="110">
+          <template #default="{ row }">{{ row.kind === 'OUTBOUND' ? '出站签名' : '回调验签' }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.status === 'ACTIVE' ? 'success' : row.status === 'ROTATING' ? 'warning' : 'info'">
+              {{ row.status }}{{ row.expired ? '·已过期' : '' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="指纹" width="90">
+          <template #default="{ row }">****{{ row.fingerprint }}</template>
+        </el-table-column>
+        <el-table-column label="操作">
+          <template #default="{ row }">
+            <el-button v-if="row.status === 'ROTATING'" link type="primary" @click="activate(row)">激活</el-button>
+            <el-button v-if="row.status === 'ROTATING'" link type="success" @click="finishRotation(row)">完成轮换</el-button>
+            <el-button link type="danger" @click="retire(row)">失效</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="cred-actions">
+        <el-button size="small" @click="updateCred">更新凭证（供应商已换密钥）</el-button>
+        <el-button size="small" @click="resetCred">重置（应急换新）</el-button>
+      </div>
+    </el-drawer>
+  </div>
+</template>
+
+<script setup>
+import { onMounted, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import http from '@/api/http'
+
+// ---------- 列表 ----------
+const apps = ref([])
+const loading = ref(false)
+const keyword = ref('')
+const authAdapters = ref([])
+const messageAdapters = ref([])
+
+async function load() {
+  loading.value = true
+  try {
+    apps.value = await http.get('/apps', { params: { keyword: keyword.value || undefined } })
+    const all = await http.get('/adapters')
+    authAdapters.value = all.filter(a => a.type === 'auth' && a.enabled)
+    messageAdapters.value = all.filter(a => a.type === 'message' && a.enabled)
+  } finally {
+    loading.value = false
+  }
+}
+onMounted(load)
+
+// ---------- 新建 / 编辑 ----------
+const dialog = reactive({ visible: false, isEdit: false, editingAppId: '' })
+const emptyForm = () => ({
+  appId: '', name: '', contact: '', authAdapterId: null, callbackAuthAdapterId: null,
+  defaultMessageAdapterId: null, baseUrl: '', ipWhitelist: '', ipBlacklist: '',
+  qpsLimit: null, dailyQuota: null, desc: ''
+})
+const form = reactive(emptyForm())
+
+function openCreate() {
+  Object.assign(form, emptyForm())
+  dialog.isEdit = false
+  dialog.visible = true
+}
+function openEdit(row) {
+  Object.assign(form, emptyForm(), {
+    appId: row.appId, name: row.name, contact: row.contact,
+    authAdapterId: row.authAdapterId, callbackAuthAdapterId: row.callbackAuthAdapterId,
+    defaultMessageAdapterId: row.defaultMessageAdapterId, baseUrl: row.baseUrl,
+    ipWhitelist: row.ipWhitelist, ipBlacklist: row.ipBlacklist,
+    qpsLimit: row.qpsLimit, dailyQuota: row.dailyQuota, desc: row.desc
+  })
+  dialog.isEdit = true
+  dialog.visible = true
+}
+async function save() {
+  if (dialog.isEdit) {
+    await http.put(`/apps/${form.appId}`, { ...form })
+  } else {
+    await http.post('/apps', { ...form })
+  }
+  ElMessage.success('保存成功')
+  dialog.visible = false
+  load()
+}
+
+// ---------- 生命周期 ----------
+async function doAction(row, action) {
+  await http.post(`/apps/${row.appId}/${action}`)
+  ElMessage.success('操作成功')
+  load()
+}
+async function remove(row) {
+  await ElMessageBox.confirm(`删除应用 ${row.name}？其分组与凭证将级联删除`, '确认', { type: 'warning' })
+  await http.delete(`/apps/${row.appId}`)
+  ElMessage.success('已删除')
+  load()
+}
+
+// ---------- 详情与凭证 ----------
+const detail = reactive({ visible: false, row: {}, credentials: [] })
+async function openDetail(row) {
+  detail.visible = true
+  detail.row = row
+  const full = await http.get(`/apps/${row.appId}`)
+  detail.row = full
+  detail.credentials = full.credentials || []
+}
+async function activate(cred) {
+  await http.post(`/apps/${detail.row.appId}/credentials/${cred.id}/activate`)
+  ElMessage.success('已激活，旧凭证并存 24h')
+  openDetail(detail.row)
+}
+async function finishRotation(cred) {
+  await http.post(`/apps/${detail.row.appId}/credentials/${cred.id}/finish-rotation`)
+  ElMessage.success('轮换完成')
+  openDetail(detail.row)
+}
+async function retire(cred) {
+  await ElMessageBox.confirm('失效后立即不可用，确认？', '确认', { type: 'warning' })
+  const warning = await http.post(`/apps/${detail.row.appId}/credentials/${cred.id}/retire`)
+  if (warning) ElMessage.warning(warning)
+  else ElMessage.success('已失效')
+  openDetail(detail.row)
+}
+async function updateCred() {
+  const { value } = await ElMessageBox.prompt('输入供应商提供的新凭证内容', '更新凭证', { inputType: 'textarea' })
+  await http.post(`/apps/${detail.row.appId}/credentials/update`, { kind: 'OUTBOUND', credential: value })
+  ElMessage.success('已更新，旧凭证并存 24h')
+  openDetail(detail.row)
+}
+async function resetCred() {
+  const { value } = await ElMessageBox.prompt('输入新凭证内容（旧凭证将全部立即失效）', '重置凭证', { inputType: 'textarea' })
+  await http.post(`/apps/${detail.row.appId}/credentials/reset`, { kind: 'OUTBOUND', credential: value })
+  ElMessage.success('已重置')
+  openDetail(detail.row)
+}
+
+// ---------- 展示辅助 ----------
+const statusText = (s) => ({ DRAFT: '草稿', ENABLED: '启用', DISABLED: '停用', CANCELLED: '注销' }[s] || s)
+const statusType = (s) => ({ DRAFT: 'info', ENABLED: 'success', DISABLED: 'warning', CANCELLED: 'info' }[s] || 'info')
+</script>
+
+<style scoped>
+.toolbar { display: flex; justify-content: space-between; margin-bottom: 14px; }
+.cred-actions { margin-top: 14px; display: flex; gap: 8px; }
+h4 { margin: 20px 0 10px; color: #303133; }
+</style>
