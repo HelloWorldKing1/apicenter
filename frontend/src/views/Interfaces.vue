@@ -20,7 +20,11 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="method" label="方法" width="70" />
+        <el-table-column label="方法" width="90">
+          <template #default="{ row }">
+            <span class="method-text" :class="`method-${row.method}`">{{ row.method }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="path" label="平台侧路径" show-overflow-tooltip />
         <el-table-column label="协议" width="110">
           <template #default="{ row }">{{ row.protocolIn }}→{{ row.protocolOut }}</template>
@@ -38,265 +42,247 @@
             <el-button link @click.stop="openDetail(row)">详情</el-button>
             <el-button link type="primary" @click.stop="openEdit(row)">编辑</el-button>
             <el-button link type="success" v-if="['DRAFT','OFFLINE'].includes(row.status)"
-                       @click="act(row, 'publish')">发布</el-button>
-            <el-button link type="info" v-if="row.status === 'PUBLISHED'" @click="act(row, 'offline')">下线</el-button>
-            <el-button link type="danger" @click="remove(row)">删除</el-button>
+                       @click.stop="act(row, 'publish')">发布</el-button>
+            <el-button link type="info" v-if="row.status === 'PUBLISHED'" @click.stop="act(row, 'offline')">下线</el-button>
+            <el-button link type="danger" @click.stop="remove(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
 
-    <!-- 新建 / 编辑大弹窗（原型接口弹窗平移，类型联动） -->
+    <!-- ============ 新建 / 编辑弹窗（Postman 风格，参考原型 §接口弹窗） ============ -->
     <el-dialog v-model="dialog.visible" :title="dialog.isEdit ? `编辑接口 · ${form.code}` : '新建接口'"
-               width="900px" top="4vh" :close-on-click-modal="false">
-      <el-form :model="form" label-width="110px">
-        <el-row :gutter="12">
-          <el-col :span="8">
-            <el-form-item label="接口标识" required><el-input v-model="form.code" :disabled="dialog.isEdit" /></el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="接口名称" required><el-input v-model="form.name" /></el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="接口类型" required>
-              <el-radio-group v-model="form.ifType" @change="onTypeChange">
-                <el-radio-button value="OUTBOUND">出站中转</el-radio-button>
-                <el-radio-button value="INBOUND">入站回调</el-radio-button>
-              </el-radio-group>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="12">
-          <el-col :span="8">
-            <el-form-item label="HTTP 方法" required>
-              <el-select v-model="form.method" style="width: 100%">
-                <el-option v-for="m in ['POST','GET','PUT','DELETE']" :key="m" :label="m" :value="m" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="平台侧路径" required><el-input v-model="form.path" placeholder="/api/xxx" /></el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item :label="form.ifType === 'OUTBOUND' ? '上游路径' : '回调地址'" required>
-              <el-input v-model="targetField"
-                        :placeholder="form.ifType === 'OUTBOUND' ? '拼 app.base_url，如 /shop/v1/creatorList' : '送达目标 URL（必填）'" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="12">
-          <el-col :span="8">
-            <el-form-item label="入站协议">
+               width="960px" top="3vh" :close-on-click-modal="false" class="iface-dialog">
+      <!-- 请求地址栏（签名元素：方法 + 平台路径 → 上游目标） -->
+      <div class="request-bar">
+        <el-select v-model="form.method" class="method-select" :class="`method-${form.method}`" size="large">
+          <el-option v-for="m in ['POST','GET','PUT','DELETE']" :key="m" :label="m" :value="m" />
+        </el-select>
+        <el-input v-model="form.path" class="path-input" placeholder="平台侧路径，如 /api/orders" />
+        <span class="arrow">→</span>
+        <el-input v-model="targetField" class="target-input"
+                  :placeholder="form.ifType === 'OUTBOUND' ? '上游路径（拼应用服务地址），如 /shop/v1/creatorList' : '回调地址（送达目标 URL，必填）'" />
+      </div>
+
+      <!-- 基础信息（紧凑一行） -->
+      <div class="basic-grid">
+        <div class="basic-item">
+          <span class="basic-label">接口名称</span>
+          <el-input v-model="form.name" placeholder="如：FastMoss 达人列表" />
+        </div>
+        <div class="basic-item">
+          <span class="basic-label">标识</span>
+          <el-input v-model="form.code" :disabled="dialog.isEdit" placeholder="IF-FM-001" />
+        </div>
+        <div class="basic-item">
+          <span class="basic-label">类型</span>
+          <el-radio-group v-model="form.ifType" @change="onTypeChange">
+            <el-radio-button value="OUTBOUND">出站中转</el-radio-button>
+            <el-radio-button value="INBOUND">入站回调</el-radio-button>
+          </el-radio-group>
+        </div>
+        <div class="basic-item">
+          <span class="basic-label">应用</span>
+          <el-select v-model="form.appId" placeholder="选择应用" @change="onAppChange" style="width: 100%">
+            <el-option v-for="a in apps" :key="a.appId" :label="`${a.name}（${a.appId}）`" :value="a.appId" />
+          </el-select>
+        </div>
+        <div class="basic-item">
+          <span class="basic-label">分组</span>
+          <el-select v-model="form.groupId" placeholder="先选应用" style="width: 100%">
+            <el-option v-for="g in groupOptions" :key="g.id" :label="g.name" :value="g.id" />
+          </el-select>
+        </div>
+        <div class="basic-item">
+          <span class="basic-label">描述</span>
+          <el-input v-model="form.desc" placeholder="可选" />
+        </div>
+      </div>
+
+      <!-- 主分区（Postman 式 tab） -->
+      <el-tabs v-model="mainTab" class="main-tabs">
+        <!-- ===== Tab 1 请求参数（入站 / 出站，每侧 Params / Body 双子 tab，照原型） ===== -->
+        <el-tab-pane label="请求参数" name="params">
+          <div v-for="side in ['IN', 'OUT']" :key="side" class="side-block">
+            <div class="side-head">
+              <span class="side-name">{{ side === 'IN' ? '入站侧' : '出站侧' }}</span>
+              <span class="side-desc">{{ side === 'IN' ? '来源 → 平台' : (form.ifType === 'INBOUND' ? '送达报文（必填）· 平台 → 调用方' : '平台 → 目标') }}</span>
+              <div class="subtabs">
+                <button type="button" class="subtab" :class="{ active: reqTab[side] === 'params' }"
+                        @click="reqTab[side] = 'params'">Params</button>
+                <button type="button" class="subtab" :class="{ active: reqTab[side] === 'body' }"
+                        @click="reqTab[side] = 'body'">Body</button>
+              </div>
+            </div>
+
+            <!-- Params 子面板 -->
+            <div v-if="reqTab[side] === 'params'">
+              <ParamTable v-if="side === 'IN'" v-model="inParams" />
+              <ParamTable v-else v-model="outParams" />
+            </div>
+
+            <!-- Body 子面板 -->
+            <div v-else>
+              <div class="body-types">
+                <button v-for="t in BODY_TYPES" :key="t" type="button" class="subtab"
+                        :class="{ active: sideBody(side).type === t }" @click="sideBody(side).type = t">{{ t }}</button>
+              </div>
+              <div v-if="sideBody(side).type === 'none'" class="empty-hint">无请求体</div>
+              <textarea v-else-if="['json','xml'].includes(sideBody(side).type)" v-model="sideBody(side).raw"
+                        class="raw-editor" :placeholder="sideBody(side).type === 'json' ? '{\n  "key": "value"\n}' : '<root></root>'"></textarea>
+              <template v-else>
+                <el-table :data="sideBody(side).formRows" size="small" class="kv-table">
+                  <el-table-column label="键" min-width="40%">
+                    <template #default="{ row }"><el-input v-model="row.key" size="small" placeholder="键" /></template>
+                  </el-table-column>
+                  <el-table-column label="值">
+                    <template #default="{ row }"><el-input v-model="row.value" size="small" placeholder="值" /></template>
+                  </el-table-column>
+                  <el-table-column width="50">
+                    <template #default="{ $index }">
+                      <el-button link type="danger" @click="sideBody(side).formRows.splice($index, 1)">×</el-button>
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <el-button size="small" class="add-btn" @click="sideBody(side).formRows.push({ key: '', value: '' })">＋ 添加</el-button>
+              </template>
+            </div>
+          </div>
+        </el-tab-pane>
+
+        <!-- ===== Tab 2 字段映射（入站 → 出站，下拉 + 中文操作，照原型） ===== -->
+        <el-tab-pane label="字段映射" name="mappings">
+          <div class="side-desc" style="margin-bottom: 8px">规则为空 = 整体透传；非空 = 仅输出 target 命中字段（白名单）</div>
+          <el-table :data="form.mappings" size="small">
+            <el-table-column label="入站字段">
+              <template #default="{ row }">
+                <el-select v-model="row.source" size="small" clearable filterable allow-create placeholder="选入站字段（default 时可空）">
+                  <el-option v-for="p in inParamNames" :key="p" :label="p" :value="p" />
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="130">
+              <template #default="{ row }">
+                <el-select v-model="row.op" size="small" @change="() => (row.param = '')">
+                  <el-option v-for="(label, op) in MAP_OPS" :key="op" :label="label" :value="op" />
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="出站字段">
+              <template #default="{ row }">
+                <el-select v-model="row.target" size="small" clearable filterable allow-create placeholder="选出站字段">
+                  <el-option v-for="p in outParamNames" :key="p" :label="p" :value="p" />
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作参数" width="190">
+              <template #default="{ row }">
+                <el-input v-if="['enumMap','default','condition'].includes(row.op)" v-model="row.param" size="small"
+                          :placeholder="row.op === 'enumMap' ? 'PENDING→0, DONE→1' : row.op === 'condition' ? '如 amount > 0' : '默认值'" />
+                <el-select v-else-if="row.op === 'typeCast'" v-model="row.param" size="small" placeholder="目标类型">
+                  <el-option v-for="t in ['STRING','INT','DECIMAL','BOOL','DATE']" :key="t" :label="t" :value="t" />
+                </el-select>
+                <el-select v-else-if="row.op === 'aggregate'" v-model="row.param" size="small" placeholder="聚合方式">
+                  <el-option v-for="a in ['CONCAT','SUM','MAX','MIN']" :key="a" :label="a" :value="a" />
+                </el-select>
+                <span v-else class="muted">—</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="空值策略" width="120">
+              <template #default="{ row }">
+                <el-select v-model="row.nullStrategy" size="small">
+                  <el-option v-for="(label, k) in MAP_NULL" :key="k" :label="label" :value="k" />
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column width="50">
+              <template #default="{ $index }">
+                <el-button link type="danger" @click="form.mappings.splice($index, 1)">×</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div v-if="form.mappings.length === 0" class="empty-hint">暂无映射，点下方「＋ 添加映射」</div>
+          <el-button size="small" class="add-btn" @click="addMapping">＋ 添加映射</el-button>
+        </el-tab-pane>
+
+        <!-- ===== Tab 3 响应 · ack（按类型互斥展示） ===== -->
+        <el-tab-pane :label="form.ifType === 'OUTBOUND' ? '出站响应字段' : 'ack 回执字段'" name="resp">
+          <div class="side-desc" style="margin-bottom: 8px">
+            {{ form.ifType === 'OUTBOUND' ? '出站方返回给平台的字段（出站 = 供应商返回）' : '平台回供应商的 ack 回执结构（固定 code/message，与送达解耦）' }}
+          </div>
+          <el-table :data="form.fieldDefs" size="small">
+            <el-table-column label="字段名" min-width="30%">
+              <template #default="{ row }"><el-input v-model="row.name" size="small" /></template>
+            </el-table-column>
+            <el-table-column label="类型" width="140">
+              <template #default="{ row }">
+                <el-select v-model="row.type" size="small">
+                  <el-option v-for="t in ['string','number','boolean','object','array']" :key="t" :label="t" :value="t" />
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="说明">
+              <template #default="{ row }"><el-input v-model="row.desc" size="small" placeholder="可选" /></template>
+            </el-table-column>
+            <el-table-column width="50">
+              <template #default="{ $index }">
+                <el-button link type="danger" @click="form.fieldDefs.splice($index, 1)">×</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div v-if="form.fieldDefs.length === 0" class="empty-hint">暂无字段</div>
+          <el-button size="small" class="add-btn" @click="addFieldDef">＋ 添加字段</el-button>
+        </el-tab-pane>
+
+        <!-- ===== Tab 4 高级（协议 / 超时 / 适配器绑定，原型折叠区平移） ===== -->
+        <el-tab-pane label="高级" name="adv">
+          <div class="adv-grid">
+            <div class="adv-item">
+              <span class="basic-label">入站协议</span>
               <el-select v-model="form.protocolIn" style="width: 100%" @change="onProtocolInChange">
                 <el-option v-for="p in ['JSON','XML']" :key="p" :label="p" :value="p" />
               </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="出站协议">
+            </div>
+            <div class="adv-item">
+              <span class="basic-label">出站协议</span>
               <div style="display: flex; align-items: center; gap: 8px">
                 <el-select v-model="form.protocolOut" :disabled="form.protoSame" style="flex: 1">
                   <el-option v-for="p in ['JSON','XML']" :key="p" :label="p" :value="p" />
                 </el-select>
                 <el-switch v-model="form.protoSame" size="small" active-text="同入站" />
               </div>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="超时(ms) / 重试">
-              <el-input-number v-model="form.timeoutMs" :min="100" style="width: 110px" />
-              <el-input-number v-model="form.maxRetries" :min="0" style="width: 80px; margin-left: 8px" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="12">
-          <el-col :span="12">
-            <el-form-item label="归属应用" required>
-              <el-select v-model="form.appId" style="width: 100%" @change="onAppChange">
-                <el-option v-for="a in apps" :key="a.appId" :label="`${a.name}（${a.appId}）`" :value="a.appId" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="归属分组" required>
-              <el-select v-model="form.groupId" style="width: 100%">
-                <el-option v-for="g in groupOptions" :key="g.id" :label="g.name" :value="g.id" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-form-item label="描述"><el-input v-model="form.desc" /></el-form-item>
-
-        <!-- 请求参数：入站 / 出站两侧 -->
-        <el-divider content-position="left">请求参数</el-divider>
-        <el-tabs v-model="paramTab">
-          <el-tab-pane label="入站侧（来源→平台）" name="IN">
-            <ParamTable v-model="inParams" />
-          </el-tab-pane>
-          <el-tab-pane :label="form.ifType === 'INBOUND' ? '出站侧（送达报文，必填）' : '出站侧（平台→目标）'" name="OUT">
-            <ParamTable v-model="outParams" />
-          </el-tab-pane>
-        </el-tabs>
-
-        <!-- Body -->
-        <el-divider content-position="left">请求体 Body</el-divider>
-        <el-row :gutter="12">
-          <el-col :span="12">
-            <el-form-item label="入站 Body">
-              <el-select v-model="form.inBodyType" style="width: 160px">
-                <el-option v-for="t in BODY_TYPES" :key="t" :label="t" :value="t" />
-              </el-select>
-            </el-form-item>
-            <el-input v-if="['json','xml'].includes(form.inBodyType)" v-model="form.inBodyRaw" type="textarea" :rows="6"
-                      placeholder="Body 模板（JSON/XML）" />
-            <template v-if="['form-data','x-www-form-urlencoded'].includes(form.inBodyType)">
-              <el-table :data="form.inFormRows" size="small">
-                <el-table-column label="键">
-                  <template #default="{ row }"><el-input v-model="row.key" size="small" /></template>
-                </el-table-column>
-                <el-table-column label="值">
-                  <template #default="{ row }"><el-input v-model="row.value" size="small" /></template>
-                </el-table-column>
-                <el-table-column width="60">
-                  <template #default="{ $index }">
-                    <el-button link type="danger" @click="form.inFormRows.splice($index, 1)">删</el-button>
-                  </template>
-                </el-table-column>
-              </el-table>
-              <el-button size="small" style="margin-top: 8px" @click="form.inFormRows.push({ key: '', value: '' })">＋ 添加键值</el-button>
-            </template>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="出站 Body">
-              <el-select v-model="form.outBodyType" style="width: 160px">
-                <el-option v-for="t in BODY_TYPES" :key="t" :label="t" :value="t" />
-              </el-select>
-            </el-form-item>
-            <el-input v-if="['json','xml'].includes(form.outBodyType)" v-model="form.outBodyRaw" type="textarea" :rows="6"
-                      placeholder="Body 模板（JSON/XML）" />
-            <template v-if="['form-data','x-www-form-urlencoded'].includes(form.outBodyType)">
-              <el-table :data="form.outFormRows" size="small">
-                <el-table-column label="键">
-                  <template #default="{ row }"><el-input v-model="row.key" size="small" /></template>
-                </el-table-column>
-                <el-table-column label="值">
-                  <template #default="{ row }"><el-input v-model="row.value" size="small" /></template>
-                </el-table-column>
-                <el-table-column width="60">
-                  <template #default="{ $index }">
-                    <el-button link type="danger" @click="form.outFormRows.splice($index, 1)">删</el-button>
-                  </template>
-                </el-table-column>
-              </el-table>
-              <el-button size="small" style="margin-top: 8px" @click="form.outFormRows.push({ key: '', value: '' })">＋ 添加键值</el-button>
-            </template>
-          </el-col>
-        </el-row>
-
-        <!-- 字段映射（接口级，入站→出站；空 = 整体透传） -->
-        <el-divider content-position="left">字段映射（空 = 整体透传）</el-divider>
-        <el-table :data="form.mappings" size="small">
-          <el-table-column label="入站字段 source">
-            <template #default="{ row }">
-              <el-select v-model="row.source" size="small" clearable filterable allow-create
-                         placeholder="从入站参数选择（default 时可空）">
-                <el-option v-for="p in inParamNames" :key="p" :label="p" :value="p" />
-              </el-select>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作 op" width="140">
-            <template #default="{ row }">
-              <el-select v-model="row.op" size="small" @change="() => (row.param = '')">
-                <el-option v-for="op in OPS" :key="op" :label="op" :value="op" />
-              </el-select>
-            </template>
-          </el-table-column>
-          <el-table-column label="出站字段 target">
-            <template #default="{ row }">
-              <el-select v-model="row.target" size="small" clearable filterable allow-create
-                         placeholder="从出站参数选择">
-                <el-option v-for="p in outParamNames" :key="p" :label="p" :value="p" />
-              </el-select>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作参数 param" width="200">
-            <template #default="{ row }">
-              <el-input v-if="['enumMap','default','condition'].includes(row.op)" v-model="row.param" size="small"
-                        :placeholder="row.op === 'enumMap' ? 'PENDING→0, DONE→1' : row.op === 'condition' ? '如 amount > 0' : '常量值'" />
-              <el-select v-else-if="row.op === 'typeCast'" v-model="row.param" size="small">
-                <el-option v-for="t in ['STRING','INT','DECIMAL','BOOL','DATE']" :key="t" :label="t" :value="t" />
-              </el-select>
-              <el-select v-else-if="row.op === 'aggregate'" v-model="row.param" size="small">
-                <el-option v-for="a in ['SUM','MAX','MIN','CONCAT']" :key="a" :label="a" :value="a" />
-              </el-select>
-              <span v-else class="muted">—</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="空值策略" width="130">
-            <template #default="{ row }">
-              <el-select v-model="row.nullStrategy" size="small">
-                <el-option v-for="n in ['KEEP','NULL','DEFAULT','ERROR']" :key="n" :label="n" :value="n" />
-              </el-select>
-            </template>
-          </el-table-column>
-          <el-table-column width="70">
-            <template #default="{ $index }">
-              <el-button link type="danger" @click="form.mappings.splice($index, 1)">删</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-        <el-button size="small" style="margin-top: 8px" @click="addMapping">＋ 添加映射</el-button>
-
-        <!-- 响应 / ack 字段 -->
-        <el-divider content-position="left">{{ form.ifType === 'OUTBOUND' ? '出站响应字段' : 'ack 回执字段' }}</el-divider>
-        <el-table :data="form.fieldDefs" size="small">
-          <el-table-column label="字段名">
-            <template #default="{ row }"><el-input v-model="row.name" size="small" /></template>
-          </el-table-column>
-          <el-table-column label="类型" width="160">
-            <template #default="{ row }">
-              <el-select v-model="row.type" size="small">
-                <el-option v-for="t in ['string','number','boolean','object','array']" :key="t" :label="t" :value="t" />
-              </el-select>
-            </template>
-          </el-table-column>
-          <el-table-column label="说明">
-            <template #default="{ row }"><el-input v-model="row.desc" size="small" /></template>
-          </el-table-column>
-          <el-table-column width="70">
-            <template #default="{ $index }">
-              <el-button link type="danger" @click="form.fieldDefs.splice($index, 1)">删</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-        <el-button size="small" style="margin-top: 8px" @click="addFieldDef">＋ 添加字段</el-button>
-
-        <!-- 适配器绑定（留空 = 继承应用默认） -->
-        <el-divider content-position="left">适配器绑定（留空 = 继承应用默认）</el-divider>
-        <el-row :gutter="12">
-          <el-col :span="8">
-            <el-form-item label="报文适配器">
-              <el-select v-model="form.messageAdapterId" clearable style="width: 100%">
+            </div>
+            <div class="adv-item">
+              <span class="basic-label">读超时(ms)</span>
+              <el-input-number v-model="form.timeoutMs" :min="100" style="width: 100%" />
+            </div>
+            <div class="adv-item">
+              <span class="basic-label">最大重试</span>
+              <el-input-number v-model="form.maxRetries" :min="0" style="width: 100%" />
+            </div>
+            <div class="adv-item">
+              <span class="basic-label">报文适配器</span>
+              <el-select v-model="form.messageAdapterId" clearable placeholder="继承应用默认" style="width: 100%">
                 <el-option v-for="a in messageAdapters" :key="a.id" :label="`${a.name}（${a.impl}）`" :value="a.id" />
               </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item :label="form.ifType === 'OUTBOUND' ? '供应商签名' : '回调验签'">
-              <el-select v-model="form.authAdapterId" clearable style="width: 100%">
+            </div>
+            <div class="adv-item">
+              <span class="basic-label">{{ form.ifType === 'OUTBOUND' ? '供应商签名' : '回调验签' }}</span>
+              <el-select v-model="form.authAdapterId" clearable placeholder="继承应用默认" style="width: 100%">
                 <el-option v-for="a in authAdapters" :key="a.id" :label="`${a.name}（${a.impl}）`" :value="a.id" />
               </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-      </el-form>
+            </div>
+          </div>
+        </el-tab-pane>
+      </el-tabs>
+
       <template #footer>
         <el-button @click="dialog.visible = false">取消</el-button>
         <el-button type="primary" @click="save">保存</el-button>
       </template>
     </el-dialog>
 
-    <!-- 接口详情（原型详情页平移：基本信息 + 适配器链可视化） -->
+    <!-- ============ 接口详情（原型详情页平移：基本信息 + 适配器链可视化） ============ -->
     <el-drawer v-model="detail.visible" :title="`接口详情 · ${detail.row.code || ''}`" size="640px">
       <el-descriptions :column="2" border v-if="detail.row.id">
         <el-descriptions-item label="名称" :span="2">{{ detail.row.name }}</el-descriptions-item>
@@ -345,8 +331,10 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '@/api/http'
 import ParamTable from '@/components/ParamTable.vue'
 
-const OPS = ['rename', 'typeCast', 'enumMap', 'default', 'condition', 'aggregate']
-const BODY_TYPES = ['none', 'json', 'xml', 'form-data', 'x-www-form-urlencoded']
+const BODY_TYPES = ['none', 'form-data', 'x-www-form-urlencoded', 'json', 'xml']
+/** 映射操作与空值策略的中文标签（照原型 MAP_OPS / MAP_NULL） */
+const MAP_OPS = { rename: '重命名', typeCast: '类型转换', enumMap: '枚举映射', default: '默认值', condition: '条件', aggregate: '聚合' }
+const MAP_NULL = { KEEP: '保留原值', NULL: '置空', DEFAULT: '默认值', ERROR: '报错' }
 
 // ---------- 列表 ----------
 const ifaces = ref([])
@@ -355,7 +343,6 @@ const groups = ref([])
 const adapters = ref([])
 const filterApp = ref('')
 const loading = ref(false)
-const paramTab = ref('IN')
 
 const authAdapters = computed(() => adapters.value.filter((a) => a.type === 'auth' && a.enabled))
 const messageAdapters = computed(() => adapters.value.filter((a) => a.type === 'message' && a.enabled))
@@ -375,6 +362,8 @@ onMounted(load)
 
 // ---------- 表单 ----------
 const dialog = reactive({ visible: false, isEdit: false, editId: 0 })
+const mainTab = ref('params')
+const reqTab = reactive({ IN: 'params', OUT: 'params' })
 const form = reactive(emptyForm())
 
 function emptyForm() {
@@ -417,11 +406,17 @@ const outParams = computed({
   }
 })
 
-// 字段映射 source/target 下拉选项（原型：从两侧已配置参数选择）
 const inParamNames = computed(() => inParams.value.map((p) => p.name).filter(Boolean))
 const outParamNames = computed(() => outParams.value.map((p) => p.name).filter(Boolean))
 
-/** 协议联动（原型 protoSame）：「出站协议与入站协议一致」开关 */
+/** 每侧 Body 状态（类型 / raw / form 键值行） */
+function sideBody(side) {
+  return side === 'IN'
+    ? { type: form.inBodyType, raw: form.inBodyRaw, formRows: form.inFormRows }
+    : { type: form.outBodyType, raw: form.outBodyRaw, formRows: form.outFormRows }
+}
+
+/** 协议联动（原型 protoSame） */
 function onProtocolInChange() {
   if (form.protoSame) {
     form.protocolOut = form.protocolIn
@@ -430,6 +425,9 @@ function onProtocolInChange() {
 
 function openCreate() {
   Object.assign(form, emptyForm())
+  reqTab.IN = 'params'
+  reqTab.OUT = 'params'
+  mainTab.value = 'params'
   dialog.isEdit = false
   dialog.visible = true
 }
@@ -454,6 +452,9 @@ async function openEdit(row) {
     messageAdapterId: d.bindings?.find((b) => b.role === 'MESSAGE')?.adapterId || null,
     authAdapterId: (d.bindings?.find((b) => b.role === 'AUTH') || d.bindings?.find((b) => b.role === 'CALLBACK_AUTH'))?.adapterId || null
   })
+  reqTab.IN = 'params'
+  reqTab.OUT = 'params'
+  mainTab.value = 'params'
   dialog.isEdit = true
   dialog.editId = d.id
   dialog.visible = true
@@ -467,6 +468,9 @@ function parseFormRows(json) {
   } catch {
     return []
   }
+}
+function toFormJson(rows) {
+  return JSON.stringify((rows || []).filter((r) => r.key).map((r) => [r.key, r.value || '']))
 }
 
 /** 类型切换：清空互斥字段（设计 §3.1 类型互斥字段按类型清空） */
@@ -518,8 +522,19 @@ async function save() {
   load()
 }
 
-function toFormJson(rows) {
-  return JSON.stringify((rows || []).filter((r) => r.key).map((r) => [r.key, r.value || '']))
+async function act(row, action) {
+  await http.post(`/interfaces/${row.id}/${action}`)
+  ElMessage.success('操作成功')
+  if (detail.visible) {
+    detail.row = await http.get(`/interfaces/${row.id}`)
+  }
+  load()
+}
+async function remove(row) {
+  await ElMessageBox.confirm(`删除接口「${row.name}」？其 6 张配置子表将级联删除`, '确认', { type: 'warning' })
+  await http.delete(`/interfaces/${row.id}`)
+  ElMessage.success('已删除')
+  load()
 }
 
 // ---------- 接口详情（原型详情页 + 适配器链可视化） ----------
@@ -559,21 +574,6 @@ const chainSteps = computed(() => {
     }
   ]
 })
-
-async function act(row, action) {
-  await http.post(`/interfaces/${row.id}/${action}`)
-  ElMessage.success('操作成功')
-  if (detail.visible) {
-    detail.row = await http.get(`/interfaces/${row.id}`)
-  }
-  load()
-}
-async function remove(row) {
-  await ElMessageBox.confirm(`删除接口「${row.name}」？其 6 张配置子表将级联删除`, '确认', { type: 'warning' })
-  await http.delete(`/interfaces/${row.id}`)
-  ElMessage.success('已删除')
-  load()
-}
 </script>
 
 <style scoped>
@@ -582,4 +582,132 @@ async function remove(row) {
 h4 { margin: 20px 0 10px; color: #303133; }
 .chain-desc { color: #606266; font-size: 13px; }
 .detail-actions { margin-top: 20px; display: flex; gap: 8px; }
+
+/* ---------- Postman 风格（签名元素：请求地址栏） ---------- */
+.method-text { font-weight: 700; font-size: 12px; }
+.method-POST { color: #FF6C37; }
+.method-GET { color: #3BA776; }
+.method-PUT { color: #4A90D9; }
+.method-DELETE { color: #D9534F; }
+
+.request-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #1F2739;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+}
+.request-bar .method-select { width: 110px; }
+.request-bar .method-select :deep(.el-select__wrapper) {
+  background: transparent;
+  box-shadow: none;
+}
+.request-bar .method-select :deep(.el-select__selected-item) {
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.request-bar .path-input,
+.request-bar .target-input { flex: 1; }
+.request-bar :deep(.el-input__wrapper) {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+  border-radius: 4px;
+}
+.request-bar :deep(.el-input__inner) {
+  color: #e8eaf0;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+.request-bar .arrow { color: #FF6C37; font-weight: 700; font-size: 16px; }
+
+/* ---------- 基础信息 ---------- */
+.basic-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px 14px;
+  margin-bottom: 10px;
+}
+.basic-item .basic-label {
+  display: block;
+  font-size: 12px;
+  color: #909399;
+  margin-bottom: 4px;
+}
+
+/* ---------- 分区 tab ---------- */
+.main-tabs { margin-top: 4px; }
+
+.side-block {
+  border: 1px solid #e8eaf0;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.side-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.side-name { font-weight: 600; font-size: 14px; color: #303133; }
+.side-desc { font-size: 12px; color: #909399; }
+.subtabs { margin-left: auto; display: flex; gap: 4px; }
+.subtab {
+  border: 1px solid #dcdfe6;
+  background: #fff;
+  color: #606266;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.subtab.active {
+  background: #1F2739;
+  border-color: #1F2739;
+  color: #fff;
+}
+
+.body-types { display: flex; gap: 4px; margin-bottom: 10px; }
+
+.raw-editor {
+  width: 100%;
+  min-height: 140px;
+  box-sizing: border-box;
+  background: #282C34;
+  color: #abb2bf;
+  border: none;
+  border-radius: 6px;
+  padding: 12px;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+}
+.raw-editor:focus { outline: 1px solid #4A90D9; }
+
+.kv-table { margin-bottom: 8px; }
+
+.empty-hint {
+  text-align: center;
+  color: #c0c4cc;
+  font-size: 13px;
+  padding: 18px 0;
+}
+
+.add-btn { margin-top: 4px; }
+
+/* ---------- 高级配置 ---------- */
+.adv-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px 14px;
+}
+.adv-item .basic-label {
+  display: block;
+  font-size: 12px;
+  color: #909399;
+  margin-bottom: 4px;
+}
 </style>
