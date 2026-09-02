@@ -19,7 +19,7 @@
 | M0 契约设计 | **已评审通过 v1.0（2026-09-02）**：`doc/开发文档/` M0-01/02/03（9 个确认点全部通过） |
 | 旧 demo 代码 | 已删除（commit `ad55cea`），git 历史可查 |
 | 数据库 | MySQL PolarDB 已按新 schema 建库（连接信息见 application.yaml） |
-| 工程代码 | **M1 已落地并测试通过（17/17，2026-09-02）**：管理面后端（应用 / 分组 / 接口 / 适配器 / 凭证）+ Vue3 前端（`frontend/`，待浏览器联调） |
+| 工程代码 | **M1 已落地并测试通过（17/17，2026-09-02）**：管理面后端（应用 / 分组 / 接口 / 适配器 / 凭证）+ Vue3 前端（`frontend/`，待浏览器联调）；**M2 已落地并测试通过（34/34，2026-09-02）**：链引擎 + 映射引擎（Aviator）+ 通用客户端（RestClient 直调）+ 出站状态机，fastmoss 黄金用例 G1-G4 在 WireMock 对端端到端跑通 = **首个可演示版本** |
 | 未拍板决策 | 无（M0 全部评审通过，2026-09-02） |
 
 ## 设计文档（现行）
@@ -119,13 +119,19 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 
 - **中文注释**：全库代码注释、README、设计文档均为简体中文，新代码保持中文注释。
 - **MapStruct + Lombok**：通过 `maven-compiler-plugin` 的 `annotationProcessorPaths` 显式配置（compile 与 test-compile 两个 execution）。MapStruct 只用于固定结构映射（统一信封组装、实体 ↔ DTO），动态映射走规则解释器（M0-02）。
-- **Boot 4 不自动装配 `RestClient.Builder`**：声明式客户端用 `HttpServiceProxyFactory` + `RestClient` 手动构建（旧 demo 经验，git 历史可查）。
-- **Jackson 3 包名**：`tools.jackson.*`，非 `com.fasterxml.jackson.*`。
-- `pom.xml` 中 `wiremock.version` 已声明但未作为依赖使用（M2 集成测试 mock 对端可用）。
+- **Boot 4 不自动装配 `RestClient.Builder`**：手动构建 `RestClient` Bean（`RestClientConfig`）。
+- **Spring 7 内置 @Retryable**（`org.springframework.resilience.annotation`，**不是 spring-retry**）：退避参数内联（无 @Backoff）、耗尽透传原异常（无 RetryExhaustedException）、动态次数用 `maxRetriesString`（SpEL）+ ThreadLocal。详见《技术踩坑记录.md》§1。
+- **Spring 7 声明式客户端 URI 模板坑**：`@HttpExchange` 的动态完整 URL 模板变量会被路径编码（scheme 丢失）——**动态 URL 一律 RestClient 直调**（`uri(URI)`），且需 `defaultStatusHandler` 禁用默认 4xx/5xx 抛异常（引擎分类）。详见《技术踩坑记录.md》§3。
+- **Jackson 3**：包名 `tools.jackson.*`；`JsonNode.fields()` 已更名为 `properties()`。
+- **WireMock 3**：verify 用 `postRequestedFor(urlEqualTo(...))` + `equalTo(...)`；请求计数跨测试累积，`@BeforeEach` 需 `resetAll()`。
+- **`mvn test` 不清旧产物**：删源文件后旧 class 残留在 target/classes 会被 Spring 扫描装配——结构变更务必 `mvn clean test`。
+- **列表接口不带子表**：断言/校验接口子表（params/mappings 等）必须走 `detail()`，`list()` 的子表恒空。
+- **更多 Spring 7 / Jackson 3 / WireMock 3 踩坑**：见 `doc/开发文档/技术踩坑记录.md`（写代码前先查）。
 - 旧 demo 实现仅供参考（git 历史 `ed95446` 及之前），不照搬渠道特化逻辑（PARTNER_A/B、订单字段、高水位同步均不适用于新设计）。
 
 ## 文档导航
 
 - **现行设计**（`src/main/resources/doc/`）：`API中心设计方案.md`（总纲）→ `技术架构和实现方案.md` / `可行性报告.md` / `表结构设计.html` + `schema.sql`（实现四件套）→ `API中心时序图与流程图.md` / `API中心原型.html`（流程与交互）→ `开发计划.md`（M0–M5 里程碑 + fastmoss 黄金用例，执行入口）
 - **M0 契约**（`src/main/resources/doc/开发文档/`）：链引擎 / 映射语义 / 客户端对账三份 + 凭证轮换存储方案 M0-04（全部已评审通过，M1/M2 编码依据）
+- **踩坑记录**（`src/main/resources/doc/开发文档/技术踩坑记录.md`）：Spring 7 / Jackson 3 / WireMock 3 API 差异与经验（写代码前先查）
 - `README.md` — 项目索引
