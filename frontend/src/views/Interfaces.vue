@@ -129,7 +129,7 @@
               </div>
               <div v-if="sideBody(side).type === 'none'" class="empty-hint">无请求体</div>
               <textarea v-else-if="['json','xml'].includes(sideBody(side).type)" v-model="sideBody(side).raw"
-                        class="raw-editor" :placeholder="sideBody(side).type === 'json' ? '{\n  "key": "value"\n}' : '<root></root>'"></textarea>
+                        class="raw-editor" :placeholder="RAW_PLACEHOLDER[sideBody(side).type]"></textarea>
               <template v-else>
                 <el-table :data="sideBody(side).formRows" size="small" class="kv-table">
                   <el-table-column label="键" min-width="40%">
@@ -332,6 +332,11 @@ import http from '@/api/http'
 import ParamTable from '@/components/ParamTable.vue'
 
 const BODY_TYPES = ['none', 'form-data', 'x-www-form-urlencoded', 'json', 'xml']
+/** raw 编辑器占位示例（属性内嵌多行字符串含双引号会破坏模板解析，提为常量） */
+const RAW_PLACEHOLDER = {
+  json: '{\n  "key": "value"\n}',
+  xml: '<root></root>'
+}
 /** 映射操作与空值策略的中文标签（照原型 MAP_OPS / MAP_NULL） */
 const MAP_OPS = { rename: '重命名', typeCast: '类型转换', enumMap: '枚举映射', default: '默认值', condition: '条件', aggregate: '聚合' }
 const MAP_NULL = { KEEP: '保留原值', NULL: '置空', DEFAULT: '默认值', ERROR: '报错' }
