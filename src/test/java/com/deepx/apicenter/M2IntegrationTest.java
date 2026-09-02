@@ -133,6 +133,8 @@ class M2IntegrationTest {
 
     @BeforeEach
     void setupTestConfig() {
+        // 清空 WireMock stub 与请求计数（跨测试隔离）
+        wireMock.resetAll();
         // 确保平台默认与黄金用例适配器存在（seed 可能已导入，幂等）
         insertAdapterIfAbsent("ADP-101", "Bearer Token", "auth", "BearerTokenAuthAdapter",
                 "{\"headerName\":\"Authorization\",\"prefix\":\"Bearer\"}");

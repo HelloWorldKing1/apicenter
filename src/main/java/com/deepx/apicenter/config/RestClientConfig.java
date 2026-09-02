@@ -29,6 +29,10 @@ public class RestClientConfig {
         requestFactory.setReadTimeout(Duration.ofMillis(3000));
         return RestClient.builder()
                 .requestFactory(requestFactory)
+                // 禁用默认状态异常抛出：4xx/5xx 一律返回 ResponseEntity，
+                // 由 OutboundEngine 分类（4xx 死信 / 5xx·429 由 UpstreamInvoker 手动抛触发 @Retryable，M0-03 §2 映射表）
+                .defaultStatusHandler(org.springframework.http.HttpStatusCode::isError,
+                        (request, response) -> { /* 不抛，交由引擎分类 */ })
                 .build();
     }
 }
