@@ -282,6 +282,23 @@
       </template>
     </el-dialog>
 
+    <!-- ============ 测试接口弹窗（管理面调试：真实走一遍出站链路） ============ -->
+    <el-dialog v-model="test.visible" :title="`测试接口 · ${detail.row.code || ''}`" width="760px" top="5vh">
+      <div class="test-layout">
+        <div class="test-side">
+          <div class="side-desc" style="margin-bottom: 8px">请求体（预填接口入站 Body 模板，可编辑）</div>
+          <textarea v-model="test.body" class="raw-editor test-body"></textarea>
+          <el-button type="primary" :loading="test.sending" style="margin-top: 10px" @click="sendTest">
+            发送请求
+          </el-button>
+        </div>
+        <div class="test-side">
+          <div class="side-desc" style="margin-bottom: 8px">响应（统一信封 { code, msg, data }）</div>
+          <pre class="test-resp" :class="{ 'resp-error': test.isError }">{{ test.resp }}</pre>
+        </div>
+      </div>
+    </el-dialog>
+
     <!-- ============ 接口详情（原型详情页平移：基本信息 + 适配器链可视化） ============ -->
     <el-drawer v-model="detail.visible" :title="`接口详情 · ${detail.row.code || ''}`" size="640px">
       <el-descriptions :column="2" border v-if="detail.row.id">
@@ -315,6 +332,7 @@
 
       <div class="detail-actions">
         <el-button type="primary" @click="openEdit(detail.row)">编辑</el-button>
+        <el-button type="warning" @click="openTest(detail.row)">测试接口</el-button>
         <el-button v-if="['DRAFT','OFFLINE'].includes(detail.row.status)" type="success"
                    @click="act(detail.row, 'publish')">发布</el-button>
         <el-button v-if="detail.row.status === 'PUBLISHED'" type="info"
@@ -576,6 +594,34 @@ async function openDetail(row) {
   detail.visible = true
 }
 
+// ---------- 测试接口（管理面调试：POST /api/admin/interfaces/{id}/test） ----------
+const test = reactive({ visible: false, body: '{}', sending: false, resp: '', isError: false })
+
+function openTest(row) {
+  const inBody = row.bodies?.find((b) => b.side === 'IN')
+  test.body = inBody && inBody.raw ? inBody.raw : '{}'
+  test.resp = ''
+  test.isError = false
+  test.visible = true
+}
+
+async function sendTest() {
+  test.sending = true
+  test.resp = ''
+  try {
+    const result = await http.post(`/interfaces/${detail.row.id}/test`, test.body)
+    test.isError = false
+    test.resp = JSON.stringify({ code: 0, msg: 'ok', data: result }, null, 2)
+  } catch (e) {
+    test.isError = true
+    test.resp = e.response?.data
+      ? JSON.stringify(e.response.data, null, 2)
+      : (e.message || '请求失败')
+  } finally {
+    test.sending = false
+  }
+}
+
 const chainSteps = computed(() => {
   const d = detail.row
   if (!d.id) return []
@@ -725,6 +771,28 @@ h4 { margin: 20px 0 10px; color: #303133; }
   font-size: 13px;
   padding: 18px 0;
 }
+
+/* ---------- 测试接口弹窗 ---------- */
+.test-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.test-body { min-height: 260px; }
+.test-resp {
+  min-height: 260px;
+  margin: 0;
+  background: #282C34;
+  color: #98c379;
+  border-radius: 6px;
+  padding: 12px;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.test-resp.resp-error { color: #e06c75; }
 
 .add-btn { margin-top: 4px; }
 
