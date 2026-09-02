@@ -78,7 +78,7 @@
           </el-col>
           <el-col :span="8">
             <el-form-item :label="form.ifType === 'OUTBOUND' ? '上游路径' : '回调地址'" required>
-              <el-input v-model="form.ifType === 'OUTBOUND' ? form.upstreamPath : form.callbackUrl"
+              <el-input v-model="targetField"
                         :placeholder="form.ifType === 'OUTBOUND' ? '拼 app.base_url，如 /shop/v1/creatorList' : '送达目标 URL（必填）'" />
             </el-form-item>
           </el-col>
@@ -302,6 +302,18 @@ function emptyForm() {
 }
 
 const groupOptions = computed(() => groups.value.filter((g) => g.appId === form.appId))
+
+// 目标字段双向代理（v-model 不能绑定三元表达式，按类型切换 upstreamPath / callbackUrl）
+const targetField = computed({
+  get: () => (form.ifType === 'OUTBOUND' ? form.upstreamPath : form.callbackUrl),
+  set: (v) => {
+    if (form.ifType === 'OUTBOUND') {
+      form.upstreamPath = v
+    } else {
+      form.callbackUrl = v
+    }
+  }
+})
 
 // 入站 / 出站参数行的双向代理（模板内不能 v-model 到 filter() 表达式）
 const inParams = computed({
