@@ -13,7 +13,7 @@ API 三方接口统一调用平台组件 —— 只做 **连接 + 适配 + 可�
 
 ## 开发状态
 
-- 设计文档已定稿（`doc/` 6 份 + schema.sql 15 张表）；数据库（MySQL PolarDB）已按 schema 建库。
+- 设计文档已定稿（`doc/` 6 份 + schema.sql 16 张表）；数据库（MySQL PolarDB）已按 schema 建库。
 - M0 三份契约设计已起草待评审（`doc/开发文档/`）。
 - 旧版「ERP 订单连接器」demo 已删除（git 历史 commit `ad55cea` 之前可查）。
 - 工程当前为骨架状态，按《开发计划.md》M1–M5 推进。
@@ -25,12 +25,12 @@ API 三方接口统一调用平台组件 —— 只做 **连接 + 适配 + 可�
 | 设计总纲 | [API中心设计方案.md](src/main/resources/doc/API中心设计方案.md) | 5 模块；接口定义模型（出站中转 / 入站回调）；三类适配器（鉴权 / 协议 / 报文）+ 接口级字段映射；状态机 / 错误码 / 容错附录 |
 | 实现方案 | [技术架构和实现方案.md](src/main/resources/doc/技术架构和实现方案.md) | 分层架构、技术选型、适配器链引擎、出 / 入站执行引擎、M1–M5 路线图、ADR |
 | 可行性报告 | [可行性报告.md](src/main/resources/doc/可行性报告.md) | 技术可行性评估、工作量估算（约 81 人日）、风险与应对 |
-| 表结构设计 | [表结构设计.html](src/main/resources/doc/表结构设计.html) | 15 张表（配置 10 + 运行 5）+ 枚举汇总 + 原型数据模型映射对照 |
+| 表结构设计 | [表结构设计.html](src/main/resources/doc/表结构设计.html) | 16 张表（配置 11 + 运行 5）+ 枚举汇总 + 原型数据模型映射对照 |
 | 时序与流程 | [API中心时序图与流程图.md](src/main/resources/doc/API中心时序图与流程图.md) | 配置流程、Flow A / B 时序、请求处理 + 容错流程图 |
 | 交互原型 | [API中心原型.html](src/main/resources/doc/API中心原型.html) | 可交互管理面原型（数据模型与交互即事实来源） |
-| 建表脚本 | [schema.sql](src/main/resources/doc/schema.sql) | MySQL 8.0，15 张表（与《表结构设计.html》一一对应） |
+| 建表脚本 | [schema.sql](src/main/resources/doc/schema.sql) | MySQL 8.0，16 张表（与《表结构设计.html》一一对应） |
 | 开发计划 | [开发计划.md](src/main/resources/doc/开发计划.md) | M0–M5 里程碑 + 第一个可演示版本（fastmoss 黄金用例，断言 G1–G4） |
-| M0 契约（待评审） | [doc/开发文档/](src/main/resources/doc/开发文档/) | 链引擎契约 / 动态映射语义规范 / 通用客户端与对账协议 |
+| M0 契约（已评审通过） | [doc/开发文档/](src/main/resources/doc/开发文档/) | 链引擎契约 / 动态映射语义规范 / 通用客户端与对账协议 / 凭证轮换存储方案 |
 
 ## 快速开始
 

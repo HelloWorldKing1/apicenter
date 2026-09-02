@@ -44,7 +44,7 @@
 <body>
 <div class="topbar">
   <h1>API 中心 · 表结构设计</h1>
-  <p>依据《API中心设计方案.md》《API中心原型.html》整理 · 共 15 张表：配置类 10 张 + 运行类 5 张 · 生产 MySQL 8.0 InnoDB</p>
+  <p>依据《API中心设计方案.md》《API中心原型.html》整理 · 共 16 张表：配置类 11 张 + 运行类 5 张 · 生产 MySQL 8.0 InnoDB</p>
 </div>
 <div class="wrap">
 
@@ -71,13 +71,14 @@
     <li><a href="#t-dead">dead_letter 死信</a></li>
     <li><a href="#t-calllog">call_log 调用日志</a></li>
     <li><a href="#t-alert">alert_rule 告警规则</a></li>
+    <li><a href="#t-credential">app_credential 应用凭证</a></li>
   </ol>
 </div>
 
 <!-- ============ 1. app ============ -->
 <section class="table" id="t-app">
   <div class="t-head"><span class="no">01</span><h2>应用（供应商）</h2><span class="en">app</span></div>
-  <div class="t-desc">应用 = 平台对接的一方供应商（第三方上游）。持有出站签名凭证与回调验签凭证两类；IP 黑白名单、配额限流在此表统一承载。</div>
+  <div class="t-desc">应用 = 平台对接的一方供应商（第三方上游）。出站签名凭证与回调验签凭证两类分离（凭证落 <a href="#t-credential">app_credential</a> 表）；IP 黑白名单、配额限流在此表统一承载。</div>
   <table class="f">
     <tr><th style="width:22%">字段</th><th style="width:20%">类型</th><th style="width:14%">约束</th><th>说明</th></tr>
     <tr><td class="c pk">app_id</td><td class="c">VARCHAR(32)</td><td>PK</td><td>全局唯一应用标识（如 TENCENT-CLOUD）</td></tr>
@@ -85,8 +86,6 @@
     <tr><td class="c">contact</td><td class="c">VARCHAR(64)</td><td></td><td>联系人</td></tr>
     <tr><td class="c ref">auth_adapter_id</td><td class="c">VARCHAR(16)</td><td></td><td>出站供应商签名适配器（引用 adapter.id，NULL = 无鉴权）</td></tr>
     <tr><td class="c ref">callback_auth_adapter_id</td><td class="c">VARCHAR(16)</td><td></td><td>回调验签适配器（引用 adapter.id，NULL = 无鉴权），仅对入站回调接口生效</td></tr>
-    <tr><td class="c">outbound_secret</td><td class="c">VARCHAR(255)</td><td></td><td>出站凭证（appSecret / secretId+secretKey / token），<b>加密存储</b>，永不回显明文</td></tr>
-    <tr><td class="c">callback_secret</td><td class="c">VARCHAR(255)</td><td></td><td>回调验签凭证（回调 HMAC secret / 云厂商回调 token），<b>加密存储</b>，独立于出站凭证</td></tr>
     <tr><td class="c ref">default_message_adapter_id</td><td class="c">VARCHAR(16)</td><td></td><td>默认报文适配器（引用 adapter.id，NULL = 平台默认）；接口级绑定可覆盖</td></tr>
     <tr><td class="c">base_url</td><td class="c">VARCHAR(255)</td><td></td><td>服务地址（供应商 API 根地址，出站接口的上游路径拼于此）</td></tr>
     <tr><td class="c">ip_whitelist</td><td class="c">VARCHAR(500)</td><td></td><td>来源 IP 白名单（英文逗号分隔，空 = 不限制）</td></tr>
@@ -98,7 +97,7 @@
     <tr><td class="c">created_at / updated_at</td><td class="c">DATETIME</td><td>NOT NULL</td><td>创建 / 更新时间</td></tr>
   </table>
   <div class="idx"><b>索引</b>：PK(app_id)，INDEX(auth_adapter_id)，INDEX(callback_auth_adapter_id)，INDEX(default_message_adapter_id)</div>
-  <div class="t-desc" style="padding-bottom:14px">凭证轮换（新旧短暂并存）由 outbound_secret / callback_secret 的加解密层 + 双值过渡期实现，表结构不展开历史。</div>
+  <div class="t-desc" style="padding-bottom:14px">出站 / 回调两类凭证落 <a href="#t-credential">app_credential</a> 表（加密存储；轮换并存 / 重置 / 即时失效，见 16 号表与《M0-04 凭证轮换存储方案》）。</div>
 </section>
 
 <!-- ============ 2. app_group ============ -->
@@ -370,12 +369,32 @@
   <div class="idx"><b>索引</b>：PK(id)，INDEX(enabled)</div>
 </section>
 
+<!-- ============ 16. app_credential ============ -->
+<section class="table" id="t-credential">
+  <div class="t-head"><span class="no">16</span><h2>应用凭证</h2><span class="en">app_credential</span></div>
+  <div class="t-desc">出站签名 / 回调验签两类凭证（加密存储）；轮换并存由 ACTIVE + ROTATING 双窗口承载——验签方向新旧并存、签名方向激活切换（见《M0-04 凭证轮换存储方案》）。</div>
+  <table class="f">
+    <tr><th style="width:22%">字段</th><th style="width:20%">类型</th><th style="width:14%">约束</th><th>说明</th></tr>
+    <tr><td class="c pk">id</td><td class="c">BIGINT</td><td>PK 自增</td><td>主键</td></tr>
+    <tr><td class="c ref">app_id</td><td class="c">VARCHAR(32)</td><td>NOT NULL</td><td>所属应用（删应用级联删凭证）</td></tr>
+    <tr><td class="c">kind</td><td class="c">VARCHAR(16)</td><td>NOT NULL</td><td>OUTBOUND 出站签名凭证 / CALLBACK 回调验签凭证</td></tr>
+    <tr><td class="c">credential</td><td class="c">TEXT</td><td>NOT NULL</td><td>凭证内容（AES-256-GCM 可逆加密；复合凭证 JSON 化，如 secretId+secretKey）</td></tr>
+    <tr><td class="c">status</td><td class="c">VARCHAR(16)</td><td>NOT NULL DEFAULT 'ACTIVE'</td><td>ACTIVE 当前使用 / ROTATING 轮换并存 / RETIRED 已失效</td></tr>
+    <tr><td class="c">activated_at</td><td class="c">DATETIME</td><td>NOT NULL</td><td>生效时间</td></tr>
+    <tr><td class="c">retired_at</td><td class="c">DATETIME</td><td></td><td>失效时间（即时失效或窗口结束）</td></tr>
+    <tr><td class="c">rotating_until</td><td class="c">DATETIME</td><td></td><td>ROTATING 并存窗口截止（默认 +24h，过期后读取路径惰性视为 RETIRED）</td></tr>
+    <tr><td class="c">created_at</td><td class="c">DATETIME</td><td>NOT NULL</td><td>创建时间</td></tr>
+  </table>
+  <div class="idx"><b>索引</b>：PK(id)，INDEX(app_id, kind, status)；应用层约束：每 (app_id, kind) 的 ACTIVE 与 ROTATING 各至多 1 条</div>
+</section>
+
 <!-- ============ 附录 A ============ -->
 <h3 class="apx">附录 A · 状态与枚举汇总</h3>
 <section class="table">
   <table class="f">
     <tr><th style="width:26%">枚举</th><th style="width:18%">取值</th><th>说明</th></tr>
     <tr><td class="c">app.status</td><td class="c">DRAFT / ENABLED / DISABLED / CANCELLED</td><td>草稿 → 启用 → 停用 → 注销</td></tr>
+    <tr><td class="c">app_credential.status</td><td class="c">ACTIVE / ROTATING / RETIRED</td><td>当前使用 / 轮换并存（过期惰性失效）/ 已失效</td></tr>
     <tr><td class="c">interface.if_type</td><td class="c">OUTBOUND / INBOUND</td><td>出站中转 / 入站回调</td></tr>
     <tr><td class="c">interface.status</td><td class="c">DRAFT / PUBLISHED / OFFLINE</td><td>草稿 → 发布 → 下线（下线停路由）</td></tr>
     <tr><td class="c">interface_param.side</td><td class="c">IN / OUT</td><td>入站侧（来源→平台）/ 出站侧（平台→目标）</td></tr>
@@ -400,7 +419,7 @@
     <tr><td class="c">apps[].appId / name / contact / desc</td><td class="c">app.app_id / name / contact / desc</td></tr>
     <tr><td class="c">apps[].authType（出站供应商签名）</td><td class="c">app.auth_adapter_id（原型存适配器名，落库转 id）</td></tr>
     <tr><td class="c">apps[].callbackAuthType（回调验签）</td><td class="c">app.callback_auth_adapter_id（原型存适配器名，落库转 id）</td></tr>
-    <tr><td class="c">apps[].secret（出站凭证）</td><td class="c">app.outbound_secret（回调凭证另存 callback_secret）</td></tr>
+    <tr><td class="c">apps[].secret（出站凭证）</td><td class="c">app_credential（kind = OUTBOUND / CALLBACK，加密存储）</td></tr>
     <tr><td class="c">apps[].baseUrl / ipWhitelist / ipBlacklist</td><td class="c">app.base_url / ip_whitelist / ip_blacklist</td></tr>
     <tr><td class="c">apps[].status / createTime / updateTime</td><td class="c">app.status / created_at / updated_at</td></tr>
     <tr><td class="c">apps[].groups[]（name + ifs[]）</td><td class="c">app_group（ifs 由 interface.group_id 反查）</td></tr>
@@ -425,7 +444,7 @@
     <tr><th style="width:26%">约定</th><th>内容</th></tr>
     <tr><td class="c">命名</td><td>小写下划线；业务标识沿用字符串码（app_id、interface.code、adapter.id），关联表用自增 BIGINT 外键</td></tr>
     <tr><td class="c">审计字段</td><td>配置类表 created_at / updated_at；运行类 append-only（状态流转表带 updated_at）</td></tr>
-    <tr><td class="c">凭证</td><td>凭证一律存 app.outbound_secret / callback_secret（加密存储、遮显回显、日志脱敏，永不落明文）；adapter.params 只存非凭证参数（算法 / 头名 / 容差等），避免双写</td></tr>
+    <tr><td class="c">凭证</td><td>凭证一律存 app_credential（加密存储、遮显回显、日志脱敏，永不落明文）；adapter.params 只存非凭证参数（算法 / 头名 / 容差等），避免双写</td></tr>
     <tr><td class="c">大字段</td><td>报文、参数 JSON、params 均用 CLOB / TEXT，不在关系列展开</td></tr>
     <tr><td class="c">状态机扫描</td><td>运行表统一 (status, next_retry_at) 复合索引，补偿 / 对账 worker 按此扫描</td></tr>
     <tr><td class="c">类型互斥</td><td>if_type 决定目标地址、鉴权角色、响应/ack 字段类型；切换类型时另一侧字段清空（应用层校验）</td></tr>

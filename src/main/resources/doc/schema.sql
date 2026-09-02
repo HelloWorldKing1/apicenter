@@ -1,6 +1,6 @@
 -- ============================================================
 -- API 中心（现行设计）· 建表脚本
--- 依据《表结构设计.html》生成，共 15 张表：配置类 10 + 运行类 5
+-- 依据《表结构设计.html》生成，共 16 张表：配置类 11 + 运行类 5
 -- 目标库：MySQL 8.0 InnoDB，字符集 utf8mb4
 -- 注意：与 doc_old/schema.sql（旧版 ERP demo 9 表）不是同一套，勿混用
 -- 不使用数据库外键约束：引用完整性由应用层保证，引用列均建索引（见各表）
@@ -13,15 +13,13 @@ CREATE DATABASE IF NOT EXISTS apicenter
 
 USE apicenter;
 
--- 01 应用（供应商）：出站签名凭证与回调验签凭证两类分离；鉴权/报文适配器按 id 引用 adapter 表
+-- 01 应用（供应商）：出站签名凭证与回调验签凭证两类分离（凭证落 16 号表 app_credential）；鉴权/报文适配器按 id 引用 adapter 表
 CREATE TABLE app (
     app_id                      VARCHAR(32)  PRIMARY KEY COMMENT '全局唯一应用标识（如 TENCENT-CLOUD）',
     name                        VARCHAR(64)  NOT NULL COMMENT '应用名称',
     contact                     VARCHAR(64)  COMMENT '联系人',
     auth_adapter_id             VARCHAR(16)  COMMENT '出站供应商签名适配器（NULL = 无鉴权）',
     callback_auth_adapter_id    VARCHAR(16)  COMMENT '回调验签适配器（NULL = 无鉴权），仅入站回调接口生效',
-    outbound_secret             VARCHAR(255) COMMENT '出站凭证（appSecret / secretId+secretKey / token），加密存储，永不回显明文',
-    callback_secret             VARCHAR(255) COMMENT '回调验签凭证（回调 HMAC secret / 云厂商回调 token），加密存储，独立于出站凭证',
     default_message_adapter_id  VARCHAR(16)  COMMENT '默认报文适配器（NULL = 平台默认）；接口级绑定可覆盖',
     base_url                    VARCHAR(255) COMMENT '服务地址（供应商 API 根地址，出站接口的上游路径拼于此）',
     ip_whitelist                VARCHAR(500) COMMENT '来源 IP 白名单（英文逗号分隔，空 = 不限制）',
@@ -251,12 +249,27 @@ CREATE TABLE alert_rule (
     KEY idx_alert_enabled (enabled)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='告警规则';
 
+-- 16 应用凭证：出站签名 / 回调验签两类；轮换并存由 ACTIVE + ROTATING 双窗口承载
+-- （验签方向新旧并存、签名方向激活切换，详见 doc/开发文档/M0-04凭证轮换存储方案.md）
+CREATE TABLE app_credential (
+    id             BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    app_id         VARCHAR(32)  NOT NULL COMMENT '所属应用',
+    kind           VARCHAR(16)  NOT NULL COMMENT 'OUTBOUND 出站签名凭证 / CALLBACK 回调验签凭证',
+    credential     TEXT         NOT NULL COMMENT '凭证内容（AES-256-GCM 可逆加密存储；复合凭证 JSON 化，如 {"secretId":..,"secretKey":..}）',
+    status         VARCHAR(16)  NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE 当前使用 / ROTATING 轮换并存 / RETIRED 已失效',
+    activated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '生效时间',
+    retired_at     DATETIME     COMMENT '失效时间（即时失效或窗口结束）',
+    rotating_until DATETIME     COMMENT 'ROTATING 并存窗口截止（默认 +24h；过期后读取路径惰性视为 RETIRED）',
+    created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_credential_app (app_id, kind, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='应用凭证（出站签名 / 回调验签，支持轮换并存）';
+
 -- ============================================================
 -- 删除策略约定（不设数据库外键，引用完整性由应用层保证）
 --   · 删适配器     → app.auth_adapter_id / callback_auth_adapter_id /
 --                    default_message_adapter_id、binding.adapter_id 置 NULL
 --                    （回退「无鉴权 / 平台默认」）
---   · 删应用       → 级联删其分组；存在接口时禁止删除（接口以「下线」为主）
+--   · 删应用       → 级联删其分组与凭证（app_credential）；存在接口时禁止删除（接口以「下线」为主）
 --   · 删接口       → 级联删 6 张配置子表（snapshot/param/body/mapping/field_def/binding）；
 --                    存在运行数据（outbound_request / inbound_delivery）时仅允许下线
 --   · 删接口       → call_log.interface_id 置 NULL（日志保留，可观测数据不丢）
