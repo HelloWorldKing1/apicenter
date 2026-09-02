@@ -98,11 +98,12 @@ class M1IntegrationTest {
         assertThat(cred.status()).isEqualTo("ACTIVE");
         assertThat(cred.fingerprint()).isEqualTo("oken"); // fastmoss-test-token 尾 4 位
 
-        // 接口定义（seed 导入或此前已存在；按 code 定位而非硬编码 id）
-        InterfaceResponse iface = interfaceService.list("fastmoss", null).stream()
+        // 接口定义（seed 导入或此前已存在；按 code 定位后取 detail——列表不带子表）
+        InterfaceResponse iface = interfaceService.detail(interfaceService.list("fastmoss", null).stream()
                 .filter(i -> "IF-FM-001".equals(i.code()))
                 .findFirst()
-                .orElseThrow();
+                .orElseThrow()
+                .id());
         assertThat(iface.code()).isEqualTo("IF-FM-001");
         assertThat(iface.ifType()).isEqualTo("OUTBOUND");
         assertThat(iface.status()).isEqualTo("PUBLISHED");

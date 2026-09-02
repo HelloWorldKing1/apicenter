@@ -115,8 +115,10 @@ public class SeedDataInitializer implements ApplicationRunner {
                 .noneMatch(v -> "OUTBOUND".equals(v.kind()) && "ACTIVE".equals(v.status()))) {
             return false;
         }
+        // 注意：列表接口不带子表，完整性需查 detail（参数 8 条 = IN 4 + OUT 4）
         return interfaceService.list("fastmoss", null).stream()
                 .filter(i -> "IF-FM-001".equals(i.code()))
+                .map(i -> interfaceService.detail(i.id()))
                 .anyMatch(i -> i.params().size() == 8);
     }
 

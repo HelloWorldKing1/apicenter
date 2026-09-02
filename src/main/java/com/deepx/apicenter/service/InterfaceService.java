@@ -74,7 +74,7 @@ public class InterfaceService {
             throw BizException.fieldInvalid("平台侧路径已存在：" + req.path());
         }
         validateBelong(req);
-        long id = interfaceRepository.insertAndGetId(toRow(req, "DRAFT", 1));
+        long id = interfaceRepository.insertAndGetId(toRow(req, "DRAFT", 1, 0));
         insertChildren(id, req);
         return id;
     }
@@ -92,7 +92,7 @@ public class InterfaceService {
             throw BizException.fieldInvalid("平台侧路径已存在：" + req.path());
         }
         // 全量替换 + 乐观锁：version 不匹配 → 0 行 → 冲突（M1 评审确认点 5）
-        int n = interfaceRepository.updateWithVersion(toRow(req, current.status(), req.version()));
+        int n = interfaceRepository.updateWithVersion(toRow(req, current.status(), req.version(), id));
         if (n == 0) {
             throw BizException.fieldInvalid("配置已被他人修改，请刷新后重试（乐观锁冲突）");
         }
@@ -248,11 +248,11 @@ public class InterfaceService {
                 .toList());
     }
 
-    private InterfaceRow toRow(InterfaceRequest req, String status, int version) {
+    private InterfaceRow toRow(InterfaceRequest req, String status, int version, long id) {
         String pin = req.protocolIn() == null || req.protocolIn().isBlank() ? "JSON" : req.protocolIn();
         String pout = req.protocolOut() == null || req.protocolOut().isBlank() ? "JSON" : req.protocolOut();
         return new InterfaceRow(
-                0, req.code(), req.name(), req.ifType(), req.method(), req.path(),
+                id, req.code(), req.name(), req.ifType(), req.method(), req.path(),
                 pin, pout, req.appId(), req.groupId(),
                 req.upstreamPath(), req.callbackUrl(), status, version,
                 req.timeoutMs() == null ? 3000 : req.timeoutMs(),
