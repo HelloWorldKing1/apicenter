@@ -10,7 +10,7 @@
         <el-button type="primary" @click="openCreate">＋ 新建接口</el-button>
       </div>
 
-      <el-table :data="ifaces" v-loading="loading">
+      <el-table :data="ifaces" v-loading="loading" @row-click="openDetail">
         <el-table-column prop="code" label="标识" width="130" />
         <el-table-column prop="name" label="名称" width="180" show-overflow-tooltip />
         <el-table-column label="类型" width="90">
@@ -33,9 +33,10 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+            <el-button link @click.stop="openDetail(row)">详情</el-button>
+            <el-button link type="primary" @click.stop="openEdit(row)">编辑</el-button>
             <el-button link type="success" v-if="['DRAFT','OFFLINE'].includes(row.status)"
                        @click="act(row, 'publish')">发布</el-button>
             <el-button link type="info" v-if="row.status === 'PUBLISHED'" @click="act(row, 'offline')">下线</el-button>
@@ -86,16 +87,19 @@
         <el-row :gutter="12">
           <el-col :span="8">
             <el-form-item label="入站协议">
-              <el-select v-model="form.protocolIn" style="width: 100%">
+              <el-select v-model="form.protocolIn" style="width: 100%" @change="onProtocolInChange">
                 <el-option v-for="p in ['JSON','XML']" :key="p" :label="p" :value="p" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="8">
             <el-form-item label="出站协议">
-              <el-select v-model="form.protocolOut" style="width: 100%">
-                <el-option v-for="p in ['JSON','XML']" :key="p" :label="p" :value="p" />
-              </el-select>
+              <div style="display: flex; align-items: center; gap: 8px">
+                <el-select v-model="form.protocolOut" :disabled="form.protoSame" style="flex: 1">
+                  <el-option v-for="p in ['JSON','XML']" :key="p" :label="p" :value="p" />
+                </el-select>
+                <el-switch v-model="form.protoSame" size="small" active-text="同入站" />
+              </div>
             </el-form-item>
           </el-col>
           <el-col :span="8">
@@ -145,6 +149,22 @@
             </el-form-item>
             <el-input v-if="['json','xml'].includes(form.inBodyType)" v-model="form.inBodyRaw" type="textarea" :rows="6"
                       placeholder="Body 模板（JSON/XML）" />
+            <template v-if="['form-data','x-www-form-urlencoded'].includes(form.inBodyType)">
+              <el-table :data="form.inFormRows" size="small">
+                <el-table-column label="键">
+                  <template #default="{ row }"><el-input v-model="row.key" size="small" /></template>
+                </el-table-column>
+                <el-table-column label="值">
+                  <template #default="{ row }"><el-input v-model="row.value" size="small" /></template>
+                </el-table-column>
+                <el-table-column width="60">
+                  <template #default="{ $index }">
+                    <el-button link type="danger" @click="form.inFormRows.splice($index, 1)">删</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+              <el-button size="small" style="margin-top: 8px" @click="form.inFormRows.push({ key: '', value: '' })">＋ 添加键值</el-button>
+            </template>
           </el-col>
           <el-col :span="12">
             <el-form-item label="出站 Body">
@@ -154,6 +174,22 @@
             </el-form-item>
             <el-input v-if="['json','xml'].includes(form.outBodyType)" v-model="form.outBodyRaw" type="textarea" :rows="6"
                       placeholder="Body 模板（JSON/XML）" />
+            <template v-if="['form-data','x-www-form-urlencoded'].includes(form.outBodyType)">
+              <el-table :data="form.outFormRows" size="small">
+                <el-table-column label="键">
+                  <template #default="{ row }"><el-input v-model="row.key" size="small" /></template>
+                </el-table-column>
+                <el-table-column label="值">
+                  <template #default="{ row }"><el-input v-model="row.value" size="small" /></template>
+                </el-table-column>
+                <el-table-column width="60">
+                  <template #default="{ $index }">
+                    <el-button link type="danger" @click="form.outFormRows.splice($index, 1)">删</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+              <el-button size="small" style="margin-top: 8px" @click="form.outFormRows.push({ key: '', value: '' })">＋ 添加键值</el-button>
+            </template>
           </el-col>
         </el-row>
 
@@ -161,7 +197,12 @@
         <el-divider content-position="left">字段映射（空 = 整体透传）</el-divider>
         <el-table :data="form.mappings" size="small">
           <el-table-column label="入站字段 source">
-            <template #default="{ row }"><el-input v-model="row.source" size="small" placeholder="default 时可空" /></template>
+            <template #default="{ row }">
+              <el-select v-model="row.source" size="small" clearable filterable allow-create
+                         placeholder="从入站参数选择（default 时可空）">
+                <el-option v-for="p in inParamNames" :key="p" :label="p" :value="p" />
+              </el-select>
+            </template>
           </el-table-column>
           <el-table-column label="操作 op" width="140">
             <template #default="{ row }">
@@ -171,7 +212,12 @@
             </template>
           </el-table-column>
           <el-table-column label="出站字段 target">
-            <template #default="{ row }"><el-input v-model="row.target" size="small" /></template>
+            <template #default="{ row }">
+              <el-select v-model="row.target" size="small" clearable filterable allow-create
+                         placeholder="从出站参数选择">
+                <el-option v-for="p in outParamNames" :key="p" :label="p" :value="p" />
+              </el-select>
+            </template>
           </el-table-column>
           <el-table-column label="操作参数 param" width="200">
             <template #default="{ row }">
@@ -249,6 +295,47 @@
         <el-button type="primary" @click="save">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 接口详情（原型详情页平移：基本信息 + 适配器链可视化） -->
+    <el-drawer v-model="detail.visible" :title="`接口详情 · ${detail.row.code || ''}`" size="640px">
+      <el-descriptions :column="2" border v-if="detail.row.id">
+        <el-descriptions-item label="名称" :span="2">{{ detail.row.name }}</el-descriptions-item>
+        <el-descriptions-item label="类型">
+          <el-tag size="small" :type="detail.row.ifType === 'OUTBOUND' ? 'primary' : 'success'">
+            {{ detail.row.ifType === 'OUTBOUND' ? '出站中转' : '入站回调' }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="状态">
+          <el-tag size="small" :type="detail.row.status === 'PUBLISHED' ? 'success' : 'info'">
+            {{ { DRAFT: '草稿', PUBLISHED: '已发布', OFFLINE: '下线' }[detail.row.status] }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="方法与路径" :span="2">{{ detail.row.method }} {{ detail.row.path }}</el-descriptions-item>
+        <el-descriptions-item label="归属">{{ detail.row.appName }} / {{ detail.row.groupName }}</el-descriptions-item>
+        <el-descriptions-item label="版本">v{{ detail.row.version }}</el-descriptions-item>
+        <el-descriptions-item label="上游路径" :span="2" v-if="detail.row.ifType === 'OUTBOUND'">{{ detail.row.upstreamPath }}</el-descriptions-item>
+        <el-descriptions-item label="回调地址" :span="2" v-else>{{ detail.row.callbackUrl }}</el-descriptions-item>
+        <el-descriptions-item label="超时 / 重试">{{ detail.row.timeoutMs }}ms / {{ detail.row.maxRetries }} 次</el-descriptions-item>
+        <el-descriptions-item label="创建时间">{{ (detail.row.createdAt || '').replace('T', ' ').slice(0, 19) }}</el-descriptions-item>
+        <el-descriptions-item label="描述" :span="2">{{ detail.row.desc || '—' }}</el-descriptions-item>
+      </el-descriptions>
+
+      <h4>适配器链（运行时，M0-01 六阶段）</h4>
+      <el-timeline>
+        <el-timeline-item v-for="s in chainSteps" :key="s.title" :timestamp="s.title" placement="top">
+          <div class="chain-desc">{{ s.desc }}</div>
+        </el-timeline-item>
+      </el-timeline>
+
+      <div class="detail-actions">
+        <el-button type="primary" @click="openEdit(detail.row)">编辑</el-button>
+        <el-button v-if="['DRAFT','OFFLINE'].includes(detail.row.status)" type="success"
+                   @click="act(detail.row, 'publish')">发布</el-button>
+        <el-button v-if="detail.row.status === 'PUBLISHED'" type="info"
+                   @click="act(detail.row, 'offline')">下线</el-button>
+        <el-button type="danger" @click="remove(detail.row)">删除</el-button>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -293,10 +380,11 @@ const form = reactive(emptyForm())
 function emptyForm() {
   return {
     code: '', name: '', ifType: 'OUTBOUND', method: 'POST', path: '',
-    protocolIn: 'JSON', protocolOut: 'JSON', appId: '', groupId: null,
+    protocolIn: 'JSON', protocolOut: 'JSON', protoSame: true, appId: '', groupId: null,
     upstreamPath: '', callbackUrl: '', status: null, timeoutMs: 3000, maxRetries: 4, desc: '',
     version: 1,
-    params: [], inBodyType: 'none', inBodyRaw: '', outBodyType: 'none', outBodyRaw: '',
+    params: [], inBodyType: 'none', inBodyRaw: '', inFormRows: [],
+    outBodyType: 'none', outBodyRaw: '', outFormRows: [],
     mappings: [], fieldDefs: [], messageAdapterId: null, authAdapterId: null
   }
 }
@@ -329,6 +417,17 @@ const outParams = computed({
   }
 })
 
+// 字段映射 source/target 下拉选项（原型：从两侧已配置参数选择）
+const inParamNames = computed(() => inParams.value.map((p) => p.name).filter(Boolean))
+const outParamNames = computed(() => outParams.value.map((p) => p.name).filter(Boolean))
+
+/** 协议联动（原型 protoSame）：「出站协议与入站协议一致」开关 */
+function onProtocolInChange() {
+  if (form.protoSame) {
+    form.protocolOut = form.protocolIn
+  }
+}
+
 function openCreate() {
   Object.assign(form, emptyForm())
   dialog.isEdit = false
@@ -341,12 +440,15 @@ async function openEdit(row) {
   const outBody = d.bodies?.find((b) => b.side === 'OUT')
   Object.assign(form, emptyForm(), {
     code: d.code, name: d.name, ifType: d.ifType, method: d.method, path: d.path,
-    protocolIn: d.protocolIn, protocolOut: d.protocolOut, appId: d.appId, groupId: d.groupId,
+    protocolIn: d.protocolIn, protocolOut: d.protocolOut, protoSame: d.protocolIn === d.protocolOut,
+    appId: d.appId, groupId: d.groupId,
     upstreamPath: d.upstreamPath || '', callbackUrl: d.callbackUrl || '',
     timeoutMs: d.timeoutMs, maxRetries: d.maxRetries, desc: d.desc, version: d.version,
     params: d.params.map((p) => ({ side: p.side, name: p.name, type: p.type, required: p.required, sample: p.sample, sortOrder: p.sortOrder })),
     inBodyType: inBody?.bodyType || 'none', inBodyRaw: inBody?.raw || '',
+    inFormRows: parseFormRows(inBody?.form),
     outBodyType: outBody?.bodyType || 'none', outBodyRaw: outBody?.raw || '',
+    outFormRows: parseFormRows(outBody?.form),
     mappings: d.mappings.map((m) => ({ source: m.source, op: m.op, target: m.target, param: m.param, nullStrategy: m.nullStrategy, sortOrder: m.sortOrder })),
     fieldDefs: d.fieldDefs.map((f) => ({ kind: f.kind, name: f.name, type: f.type, desc: f.desc, sortOrder: f.sortOrder })),
     messageAdapterId: d.bindings?.find((b) => b.role === 'MESSAGE')?.adapterId || null,
@@ -355,6 +457,16 @@ async function openEdit(row) {
   dialog.isEdit = true
   dialog.editId = d.id
   dialog.visible = true
+}
+
+/** form 键值对 JSON 字符串 ⇄ 行数组（后端 form 字段为 JSON 字符串） */
+function parseFormRows(json) {
+  try {
+    const arr = JSON.parse(json || '[]')
+    return Array.isArray(arr) ? arr.map(([key, value]) => ({ key, value })) : []
+  } catch {
+    return []
+  }
 }
 
 /** 类型切换：清空互斥字段（设计 §3.1 类型互斥字段按类型清空） */
@@ -378,8 +490,8 @@ function addFieldDef() {
 // ---------- 提交 ----------
 async function save() {
   const bodies = [
-    { side: 'IN', bodyType: form.inBodyType, raw: form.inBodyRaw, form: null },
-    { side: 'OUT', bodyType: form.outBodyType, raw: form.outBodyRaw, form: null }
+    { side: 'IN', bodyType: form.inBodyType, raw: form.inBodyRaw, form: toFormJson(form.inFormRows) },
+    { side: 'OUT', bodyType: form.outBodyType, raw: form.outBodyRaw, form: toFormJson(form.outFormRows) }
   ]
   const bindings = [
     { role: 'MESSAGE', adapterId: form.messageAdapterId, version: null },
@@ -406,9 +518,54 @@ async function save() {
   load()
 }
 
+function toFormJson(rows) {
+  return JSON.stringify((rows || []).filter((r) => r.key).map((r) => [r.key, r.value || '']))
+}
+
+// ---------- 接口详情（原型详情页 + 适配器链可视化） ----------
+const detail = reactive({ visible: false, row: {} })
+
+async function openDetail(row) {
+  detail.row = await http.get(`/interfaces/${row.id}`)
+  detail.visible = true
+}
+
+const chainSteps = computed(() => {
+  const d = detail.row
+  if (!d.id) return []
+  const messageBinding = d.bindings?.find((b) => b.role === 'MESSAGE')
+  const authBinding = d.bindings?.find((b) => b.role === 'AUTH' || b.role === 'CALLBACK_AUTH')
+  return [
+    {
+      title: '① 入站鉴权',
+      desc: d.ifType === 'OUTBOUND'
+        ? '调用方鉴权（平台统一，范围外）'
+        : `回调验签：${authBinding?.adapterId || '继承应用默认'}`
+    },
+    { title: '② 协议解码', desc: `入站协议 ${d.protocolIn}` },
+    { title: '③ 报文适配', desc: `报文适配器：${messageBinding?.adapterId || '继承应用默认'}` },
+    {
+      title: '④ 字段映射',
+      desc: (d.mappings?.length || 0) === 0
+        ? '无映射规则（整体透传）'
+        : `${d.mappings.length} 条映射规则（白名单输出）`
+    },
+    { title: '⑤ 协议编码', desc: `出站协议 ${d.protocolOut}` },
+    {
+      title: '⑥ 出站鉴权',
+      desc: d.ifType === 'OUTBOUND'
+        ? `供应商签名：${authBinding?.adapterId || '继承应用默认'}`
+        : '向回调地址签名（默认无）'
+    }
+  ]
+})
+
 async function act(row, action) {
   await http.post(`/interfaces/${row.id}/${action}`)
   ElMessage.success('操作成功')
+  if (detail.visible) {
+    detail.row = await http.get(`/interfaces/${row.id}`)
+  }
   load()
 }
 async function remove(row) {
@@ -422,4 +579,7 @@ async function remove(row) {
 <style scoped>
 .toolbar { display: flex; justify-content: space-between; margin-bottom: 14px; }
 .muted { color: #c0c4cc; font-size: 12px; }
+h4 { margin: 20px 0 10px; color: #303133; }
+.chain-desc { color: #606266; font-size: 13px; }
+.detail-actions { margin-top: 20px; display: flex; gap: 8px; }
 </style>

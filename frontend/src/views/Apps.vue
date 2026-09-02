@@ -46,19 +46,28 @@
           <el-input v-model="form.baseUrl" placeholder="供应商 API 根地址,如 https://openapi.fastmoss.com" />
         </el-form-item>
         <el-form-item label="供应商签名适配器">
-          <el-select v-model="form.authAdapterId" clearable placeholder="出站鉴权(应用级默认,接口可覆盖)">
-            <el-option v-for="a in authAdapters" :key="a.id" :label="`${a.name}（${a.impl}）`" :value="a.id" />
-          </el-select>
+          <div class="adapter-pick">
+            <el-select v-model="form.authAdapterId" clearable placeholder="出站鉴权(应用级默认,接口可覆盖)">
+              <el-option v-for="a in authAdapters" :key="a.id" :label="`${a.name}（${a.impl}）`" :value="a.id" />
+            </el-select>
+            <el-button size="small" @click="openInlineAdapter('auth', 'authAdapterId')">＋ 自定义</el-button>
+          </div>
         </el-form-item>
         <el-form-item label="回调验签适配器">
-          <el-select v-model="form.callbackAuthAdapterId" clearable placeholder="仅入站回调接口生效">
-            <el-option v-for="a in authAdapters" :key="a.id" :label="`${a.name}（${a.impl}）`" :value="a.id" />
-          </el-select>
+          <div class="adapter-pick">
+            <el-select v-model="form.callbackAuthAdapterId" clearable placeholder="仅入站回调接口生效">
+              <el-option v-for="a in authAdapters" :key="a.id" :label="`${a.name}（${a.impl}）`" :value="a.id" />
+            </el-select>
+            <el-button size="small" @click="openInlineAdapter('auth', 'callbackAuthAdapterId')">＋ 自定义</el-button>
+          </div>
         </el-form-item>
         <el-form-item label="默认报文适配器">
-          <el-select v-model="form.defaultMessageAdapterId" clearable placeholder="默认直通(Noop)">
-            <el-option v-for="a in messageAdapters" :key="a.id" :label="`${a.name}（${a.impl}）`" :value="a.id" />
-          </el-select>
+          <div class="adapter-pick">
+            <el-select v-model="form.defaultMessageAdapterId" clearable placeholder="默认直通(Noop)">
+              <el-option v-for="a in messageAdapters" :key="a.id" :label="`${a.name}（${a.impl}）`" :value="a.id" />
+            </el-select>
+            <el-button size="small" @click="openInlineAdapter('message', 'defaultMessageAdapterId')">＋ 自定义</el-button>
+          </div>
         </el-form-item>
         <el-form-item label="联系人"><el-input v-model="form.contact" /></el-form-item>
         <el-form-item label="QPS 限流">
@@ -78,6 +87,22 @@
       <template #footer>
         <el-button @click="dialog.visible = false">取消</el-button>
         <el-button type="primary" @click="save">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 内联创建适配器（原型「＋ 自定义鉴权适配器」平移，保存后回填下拉） -->
+    <el-dialog v-model="inlineDialog.visible" title="自定义适配器" width="560px" append-to-body>
+      <el-form label-width="120px">
+        <el-form-item label="适配器名称" required>
+          <el-input v-model="inlineDialog.name" placeholder="如 我的 Bearer Token" />
+        </el-form-item>
+        <el-form-item label="实现类与参数" required>
+          <AdapterParamsEditor v-model="inlineDialog.paramsModel" :impls="impls" :type="inlineDialog.type" style="width: 100%" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="inlineDialog.visible = false">取消</el-button>
+        <el-button type="primary" @click="saveInlineAdapter">保存并选用</el-button>
       </template>
     </el-dialog>
 
@@ -132,6 +157,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '@/api/http'
+import AdapterParamsEditor from '@/components/AdapterParamsEditor.vue'
 
 // ---------- 列表 ----------
 const apps = ref([])
@@ -139,6 +165,7 @@ const loading = ref(false)
 const keyword = ref('')
 const authAdapters = ref([])
 const messageAdapters = ref([])
+const impls = ref([])
 
 async function load() {
   loading.value = true
@@ -147,11 +174,51 @@ async function load() {
     const all = await http.get('/adapters')
     authAdapters.value = all.filter(a => a.type === 'auth' && a.enabled)
     messageAdapters.value = all.filter(a => a.type === 'message' && a.enabled)
+    impls.value = await http.get('/adapters/impls')
   } finally {
     loading.value = false
   }
 }
 onMounted(load)
+
+// ---------- 内联创建适配器（原型平移：保存为适配器并回填下拉） ----------
+const inlineDialog = reactive({
+  visible: false,
+  name: '',
+  type: 'auth',
+  targetField: 'authAdapterId',
+  paramsModel: { impl: '', params: {} }
+})
+
+function openInlineAdapter(type, targetField) {
+  inlineDialog.name = ''
+  inlineDialog.type = type
+  inlineDialog.targetField = targetField
+  inlineDialog.paramsModel = { impl: '', params: {} }
+  inlineDialog.visible = true
+}
+
+async function saveInlineAdapter() {
+  if (!inlineDialog.name || !inlineDialog.paramsModel.impl) {
+    ElMessage.warning('请填写适配器名称并选择实现类')
+    return
+  }
+  const payload = {
+    id: 'ADP-' + Date.now().toString().slice(-6),
+    name: inlineDialog.name,
+    type: inlineDialog.type,
+    impl: inlineDialog.paramsModel.impl,
+    enabled: true,
+    version: '1.0',
+    params: JSON.stringify(inlineDialog.paramsModel.params)
+  }
+  await http.post('/adapters', payload)
+  inlineDialog.visible = false
+  form[inlineDialog.targetField] = payload.id
+  ElMessage.success('已创建并选用')
+  load() // 刷新下拉选项（保留选中值：load 后重新设置）
+  // load() 会重拉列表但不会清空 form，选中值仍在
+}
 
 // ---------- 新建 / 编辑 ----------
 const dialog = reactive({ visible: false, isEdit: false, editingAppId: '' })
@@ -250,4 +317,6 @@ const statusType = (s) => ({ DRAFT: 'info', ENABLED: 'success', DISABLED: 'warni
 .toolbar { display: flex; justify-content: space-between; margin-bottom: 14px; }
 .cred-actions { margin-top: 14px; display: flex; gap: 8px; }
 h4 { margin: 20px 0 10px; color: #303133; }
+.adapter-pick { display: flex; width: 100%; }
+.adapter-pick .el-select { flex: 1; margin-right: 8px; }
 </style>

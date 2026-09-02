@@ -2,7 +2,7 @@
   <div>
     <el-card shadow="never">
       <div class="toolbar">
-        <el-radio-group v-model="filterType" @change="load">
+        <el-radio-group v-model="filterType" @change="onFilterChange">
           <el-radio-button value="">全部</el-radio-button>
           <el-radio-button value="auth">鉴权</el-radio-button>
           <el-radio-button value="protocol">协议</el-radio-button>
@@ -11,7 +11,7 @@
         <el-button type="primary" @click="openCreate">＋ 新建适配器</el-button>
       </div>
 
-      <el-table :data="adapters" v-loading="loading">
+      <el-table :data="paged" v-loading="loading">
         <el-table-column prop="id" label="标识" width="110" />
         <el-table-column prop="name" label="名称" width="180" />
         <el-table-column label="类型" width="90">
@@ -36,9 +36,15 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <!-- 分页（原型每页 5 条） -->
+      <div class="pager">
+        <el-pagination v-model:current-page="page" :page-size="PAGE_SIZE" :total="adapters.length"
+                       layout="total, prev, pager, next" @current-change="() => {}" />
+      </div>
     </el-card>
 
-    <!-- 新建 / 编辑（参数按 impl 元数据动态渲染，原型 ADAPTER_FIELDS 模式） -->
+    <!-- 新建 / 编辑（参数按 impl 元数据动态渲染，与内联创建共用编辑器组件） -->
     <el-dialog v-model="dialog.visible" :title="dialog.isEdit ? '编辑适配器' : '新建适配器'" width="620px">
       <el-form :model="form" label-width="150px">
         <el-form-item label="标识" required>
@@ -52,10 +58,8 @@
             <el-option label="报文 message" value="message" />
           </el-select>
         </el-form-item>
-        <el-form-item label="实现类" required>
-          <el-select v-model="form.impl" :disabled="dialog.isEdit" @change="onImplChange" style="width: 100%">
-            <el-option v-for="m in implOptions" :key="m.impl" :label="`${m.name}（${m.impl}）`" :value="m.impl" />
-          </el-select>
+        <el-form-item label="实现类与参数" required>
+          <AdapterParamsEditor v-model="paramsModel" :impls="impls" :type="form.type" style="width: 100%" />
         </el-form-item>
         <el-form-item label="版本">
           <el-input v-model="form.version" placeholder="默认 1.0" style="width: 160px" />
@@ -63,23 +67,6 @@
         <el-form-item label="启用">
           <el-switch v-model="form.enabled" />
         </el-form-item>
-
-        <!-- 参数动态表单 -->
-        <template v-if="currentMeta">
-          <el-divider content-position="left">参数配置（{{ currentMeta.name }}）</el-divider>
-          <el-form-item v-for="f in currentMeta.fields" :key="f.key" :label="f.label"
-                        :required="f.required">
-            <el-select v-if="f.kind === 'select'" v-model="params[f.key]" clearable style="width: 100%">
-              <el-option v-for="o in f.options" :key="o" :label="o" :value="o" />
-            </el-select>
-            <el-input-number v-else-if="f.kind === 'number'" v-model="params[f.key]" style="width: 100%" />
-            <el-switch v-else-if="f.kind === 'switch'" v-model="params[f.key]" />
-            <el-input v-else-if="f.kind === 'textarea'" v-model="params[f.key]" type="textarea" :rows="3" />
-            <el-input v-else-if="f.kind === 'codeMap'" v-model="params[f.key]" placeholder="上游码→平台码，逗号分隔" />
-            <el-input v-else-if="f.kind === 'secret'" disabled placeholder="凭证统一在应用凭证管理中配置" />
-            <el-input v-else v-model="params[f.key]" />
-          </el-form-item>
-        </template>
       </el-form>
       <template #footer>
         <el-button @click="dialog.visible = false">取消</el-button>
@@ -93,14 +80,23 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '@/api/http'
+import AdapterParamsEditor from '@/components/AdapterParamsEditor.vue'
+
+const PAGE_SIZE = 5 // 原型每页 5 条
 
 const adapters = ref([])
 const impls = ref([])
 const filterType = ref('')
 const loading = ref(false)
+const page = ref(1)
 const dialog = reactive({ visible: false, isEdit: false, editId: '' })
-const form = reactive({ id: '', name: '', type: 'auth', impl: '', version: '1.0', enabled: true })
-const params = reactive({})
+const form = reactive({ id: '', name: '', type: 'auth', version: '1.0', enabled: true })
+const paramsModel = ref({ impl: '', params: {} })
+
+const paged = computed(() => {
+  const start = (page.value - 1) * PAGE_SIZE
+  return adapters.value.slice(start, start + PAGE_SIZE)
+})
 
 async function load() {
   loading.value = true
@@ -113,38 +109,34 @@ async function load() {
 }
 onMounted(load)
 
-const implOptions = computed(() => impls.value.filter((m) => m.type === form.type))
-const currentMeta = computed(() => impls.value.find((m) => m.impl === form.impl))
+function onFilterChange() {
+  page.value = 1
+  load()
+}
 
 function openCreate() {
-  Object.assign(form, { id: '', name: '', type: 'auth', impl: '', version: '1.0', enabled: true })
-  clearParams()
+  Object.assign(form, { id: '', name: '', type: 'auth', version: '1.0', enabled: true })
+  paramsModel.value = { impl: '', params: {} }
   dialog.isEdit = false
   dialog.visible = true
 }
 function openEdit(row) {
-  Object.assign(form, { id: row.id, name: row.name, type: row.type, impl: row.impl, version: row.version, enabled: row.enabled })
-  clearParams()
+  Object.assign(form, { id: row.id, name: row.name, type: row.type, version: row.version, enabled: row.enabled })
+  let params = {}
   try {
-    Object.assign(params, JSON.parse(row.params || '{}'))
+    params = JSON.parse(row.params || '{}')
   } catch { /* 忽略非法历史数据 */ }
+  paramsModel.value = { impl: row.impl, params }
   dialog.isEdit = true
   dialog.editId = row.id
   dialog.visible = true
 }
-function clearParams() {
-  Object.keys(params).forEach((k) => delete params[k])
-}
 function onTypeChange() {
-  form.impl = ''
-  clearParams()
-}
-function onImplChange() {
-  clearParams()
+  paramsModel.value = { impl: '', params: {} }
 }
 
 async function save() {
-  const payload = { ...form, params: JSON.stringify(params) }
+  const payload = { ...form, impl: paramsModel.value.impl, params: JSON.stringify(paramsModel.value.params) }
   if (dialog.isEdit) {
     await http.put(`/adapters/${dialog.editId}`, payload)
   } else {
@@ -169,4 +161,5 @@ async function remove(row) {
 
 <style scoped>
 .toolbar { display: flex; justify-content: space-between; margin-bottom: 14px; }
+.pager { margin-top: 14px; display: flex; justify-content: flex-end; }
 </style>
