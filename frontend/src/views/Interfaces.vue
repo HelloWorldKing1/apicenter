@@ -414,11 +414,28 @@ const outParams = computed({
 const inParamNames = computed(() => inParams.value.map((p) => p.name).filter(Boolean))
 const outParamNames = computed(() => outParams.value.map((p) => p.name).filter(Boolean))
 
-/** 每侧 Body 状态（类型 / raw / form 键值行） */
+/**
+ * 每侧 Body 状态（类型 / raw / form 键值行）。
+ * 注意：必须用 getter/setter 代理写回 form——普通对象字面量会导致
+ * 模板内点击赋值只落在临时对象上（类型切换、raw 输入均失效）。
+ */
 function sideBody(side) {
-  return side === 'IN'
-    ? { type: form.inBodyType, raw: form.inBodyRaw, formRows: form.inFormRows }
-    : { type: form.outBodyType, raw: form.outBodyRaw, formRows: form.outFormRows }
+  const key = side === 'IN' ? 'in' : 'out'
+  return {
+    get type() {
+      return form[key + 'BodyType']
+    },
+    set type(v) {
+      form[key + 'BodyType'] = v
+    },
+    get raw() {
+      return form[key + 'BodyRaw']
+    },
+    set raw(v) {
+      form[key + 'BodyRaw'] = v
+    },
+    formRows: form[key + 'FormRows'] // 数组引用，行级增删直接生效
+  }
 }
 
 /** 协议联动（原型 protoSame） */
