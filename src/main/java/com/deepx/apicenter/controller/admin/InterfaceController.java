@@ -73,7 +73,7 @@ public class InterfaceController {
      * 失败分支（死信 / 补偿 / UNKNOWN）由全局异常处理返回对应错误信封（msg 含死信编号等诊断信息）。
      */
     @PostMapping("/{id}/test")
-    public ApiResult<Object> test(@PathVariable long id, @RequestBody(required = false) String body) {
+    public ApiResult<?> test(@PathVariable long id, @RequestBody(required = false) String body) {
         InterfaceRow iface = interfaceRepository.findById(id)
                 .orElseThrow(() -> BizException.ifaceNotFound(id));
         byte[] raw = body == null || body.isBlank()
