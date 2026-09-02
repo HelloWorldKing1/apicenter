@@ -33,3 +33,5 @@ build/
 .vscode/
 .DS_Store
 doc/error
+node_modules/
+dist/
