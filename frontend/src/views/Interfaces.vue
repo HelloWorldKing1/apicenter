@@ -117,8 +117,8 @@
 
             <!-- Params 子面板 -->
             <div v-if="reqTab[side] === 'params'">
-              <ParamTable v-if="side === 'IN'" v-model="inParams" />
-              <ParamTable v-else v-model="outParams" />
+              <ParamTable v-if="side === 'IN'" v-model="form.inParams" />
+              <ParamTable v-else v-model="form.outParams" />
             </div>
 
             <!-- Body 子面板 -->
@@ -377,7 +377,9 @@ function emptyForm() {
     protocolIn: 'JSON', protocolOut: 'JSON', protoSame: true, appId: '', groupId: null,
     upstreamPath: '', callbackUrl: '', status: null, timeoutMs: 3000, maxRetries: 4, desc: '',
     version: 1,
-    params: [], inBodyType: 'none', inBodyRaw: '', inFormRows: [],
+    // 入站/出站参数拆为两个真实数组（ParamTable 原地编辑需要引用直连；保存时组装 side）
+    inParams: [], outParams: [],
+    inBodyType: 'none', inBodyRaw: '', inFormRows: [],
     outBodyType: 'none', outBodyRaw: '', outFormRows: [],
     mappings: [], fieldDefs: [], messageAdapterId: null, authAdapterId: null
   }
@@ -397,22 +399,9 @@ const targetField = computed({
   }
 })
 
-// 入站 / 出站参数行的双向代理（模板内不能 v-model 到 filter() 表达式）
-const inParams = computed({
-  get: () => form.params.filter((p) => p.side === 'IN'),
-  set: (v) => {
-    form.params = [...form.params.filter((p) => p.side !== 'IN'), ...v.map((x) => ({ ...x, side: 'IN' }))]
-  }
-})
-const outParams = computed({
-  get: () => form.params.filter((p) => p.side === 'OUT'),
-  set: (v) => {
-    form.params = [...form.params.filter((p) => p.side !== 'OUT'), ...v.map((x) => ({ ...x, side: 'OUT' }))]
-  }
-})
-
-const inParamNames = computed(() => inParams.value.map((p) => p.name).filter(Boolean))
-const outParamNames = computed(() => outParams.value.map((p) => p.name).filter(Boolean))
+// 字段映射 source/target 下拉选项（原型：从两侧已配置参数选择）
+const inParamNames = computed(() => form.inParams.map((p) => p.name).filter(Boolean))
+const outParamNames = computed(() => form.outParams.map((p) => p.name).filter(Boolean))
 
 /**
  * 每侧 Body 状态（类型 / raw / form 键值行）。
@@ -464,7 +453,8 @@ async function openEdit(row) {
     appId: d.appId, groupId: d.groupId,
     upstreamPath: d.upstreamPath || '', callbackUrl: d.callbackUrl || '',
     timeoutMs: d.timeoutMs, maxRetries: d.maxRetries, desc: d.desc, version: d.version,
-    params: d.params.map((p) => ({ side: p.side, name: p.name, type: p.type, required: p.required, sample: p.sample, sortOrder: p.sortOrder })),
+    inParams: d.params.filter((p) => p.side === 'IN').map(toParamRow),
+    outParams: d.params.filter((p) => p.side === 'OUT').map(toParamRow),
     inBodyType: inBody?.bodyType || 'none', inBodyRaw: inBody?.raw || '',
     inFormRows: parseFormRows(inBody?.form),
     outBodyType: outBody?.bodyType || 'none', outBodyRaw: outBody?.raw || '',
@@ -480,6 +470,11 @@ async function openEdit(row) {
   dialog.isEdit = true
   dialog.editId = d.id
   dialog.visible = true
+}
+
+/** 后端参数行 → 表单行（去 side） */
+function toParamRow(p) {
+  return { name: p.name, type: p.type, required: p.required, sample: p.sample, sortOrder: p.sortOrder }
 }
 
 /** form 键值对 JSON 字符串 ⇄ 行数组（后端 form 字段为 JSON 字符串） */
@@ -525,13 +520,17 @@ async function save() {
       ? { role: 'AUTH', adapterId: form.authAdapterId, version: null }
       : { role: 'CALLBACK_AUTH', adapterId: form.authAdapterId, version: null }
   ]
+  const params = [
+    ...form.inParams.map((p, i) => ({ ...p, side: 'IN', sortOrder: p.sortOrder ?? i })),
+    ...form.outParams.map((p, i) => ({ ...p, side: 'OUT', sortOrder: p.sortOrder ?? i }))
+  ]
   const payload = {
     code: form.code, name: form.name, ifType: form.ifType, method: form.method, path: form.path,
     protocolIn: form.protocolIn, protocolOut: form.protocolOut, appId: form.appId, groupId: form.groupId,
     upstreamPath: form.ifType === 'OUTBOUND' ? form.upstreamPath : null,
     callbackUrl: form.ifType === 'INBOUND' ? form.callbackUrl : null,
     status: null, timeoutMs: form.timeoutMs, maxRetries: form.maxRetries, desc: form.desc,
-    version: form.version, params: form.params, bodies, mappings: form.mappings,
+    version: form.version, params, bodies, mappings: form.mappings,
     fieldDefs: form.fieldDefs, bindings
   }
   if (dialog.isEdit) {

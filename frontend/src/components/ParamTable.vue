@@ -1,6 +1,6 @@
 <template>
   <div>
-    <el-table :data="rows" size="small">
+    <el-table :data="modelValue" size="small">
       <el-table-column label="参数名">
         <template #default="s">
           <el-input v-model="s.row.name" size="small" placeholder="支持点号路径，如 filter.seller_id" />
@@ -23,34 +23,46 @@
           <el-input v-model="s.row.sample" size="small" />
         </template>
       </el-table-column>
-      <el-table-column width="70">
+      <el-table-column width="50">
         <template #default="s">
-          <el-button link type="danger" @click="del(s.$index)">删</el-button>
+          <el-button link type="danger" @click="del(s.$index)">×</el-button>
         </template>
       </el-table-column>
     </el-table>
-    <el-button size="small" style="margin-top: 8px" @click="add">＋ 添加参数</el-button>
+    <div v-if="modelValue.length === 0" class="empty-hint">暂无参数</div>
+    <el-button size="small" class="add-btn" @click="add">＋ 添加参数</el-button>
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue'
 
-// 参数行编辑组件：由父组件经 v-model 传入当前侧的参数行数组（原地编辑）
+// 参数行编辑组件：v-model 绑定父组件的**真实数组引用**（原地编辑，直接生效）。
+// 注意：不要在 setup 里缓存 props.modelValue——computed 代理下引用会失效；
+// 模板始终用 modelValue，行级增删由父组件的响应式数组承担。
 const props = defineProps({
   modelValue: { type: Array, default: () => [] }
 })
 const emit = defineEmits(['update:modelValue'])
 
 const types = ref(['string', 'number', 'boolean', 'object', 'array'])
-const rows = props.modelValue
 
 function add() {
-  rows.push({ name: '', type: 'string', required: false, sample: '', sortOrder: rows.length })
-  emit('update:modelValue', rows)
+  props.modelValue.push({ name: '', type: 'string', required: false, sample: '', sortOrder: props.modelValue.length })
+  emit('update:modelValue', props.modelValue)
 }
 function del(i) {
-  rows.splice(i, 1)
-  emit('update:modelValue', rows)
+  props.modelValue.splice(i, 1)
+  emit('update:modelValue', props.modelValue)
 }
 </script>
+
+<style scoped>
+.add-btn { margin-top: 8px; }
+.empty-hint {
+  text-align: center;
+  color: #c0c4cc;
+  font-size: 13px;
+  padding: 10px 0;
+}
+</style>
