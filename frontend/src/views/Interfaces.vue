@@ -115,6 +115,20 @@
               </div>
             </div>
 
+            <!-- 透传模式开关（仅出站接口的出站侧；透传 = 后端不做字段映射，出站报文原样转发） -->
+            <div v-if="side === 'OUT' && form.ifType === 'OUTBOUND'" class="passthrough-bar">
+              <span class="side-desc">转发方式</span>
+              <el-radio-group v-model="form.passthrough" size="small">
+                <el-radio-button :value="true">透传（出站 = 入站原样）</el-radio-button>
+                <el-radio-button :value="false">自定义映射</el-radio-button>
+              </el-radio-group>
+            </div>
+
+            <!-- 透传模式：出站侧编辑区整体隐藏 -->
+            <div v-if="side === 'OUT' && form.passthrough" class="empty-hint">
+              透传模式：出站报文 = 入站报文原样转发，无需配置出站侧参数；字段映射不生效
+            </div>
+            <template v-else>
             <!-- Params 子面板 -->
             <div v-if="reqTab[side] === 'params'">
               <ParamTable v-if="side === 'IN'" v-model="form.inParams" />
@@ -147,11 +161,16 @@
                 <el-button size="small" class="add-btn" @click="sideBody(side).formRows.push({ key: '', value: '' })">＋ 添加</el-button>
               </template>
             </div>
+            </template>
           </div>
         </el-tab-pane>
 
         <!-- ===== Tab 2 字段映射（入站 → 出站，下拉 + 中文操作，照原型） ===== -->
         <el-tab-pane label="字段映射" name="mappings">
+          <div v-if="form.passthrough" class="empty-hint">
+            透传模式下后端不进行字段映射；如需映射，请在「请求参数 → 出站侧」切换为自定义映射
+          </div>
+          <template v-else>
           <div class="side-desc" style="margin-bottom: 8px">规则为空 = 整体透传；非空 = 仅输出 target 命中字段（白名单）</div>
           <el-table :data="form.mappings" size="small">
             <el-table-column label="入站字段">
@@ -203,6 +222,7 @@
           </el-table>
           <div v-if="form.mappings.length === 0" class="empty-hint">暂无映射，点下方「＋ 添加映射」</div>
           <el-button size="small" class="add-btn" @click="addMapping">＋ 添加映射</el-button>
+          </template>
         </el-tab-pane>
 
         <!-- ===== Tab 3 响应 · ack（按类型互斥展示） ===== -->
@@ -405,6 +425,8 @@ function emptyForm() {
     protocolIn: 'JSON', protocolOut: 'JSON', protoSame: true, appId: '', groupId: null,
     upstreamPath: '', callbackUrl: '', status: null, timeoutMs: 3000, maxRetries: 4, desc: '',
     version: 1,
+    // 透传模式（仅出站接口）：出站报文 = 入站原样转发，后端不做字段映射（提交空映射规则）
+    passthrough: true,
     // 入站/出站参数拆为两个真实数组（ParamTable 原地编辑需要引用直连；保存时组装 side）
     inParams: [], outParams: [],
     inBodyType: 'none', inBodyRaw: '', inFormRows: [],
@@ -481,6 +503,7 @@ async function openEdit(row) {
     appId: d.appId, groupId: d.groupId,
     upstreamPath: d.upstreamPath || '', callbackUrl: d.callbackUrl || '',
     timeoutMs: d.timeoutMs, maxRetries: d.maxRetries, desc: d.desc, version: d.version,
+    passthrough: (d.mappings?.length || 0) === 0, // 回显推断：无映射规则 = 透传模式
     inParams: d.params.filter((p) => p.side === 'IN').map(toParamRow),
     outParams: d.params.filter((p) => p.side === 'OUT').map(toParamRow),
     inBodyType: inBody?.bodyType || 'none', inBodyRaw: inBody?.raw || '',
@@ -548,9 +571,11 @@ async function save() {
       ? { role: 'AUTH', adapterId: form.authAdapterId, version: null }
       : { role: 'CALLBACK_AUTH', adapterId: form.authAdapterId, version: null }
   ]
+  // 透传模式（仅出站接口）：提交空映射规则、清空出站侧参数（后端零映射直通）
+  const passthrough = form.ifType === 'OUTBOUND' && form.passthrough
   const params = [
     ...form.inParams.map((p, i) => ({ ...p, side: 'IN', sortOrder: p.sortOrder ?? i })),
-    ...form.outParams.map((p, i) => ({ ...p, side: 'OUT', sortOrder: p.sortOrder ?? i }))
+    ...(passthrough ? [] : form.outParams.map((p, i) => ({ ...p, side: 'OUT', sortOrder: p.sortOrder ?? i })))
   ]
   const payload = {
     code: form.code, name: form.name, ifType: form.ifType, method: form.method, path: form.path,
@@ -558,7 +583,7 @@ async function save() {
     upstreamPath: form.ifType === 'OUTBOUND' ? form.upstreamPath : null,
     callbackUrl: form.ifType === 'INBOUND' ? form.callbackUrl : null,
     status: null, timeoutMs: form.timeoutMs, maxRetries: form.maxRetries, desc: form.desc,
-    version: form.version, params, bodies, mappings: form.mappings,
+    version: form.version, params, bodies, mappings: passthrough ? [] : form.mappings,
     fieldDefs: form.fieldDefs, bindings
   }
   if (dialog.isEdit) {
@@ -720,6 +745,15 @@ h4 { margin: 20px 0 10px; color: #303133; }
   border-radius: 6px;
   padding: 10px 12px;
   margin-bottom: 12px;
+}
+.passthrough-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 6px 10px;
+  background: #f5f6fa;
+  border-radius: 4px;
 }
 .side-head {
   display: flex;
