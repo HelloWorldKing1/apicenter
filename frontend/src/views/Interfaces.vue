@@ -599,30 +599,29 @@ h4 { margin: 20px 0 10px; color: #303133; }
   display: flex;
   align-items: center;
   gap: 10px;
-  background: #1F2739;
+  background: #F5F6FA;
+  border: 1px solid #E8EAF0;
   border-radius: 8px;
   padding: 10px 14px;
   margin-bottom: 14px;
 }
 .request-bar .method-select { width: 110px; }
 .request-bar .method-select :deep(.el-select__wrapper) {
-  background: transparent;
-  box-shadow: none;
+  background: #fff;
 }
 .request-bar .method-select :deep(.el-select__selected-item) {
-  color: #fff;
+  color: #303133;
   font-weight: 700;
   letter-spacing: 0.5px;
 }
 .request-bar .path-input,
 .request-bar .target-input { flex: 1; }
 .request-bar :deep(.el-input__wrapper) {
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: none;
+  background: #fff;
   border-radius: 4px;
 }
 .request-bar :deep(.el-input__inner) {
-  color: #e8eaf0;
+  color: #303133;
   font-family: 'SF Mono', Menlo, Consolas, monospace;
 }
 .request-bar .arrow { color: #FF6C37; font-weight: 700; font-size: 16px; }
