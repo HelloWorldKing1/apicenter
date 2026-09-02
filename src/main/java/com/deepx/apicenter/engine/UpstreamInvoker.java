@@ -47,7 +47,9 @@ public class UpstreamInvoker {
             throw new HttpServerErrorException(resp.getStatusCode(), "上游 5xx");
         }
         if (resp.getStatusCode().value() == 429) {
-            throw new TooManyRequests("上游 429 限流", resp.getHeaders(), new byte[0], null);
+            // Spring 7 子类构造器私有化：经静态工厂创建（按状态码返回 TooManyRequests 实例）
+            throw org.springframework.web.client.HttpClientErrorException.create(
+                    resp.getStatusCode(), "上游 429 限流", resp.getHeaders(), new byte[0], null);
         }
         return resp; // 2xx 与 4xx 非 429 直接返回，由 OutboundEngine 分类
     }
