@@ -15,7 +15,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
-import org.springframework.retry.RetryExhaustedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
@@ -95,19 +94,21 @@ public class OutboundEngine {
         try {
             return doInvoke(recordId, iface, body, traceId);
         } catch (BizException e) {
-            throw e; // 链失败不污染状态机
-        } catch (RetryExhaustedException e) {
-            // 短重试耗尽：分类（M0-03 异常映射表）
-            Throwable cause = e.getCause();
-            if (UpstreamInvoker.isUnknownCause(cause)) {
-                outboundRequestRepository.updateState(recordId, "UNKNOWN", null, null, null, "50401");
-                log.info("出站请求 {} 结果不确定（读超时/连接异常）→ UNKNOWN 待对账", recordId);
-                throw new BizException(50401, "上游超时，结果待对账（UNKNOWN）");
-            }
+            throw e; // 链失败不污染状态机（M0-01 D7）
+        } catch (org.springframework.web.client.ResourceAccessException e) {
+            // 读超时/连接异常（@Retryable 重试耗尽后透传原异常）→ 结果不确定 → UNKNOWN 对账（M0-03 §3.1）
+            outboundRequestRepository.updateState(recordId, "UNKNOWN", null, null, null, "50401");
+            log.info("出站请求 {} 结果不确定（读超时/连接异常）→ UNKNOWN 待对账", recordId);
+            throw new BizException(50401, "上游超时，结果待对账（UNKNOWN）");
+        } catch (org.springframework.web.client.HttpClientErrorException.TooManyRequests e) {
             LocalDateTime next = LocalDateTime.now().plusSeconds(3);
-            outboundRequestRepository.updateState(recordId, "COMPENSATING", null, null, next,
-                    cause instanceof org.springframework.web.client.HttpClientErrorException.TooManyRequests ? "42903" : "50201");
-            log.info("出站请求 {} 重试耗尽 → COMPENSATING，补偿 worker 兜底", recordId);
+            outboundRequestRepository.updateState(recordId, "COMPENSATING", null, null, next, "42903");
+            log.info("出站请求 {} 重试耗尽（429）→ COMPENSATING，补偿 worker 兜底", recordId);
+            throw new BizException(50201, "上游暂时不可用，已进入补偿队列");
+        } catch (org.springframework.web.client.HttpServerErrorException e) {
+            LocalDateTime next = LocalDateTime.now().plusSeconds(3);
+            outboundRequestRepository.updateState(recordId, "COMPENSATING", null, null, next, "50201");
+            log.info("出站请求 {} 重试耗尽（5xx）→ COMPENSATING，补偿 worker 兜底", recordId);
             throw new BizException(50201, "上游暂时不可用，已进入补偿队列");
         } catch (Exception e) {
             log.error("出站请求 {} 执行异常", recordId, e);
@@ -128,12 +129,12 @@ public class OutboundEngine {
 
         // 状态 MAPPING → 调上游
         outboundRequestRepository.updateState(recordId, "MAPPING", null, null, null, null);
-        UpstreamInvoker.MAX_ATTEMPTS.set(iface.maxRetries() + 1);
+        UpstreamInvoker.MAX_RETRIES.set((long) iface.maxRetries());
         ResponseEntity<byte[]> resp;
         try {
             resp = upstreamInvoker.invoke(ctx.outbound());
         } finally {
-            UpstreamInvoker.MAX_ATTEMPTS.remove();
+            UpstreamInvoker.MAX_RETRIES.remove();
         }
         return classify(recordId, iface, resp);
     }
