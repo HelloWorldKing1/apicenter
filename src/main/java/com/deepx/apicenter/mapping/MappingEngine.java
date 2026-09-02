@@ -84,7 +84,12 @@ public class MappingEngine {
                 default -> throw BizException.fieldInvalid("非法映射操作：" + op);
             }
         } catch (TypeRegistry.TypeCastException e) {
-            applyNullStrategy(out, rule); // 转换失败按 null_strategy（M0-02 D7）
+            // 转换失败按 null_strategy（M0-02 D7）；KEEP 语义 = 写源值原样（与 null 触发的 KEEP 写 null 区分）
+            if ("KEEP".equals(rule.nullStrategy())) {
+                out.set(rule.target(), src.get());
+            } else {
+                applyNullStrategy(out, rule);
+            }
         }
     }
 

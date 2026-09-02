@@ -45,9 +45,20 @@ class MappingEngineTest {
         return engine.apply(inbound(), List.of(rule));
     }
 
-    /** 取 target 值（缺失 → null 信号） */
+    /**
+     * 取 target 值（缺失 → "__ABSENT__" 信号）。
+     * 注意：不能用 model.get()——契约把 NULL 标量视为「不存在」，
+     * 而 KEEP 策略写的就是 null 节点，需区分「写了 null」与「没写」。
+     */
     private Object value(UnifiedModel out, String target) {
-        return out.get(target).map(n -> ((UnifiedModel.ScalarNode) n).value()).orElse("__ABSENT__");
+        if (out.root() instanceof UnifiedModel.ObjectNode obj) {
+            UnifiedModel.UNode n = obj.fields().get(target);
+            if (n == null) {
+                return "__ABSENT__";
+            }
+            return n instanceof UnifiedModel.ScalarNode s ? s.value() : n;
+        }
+        return "__ABSENT__";
     }
 
     // ---------- 24 例矩阵（M0-02 §9） ----------
@@ -151,8 +162,9 @@ class MappingEngineTest {
                 rule("epochSec", "typeCast", "t1", "DATE", "KEEP"),
                 rule("epochMs", "typeCast", "t2", "DATE", "KEEP"),
                 rule("iso", "typeCast", "t3", "DATE", "KEEP")));
-        assertThat((String) value(out, "t1")).startsWith("2026-09-02");
-        assertThat((String) value(out, "t2")).startsWith("2026-09-02");
+        // 同一时刻的秒/毫秒 epoch 输出应一致（UTC 输出）；ISO 输入原样输出
+        assertThat((String) value(out, "t1")).isEqualTo((String) value(out, "t2"));
+        assertThat((String) value(out, "t1")).startsWith("2026-09-01");
         assertThat((String) value(out, "t3")).isEqualTo("2026-09-02T10:00:00");
     }
 
@@ -174,6 +186,7 @@ class MappingEngineTest {
         inner.put("seller_id", UnifiedModel.ScalarNode.str("7494312521977267257"));
         LinkedHashMap<String, UnifiedModel.UNode> fields = new LinkedHashMap<>();
         fields.put("filter", new UnifiedModel.ObjectNode(inner, Map.of()));
+        fields.put("a", UnifiedModel.ScalarNode.str("1"));
         UnifiedModel in = UnifiedModel.of(new UnifiedModel.ObjectNode(fields, Map.of()));
         UnifiedModel out = engine.apply(in, List.of(rule("a", "condition", "t",
                 "filter_seller_id == '7494312521977267257'", "KEEP")));
