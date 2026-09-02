@@ -124,8 +124,8 @@
               </el-radio-group>
             </div>
 
-            <!-- 透传模式：出站侧编辑区整体隐藏 -->
-            <div v-if="side === 'OUT' && form.passthrough" class="empty-hint">
+            <!-- 透传模式：出站侧编辑区整体隐藏（仅出站接口生效，入站回调的送达报文不受影响） -->
+            <div v-if="side === 'OUT' && form.ifType === 'OUTBOUND' && form.passthrough" class="empty-hint">
               透传模式：出站报文 = 入站报文原样转发，无需配置出站侧参数；字段映射不生效
             </div>
             <template v-else>
@@ -167,7 +167,7 @@
 
         <!-- ===== Tab 2 字段映射（入站 → 出站，下拉 + 中文操作，照原型） ===== -->
         <el-tab-pane label="字段映射" name="mappings">
-          <div v-if="form.passthrough" class="empty-hint">
+          <div v-if="form.ifType === 'OUTBOUND' && form.passthrough" class="empty-hint">
             透传模式下后端不进行字段映射；如需映射，请在「请求参数 → 出站侧」切换为自定义映射
           </div>
           <template v-else>
