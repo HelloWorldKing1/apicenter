@@ -401,15 +401,26 @@ const apps = ref([])
 const groups = ref([])
 const adapters = ref([])
 const filterApp = ref('')
+const filterGroup = ref(null)
+const filterType = ref('')
+const filterStatus = ref('')
+const filterKeyword = ref('')
 const loading = ref(false)
 
 const authAdapters = computed(() => adapters.value.filter((a) => a.type === 'auth' && a.enabled))
 const messageAdapters = computed(() => adapters.value.filter((a) => a.type === 'message' && a.enabled))
+const filterGroups = computed(() => groups.value.filter((g) => g.appId === filterApp.value))
 
 async function load() {
   loading.value = true
   try {
-    ifaces.value = await http.get('/interfaces', { params: { appId: filterApp.value || undefined } })
+    ifaces.value = await http.get('/interfaces', { params: {
+      appId: filterApp.value || undefined,
+      groupId: filterGroup.value || undefined,
+      ifType: filterType.value || undefined,
+      status: filterStatus.value || undefined,
+      keyword: filterKeyword.value || undefined
+    }})
     apps.value = await http.get('/apps')
     groups.value = await http.get('/groups')
     adapters.value = await http.get('/adapters')
@@ -425,6 +436,12 @@ onMounted(async () => {
     openDetail({ id })
   }
 })
+
+/** 应用变化 → 清空分组并重查 */
+function onFilterAppChange() {
+  filterGroup.value = null
+  load()
+}
 
 // ---------- 表单 ----------
 const dialog = reactive({ visible: false, isEdit: false, editId: 0 })
