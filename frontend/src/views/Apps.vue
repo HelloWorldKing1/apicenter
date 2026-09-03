@@ -26,6 +26,12 @@
         <el-table-column label="分组 / 接口" width="110">
           <template #default="{ row }">{{ row.groupCount }} / {{ row.ifaceCount }}</template>
         </el-table-column>
+        <el-table-column label="创建时间" width="170">
+          <template #default="{ row }">{{ fmtTime(row.createdAt) }}</template>
+        </el-table-column>
+        <el-table-column label="修改时间" width="170">
+          <template #default="{ row }">{{ fmtTime(row.updatedAt) }}</template>
+        </el-table-column>
         <el-table-column label="操作" width="200">
           <template #default="{ row }">
             <el-button link type="primary" @click.stop="openEdit(row)">编辑</el-button>
@@ -369,6 +375,8 @@ async function saveCred() {
 // ---------- 展示辅助 ----------
 const statusText = (s) => ({ DRAFT: '草稿', ENABLED: '启用', DISABLED: '停用', CANCELLED: '注销' }[s] || s)
 const statusType = (s) => ({ DRAFT: 'info', ENABLED: 'success', DISABLED: 'warning', CANCELLED: 'info' }[s] || 'info')
+/** 时间格式化：ISO → 年月日时分秒 */
+const fmtTime = (t) => (t ? t.replace('T', ' ').slice(0, 19) : '—')
 </script>
 
 <style scoped>

@@ -24,7 +24,7 @@
       </div>
 
       <el-table :data="ifaces" v-loading="loading" @row-click="openDetail">
-        <el-table-column prop="code" label="标识" width="130" />
+        <el-table-column prop="code" label="标识" width="180" />
         <el-table-column prop="name" label="名称" width="180" show-overflow-tooltip />
         <el-table-column label="类型" width="90">
           <template #default="{ row }">
@@ -39,7 +39,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="path" label="平台侧路径" show-overflow-tooltip />
-        <el-table-column label="协议" width="110">
+        <el-table-column label="协议" width="140">
           <template #default="{ row }">{{ row.protocolIn }}→{{ row.protocolOut }}</template>
         </el-table-column>
         <el-table-column prop="appName" label="应用" width="130" show-overflow-tooltip />
