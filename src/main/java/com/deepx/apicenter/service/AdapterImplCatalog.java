@@ -60,7 +60,7 @@ public class AdapterImplCatalog {
                     f("envelope", "业务数据容器", "text", true, null, "如 data（上游业务内容所在字段，会放入平台响应的 data）"),
                     f("codeField", "上游状态码字段", "text", true, null, "如 code"),
                     f("successValue", "成功值", "text", true, null, "如 0，上游状态码等于它即业务成功"),
-                    f("codeMappings", "错误码映射", "codeMap", false, null, "上游错误码 → 平台错误码，如 1001→50201"),
+                    f("codeMappings", "错误码映射", "codeMap", false, null, "可多条，逗号/换行分隔：如 1001→50201, 1002→50401"),
                     f("messageField", "消息字段", "text", false, null, "如 message，失败时透传为平台响应的 msg"),
                     f("defaultErrorCode", "兜底错误码", "text", false, null, "如 50201，上游失败码未命中映射时使用"))),
             new ImplMeta("HeaderMappingAdapter", "message", "报文头映射", List.of(

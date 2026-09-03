@@ -95,8 +95,8 @@ public class EnvelopeMessageAdapter implements Adapter {
         if (node.isObject()) {
             node.properties().forEach(e -> mappings.put(e.getKey(), e.getValue().asText()));
         } else if (node.isTextual()) {
-            // 兼容逗号对格式：FROM→TO, FROM2→TO2
-            for (String pair : node.asText().split(",")) {
+            // 兼容多条分隔（逗号或换行均可）：FROM→TO, FROM2→TO2
+            for (String pair : node.asText().split("[,\\n]")) {
                 String[] kv = pair.trim().split("→");
                 if (kv.length == 2) {
                     mappings.put(kv[0].trim(), kv[1].trim());
