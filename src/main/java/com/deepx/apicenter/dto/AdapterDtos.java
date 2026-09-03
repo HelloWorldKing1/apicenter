@@ -37,7 +37,7 @@ public final class AdapterDtos {
     }
 
     /** impl 元数据：管理面据此动态渲染参数表单（原型 ADAPTER_FIELDS 模式） */
-    public record ImplField(String key, String label, String kind, boolean required, List<String> options) {
+    public record ImplField(String key, String label, String kind, boolean required, List<String> options, String hint) {
     }
 
     /** impl 元数据条目 */

@@ -17,15 +17,18 @@
     <template v-if="currentMeta">
       <el-form-item v-for="f in currentMeta.fields" :key="f.key" :label="f.label" :required="f.required"
                     style="margin-top: 12px">
-        <el-select v-if="f.kind === 'select'" v-model="modelValue.params[f.key]" clearable style="width: 100%">
-          <el-option v-for="o in f.options" :key="o" :label="o" :value="o" />
-        </el-select>
-        <el-input-number v-else-if="f.kind === 'number'" v-model="modelValue.params[f.key]" style="width: 100%" />
-        <el-switch v-else-if="f.kind === 'switch'" v-model="modelValue.params[f.key]" />
-        <el-input v-else-if="f.kind === 'textarea'" v-model="modelValue.params[f.key]" type="textarea" :rows="3" />
-        <el-input v-else-if="f.kind === 'codeMap'" v-model="modelValue.params[f.key]" placeholder="上游码→平台码，逗号分隔" />
-        <el-input v-else-if="f.kind === 'secret'" disabled placeholder="凭证值请到「应用管理 → 点击应用 → 凭证」中维护" />
-        <el-input v-else v-model="modelValue.params[f.key]" />
+        <div style="width: 100%">
+          <el-select v-if="f.kind === 'select'" v-model="modelValue.params[f.key]" clearable style="width: 100%">
+            <el-option v-for="o in f.options" :key="o" :label="o" :value="o" />
+          </el-select>
+          <el-input-number v-else-if="f.kind === 'number'" v-model="modelValue.params[f.key]" style="width: 100%" />
+          <el-switch v-else-if="f.kind === 'switch'" v-model="modelValue.params[f.key]" />
+          <el-input v-else-if="f.kind === 'textarea'" v-model="modelValue.params[f.key]" type="textarea" :rows="3" />
+          <el-input v-else-if="f.kind === 'codeMap'" v-model="modelValue.params[f.key]" placeholder="上游码→平台码，逗号分隔" />
+          <el-input v-else-if="f.kind === 'secret'" disabled placeholder="凭证值请到「应用管理 → 点击应用 → 凭证」中维护" />
+          <el-input v-else v-model="modelValue.params[f.key]" />
+          <div v-if="f.hint" class="f-hint">{{ f.hint }}</div>
+        </div>
       </el-form-item>
     </template>
   </div>
@@ -71,5 +74,11 @@ function onImplChange(impl) {
   background: rgba(59, 76, 143, 0.08);
   padding: 0 3px;
   border-radius: 3px;
+}
+.f-hint {
+  font-size: 12px;
+  color: #a0a4ab;
+  line-height: 1.5;
+  margin-top: 3px;
 }
 </style>
