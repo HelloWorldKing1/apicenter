@@ -652,9 +652,9 @@ async function openDetail(row) {
   detail.visible = true
 }
 
-// ---------- 一键复制路径（方法 + 平台侧路径，即接口路由标识） ----------
+// ---------- 一键复制完整 URL（方法 + host + 平台侧路径；生产同源部署时 host 即后端地址） ----------
 async function copyPath() {
-  const text = `${detail.row.method} ${detail.row.path}`
+  const text = `${detail.row.method} ${window.location.origin}${detail.row.path}`
   try {
     await navigator.clipboard.writeText(text)
     ElMessage.success('已复制：' + text)
