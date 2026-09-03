@@ -8,6 +8,7 @@ import com.deepx.apicenter.dto.CredentialDtos.ResetRequest;
 import com.deepx.apicenter.dto.CredentialDtos.UpdateRequest;
 import com.deepx.apicenter.service.CredentialService;
 import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -69,6 +70,13 @@ public class CredentialController {
     @PostMapping("/{id}/retire")
     public ApiResult<String> retire(@PathVariable String appId, @PathVariable long id) {
         return ApiResult.ok(credentialService.retire(appId, id));
+    }
+
+    /** 删除已失效凭证（仅 RETIRED 可删；ACTIVE/ROTATING 受保护） */
+    @DeleteMapping("/{id}")
+    public ApiResult<Void> delete(@PathVariable String appId, @PathVariable long id) {
+        credentialService.delete(appId, id);
+        return ApiResult.ok();
     }
 
     /** 完成轮换（ROTATING → RETIRED 提前收尾） */

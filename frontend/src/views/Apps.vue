@@ -170,7 +170,8 @@
           <template #default="{ row }">
             <el-button v-if="row.status === 'ROTATING'" link type="primary" @click="activate(row)">激活</el-button>
             <el-button v-if="row.status === 'ROTATING'" link type="success" @click="finishRotation(row)">完成轮换</el-button>
-            <el-button link type="danger" @click="retire(row)">失效</el-button>
+            <el-button v-if="row.status !== 'RETIRED'" link type="danger" @click="retire(row)">失效</el-button>
+            <el-button v-else link type="danger" @click="removeCred(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -330,6 +331,12 @@ async function retire(cred) {
   const warning = await http.post(`/apps/${detail.row.appId}/credentials/${cred.id}/retire`)
   if (warning) ElMessage.warning(warning)
   else ElMessage.success('已失效')
+  openDetail(detail.row)
+}
+async function removeCred(cred) {
+  await ElMessageBox.confirm('删除该已失效凭证记录？此操作不可恢复', '确认', { type: 'warning' })
+  await http.delete(`/apps/${detail.row.appId}/credentials/${cred.id}`)
+  ElMessage.success('已删除')
   openDetail(detail.row)
 }
 // 凭证录入（支持 OUTBOUND / CALLBACK 两类，修复评审中危 #8 写死 OUTBOUND）

@@ -285,6 +285,27 @@ class M1IntegrationTest {
         assertThatThrownBy(() -> interfaceService.detail(id)).isInstanceOf(BizException.class);
     }
 
+    // ---------- 凭证删除（仅 RETIRED 可删，ACTIVE/ROTATING 受保护） ----------
+
+    @Test
+    void 凭证仅失效后可删除() {
+        setupTestApp();
+        credentialService.update(TEST_APP, new UpdateRequest("OUTBOUND", "secret-del-1"));
+
+        CredentialView active = credentialService.listViews(TEST_APP).stream()
+                .filter(v -> "ACTIVE".equals(v.status()))
+                .findFirst().orElseThrow();
+        // ACTIVE 禁止删除
+        assertThatThrownBy(() -> credentialService.delete(TEST_APP, active.id()))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("RETIRED");
+
+        // 失效后（转 RETIRED）可删除
+        credentialService.retire(TEST_APP, active.id());
+        credentialService.delete(TEST_APP, active.id());
+        assertThat(credentialService.listViews(TEST_APP)).isEmpty();
+    }
+
     // ---------- 适配器 D6：同 impl 至多 1 条启用（create 默认启用 + update 双路径） ----------
 
     @Test

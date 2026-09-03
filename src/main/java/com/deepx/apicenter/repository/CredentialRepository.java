@@ -93,6 +93,11 @@ public class CredentialRepository {
                 """, toStatus, retiredAt, rotatingUntil, id, fromStatus);
     }
 
+    /** 物理删除凭证行（仅 RETIRED 可删，由 service 校验；ACTIVE/ROTATING 受保护） */
+    public int delete(long id) {
+        return jdbc.update("DELETE FROM app_credential WHERE id = ?", id);
+    }
+
     /** 按 (app_id, kind) 批量置状态（reset：旧凭证全部 RETIRED） */
     public int retireAll(String appId, String kind) {
         return jdbc.update("""

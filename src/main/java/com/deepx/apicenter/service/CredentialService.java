@@ -158,6 +158,24 @@ public class CredentialService {
         return null;
     }
 
+    /**
+     * 删除已失效凭证（历史清理）：仅 RETIRED 可删除；
+     * ACTIVE / ROTATING 受状态机保护，删除前必须先失效。
+     */
+    @Transactional
+    public void delete(String appId, long id) {
+        requireApp(appId);
+        CredentialRow target = credentialRepository.findById(id)
+                .orElseThrow(() -> BizException.fieldInvalid("凭证不存在：" + id));
+        if (!target.appId().equals(appId)) {
+            throw BizException.fieldInvalid("凭证不属于该应用");
+        }
+        if (!"RETIRED".equals(target.status())) {
+            throw BizException.fieldInvalid("仅已失效（RETIRED）凭证可删除，当前状态：" + target.status());
+        }
+        credentialRepository.delete(id);
+    }
+
     /** 完成轮换：ROTATING → RETIRED（提前收尾，未到 24h 窗口也可手动完成） */
     @Transactional
     public void finishRotation(String appId, long id) {
