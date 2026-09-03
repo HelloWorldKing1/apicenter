@@ -28,6 +28,13 @@ public class AdapterImplCatalog {
                     f("signatureHeader", "签名 Header 名", "select", true, List.of("X-Signature", "X-Hub-Signature-256"), null),
                     f("timestampToleranceSeconds", "时间戳容差(秒)", "number", true, List.of(), "如 300，超时拒绝"),
                     f("replayProtection", "防重放", "switch", false, null, "开启后同摘要只接受一次"))),
+            // M3 交付：HMAC 回调验签（CALLBACK_AUTH 角色，INBOUND_AUTH 阶段；与出站 HMAC 签名 schema 独立，
+            // 默认签名头 X-Partner-Signature / 时间戳头 X-Timestamp 以 M3 计划 D-M3-2 为准）
+            new ImplMeta("HmacCallbackVerifyAdapter", "auth", "HMAC 回调验签", List.of(
+                    f("signatureAlgorithm", "签名算法", "select", true, List.of("HMAC-SHA256", "HMAC-SHA1", "HMAC-SHA512"), null),
+                    f("signatureHeader", "签名 Header 名", "text", true, List.of(), "默认 X-Partner-Signature"),
+                    f("timestampToleranceSeconds", "时间戳容差(秒)", "number", true, List.of(), "如 300，超时拒绝"),
+                    f("replayProtection", "防重放", "switch", false, null, "开启后同签名在容差窗口内只接受一次"))),
             new ImplMeta("BearerTokenAuthAdapter", "auth", "Bearer Token", List.of(
                     f("token", "Token", "secret", false, null, "凭证值在「应用管理 → 点击应用 → 凭证」中维护"),
                     f("headerName", "Token Header 名", "select", true, List.of("Authorization", "X-Auth-Token", "X-Access-Token"), null),

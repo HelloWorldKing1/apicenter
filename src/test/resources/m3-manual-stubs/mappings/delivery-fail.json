@@ -1,0 +1,4 @@
+{
+  "request": { "method": "POST", "url": "/delivery-fail" },
+  "response": { "status": 500, "body": "delivery-fail 500" }
+}

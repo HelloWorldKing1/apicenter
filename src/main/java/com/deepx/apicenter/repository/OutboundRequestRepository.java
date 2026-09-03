@@ -112,4 +112,11 @@ public class OutboundRequestRepository {
                 VALUES (?, ?, ?, ?, 'PENDING')
                 """, bizType, refId, reason, payload);
     }
+
+    /** 死信计数（并发双扫防重复插入：补偿 worker 可被调度与测试手动并发调用，同一记录至多一条死信） */
+    public int countDeadLetter(String bizType, long refId) {
+        Integer n = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM dead_letter WHERE biz_type = ? AND ref_id = ?", Integer.class, bizType, refId);
+        return n == null ? 0 : n;
+    }
 }

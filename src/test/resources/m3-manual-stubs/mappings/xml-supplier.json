@@ -1,0 +1,8 @@
+{
+  "request": { "method": "POST", "url": "/xml-supplier" },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/xml" },
+    "body": "<response><total>2</total><items><item><id>1</id><name>demo</name></item><item><id>2</id><name>xml</name></item></items><ts>1690000000</ts></response>"
+  }
+}

@@ -1,0 +1,4 @@
+{
+  "request": { "method": "POST", "url": "/delivery-ok" },
+  "response": { "status": 200, "body": "{}" }
+}

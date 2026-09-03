@@ -97,10 +97,12 @@ class M1IntegrationTest {
         // 凭证遮显：仅指纹、不回显明文。
         // 指纹随凭证值变化（管理员可更新凭证，初始 fastmoss-test-token 尾 4 位为 oken），
         // 断言遮显语义（非空指纹、不回显明文）而非锁死具体值。
-        List<CredentialView> creds = app.credentials();
+        // M3 种子新增 CALLBACK 回调验签凭证——此处按 kind=OUTBOUND 过滤断言（黄金用例出站凭证）。
+        List<CredentialView> creds = app.credentials().stream()
+                .filter(c -> "OUTBOUND".equals(c.kind()))
+                .toList();
         assertThat(creds).hasSize(1);
         CredentialView cred = creds.get(0);
-        assertThat(cred.kind()).isEqualTo("OUTBOUND");
         assertThat(cred.status()).isEqualTo("ACTIVE");
         assertThat(cred.fingerprint()).isNotBlank();
 

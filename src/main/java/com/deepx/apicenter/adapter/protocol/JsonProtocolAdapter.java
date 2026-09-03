@@ -64,7 +64,7 @@ public class JsonProtocolAdapter implements Adapter {
 
     private AdapterContext encode(AdapterContext ctx) {
         try {
-            JsonNode node = fromUnified(ctx.payload().root());
+            JsonNode node = fromUnified(ctx.payload().root(), objectMapper);
             ctx.outbound().body(objectMapper.writeValueAsBytes(node));
             ctx.outbound().header("Content-Type", "application/json");
             ctx.outbound().header("Accept", "application/json");
@@ -106,16 +106,17 @@ public class JsonProtocolAdapter implements Adapter {
         return UnifiedModel.ScalarNode.str(node.asText());
     }
 
-    private JsonNode fromUnified(UnifiedModel.UNode node) {
+    /** UnifiedModel → JsonNode（M3 起公开静态：ack 回执渲染与响应过滤复用同一转换路径） */
+    public static JsonNode fromUnified(UnifiedModel.UNode node, ObjectMapper objectMapper) {
         return switch (node) {
             case UnifiedModel.ObjectNode obj -> {
                 ObjectNode out = objectMapper.createObjectNode();
-                obj.fields().forEach((k, v) -> out.set(k, fromUnified(v)));
+                obj.fields().forEach((k, v) -> out.set(k, fromUnified(v, objectMapper)));
                 yield out;
             }
             case UnifiedModel.ArrayNode arr -> {
                 ArrayNode out = objectMapper.createArrayNode();
-                arr.items().forEach(v -> out.add(fromUnified(v)));
+                arr.items().forEach(v -> out.add(fromUnified(v, objectMapper)));
                 yield out;
             }
             case UnifiedModel.ScalarNode s -> switch (s.type()) {

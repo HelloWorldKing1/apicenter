@@ -1,6 +1,7 @@
 package com.deepx.apicenter.engine;
 
 import com.deepx.apicenter.adapter.message.EnvelopeMessageAdapter;
+import com.deepx.apicenter.adapter.protocol.JsonProtocolAdapter;
 import com.deepx.apicenter.dto.ApiResult;
 import com.deepx.apicenter.exception.BizException;
 import com.deepx.apicenter.model.AppRow;
@@ -21,6 +22,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -150,9 +152,9 @@ public class OutboundEngine {
         throw new BizException(50201, "上游拒绝（4xx）：" + reason + "，死信编号 " + deadLetterId);
     }
 
-    /** 2xx：信封适配判业务成败（M0-03 定稿 C2：业务失败也记 SUCCESS、业务码透传） */
+    /** 2xx：信封适配判业务成败（M0-03 定稿 C2：业务失败也记 SUCCESS、业务码透传）；RESP 过滤仅成功路径（D-M3-3） */
     private ApiResult<?> handleSuccess(long recordId, InterfaceRow iface, byte[] respBody) {
-        UnifiedModel respModel = parseResponse(respBody);
+        UnifiedModel respModel = parseResponse(iface.id(), respBody);
         String outPayload = modelText(respModel);
         outboundRequestRepository.updateState(recordId, "SUCCESS", null, outPayload, null, null);
         log.info("出站请求 {} 成功（响应 {} 字节）", recordId, respBody.length);
@@ -160,17 +162,18 @@ public class OutboundEngine {
         JsonNode envelopeParams = envelopeParamsOf(iface);
         if (envelopeParams == null) {
             // 直通报文适配器（Noop）：业务成败 = HTTP 状态（已 2xx），整个响应体即业务数据
-            return ApiResult.ok(parseLenient(bytesText(respBody)));
+            UnifiedModel.UNode filtered = RespFieldFilter.filter(respModel.root(), respDefs(iface), new java.util.ArrayList<>());
+            return ApiResult.ok(toJson(filtered));
         }
         EnvelopeMessageAdapter.EnvelopeResult envelope =
                 envelopeMessageAdapter.adaptResponse(respModel, envelopeParams);
-        JsonNode dataNode = envelope.bizData() == null ? null : parseLenient(nodeText(envelope.bizData()));
         if (!envelope.success()) {
             // 业务失败：状态机 SUCCESS（传输层已获明确结果），业务码透传（C2）
             return ApiResult.error(parseCode(envelope.code(), 50201),
                     envelope.msg() == null ? "上游业务失败" : envelope.msg());
         }
-        return ApiResult.ok(dataNode);
+        UnifiedModel.UNode filtered = RespFieldFilter.filter(envelope.bizData(), respDefs(iface), new java.util.ArrayList<>());
+        return ApiResult.ok(toJson(filtered));
     }
 
     /**
@@ -247,46 +250,15 @@ public class OutboundEngine {
         return appRepository.findById(iface.appId()).orElseThrow();
     }
 
-    /** 响应协议解码：按出站协议（M2 仅 JSON；XML M3） */
-    private UnifiedModel parseResponse(byte[] body) {
-        UnifiedModel model = UnifiedModel.emptyObject();
+    /** 响应协议解码（D-M3-4 收敛）：按 protocol_out 走协议适配器 DECODE（JSON/XML 同路径，不再内联解析） */
+    private UnifiedModel parseResponse(long interfaceId, byte[] body) {
         try {
-            JsonNode node = objectMapper.readTree(body.length == 0 ? new byte[]{'{', '}'} : body);
-            model.root(toUnified(node));
-        } catch (Exception e) {
+            return chainEngine.decodeResponse(interfaceId, body);
+        } catch (BizException e) {
+            // M2 行为等价：2xx 响应解析失败按空对象处理（宽松）；4xx/5xx/超时在 classify 按 HTTP 状态分类，不走此路径
             log.warn("响应报文解析失败（按空对象处理）：{}", e.getMessage());
+            return UnifiedModel.emptyObject();
         }
-        return model;
-    }
-
-    private UnifiedModel.UNode toUnified(JsonNode node) {
-        if (node == null || node.isNull()) {
-            return UnifiedModel.ScalarNode.nullNode();
-        }
-        if (node.isObject()) {
-            java.util.LinkedHashMap<String, UnifiedModel.UNode> fields = new java.util.LinkedHashMap<>();
-            node.properties().forEach(e -> fields.put(e.getKey(), toUnified(e.getValue())));
-            return new UnifiedModel.ObjectNode(fields, java.util.Map.of());
-        }
-        if (node.isArray()) {
-            java.util.List<UnifiedModel.UNode> items = new java.util.ArrayList<>();
-            node.forEach(n -> items.add(toUnified(n)));
-            return new UnifiedModel.ArrayNode(items);
-        }
-        if (node.isIntegralNumber()) {
-            // 超出 long 范围的大整数（BigInteger）→ DECIMAL，不静默截断（M0-01 §1 类型标注）
-            if (node.canConvertToLong()) {
-                return UnifiedModel.ScalarNode.num(node.longValue());
-            }
-            return UnifiedModel.ScalarNode.decimal(node.decimalValue());
-        }
-        if (node.isFloatingPointNumber() || node.isBigDecimal()) {
-            return UnifiedModel.ScalarNode.decimal(node.decimalValue());
-        }
-        if (node.isBoolean()) {
-            return UnifiedModel.ScalarNode.bool(node.booleanValue());
-        }
-        return UnifiedModel.ScalarNode.str(node.asText());
     }
 
     /**
@@ -317,39 +289,29 @@ public class OutboundEngine {
         return new String(body, java.nio.charset.StandardCharsets.UTF_8);
     }
 
-    private String modelText(UnifiedModel model) {
-        return nodeText(model.root());
+    /** RESP 字段声明（D-M3-3 白名单过滤输入；空 = 不过滤） */
+    private List<InterfaceRow.FieldDefRow> respDefs(InterfaceRow iface) {
+        return interfaceRepository.findFieldDefs(iface.id()).stream()
+                .filter(d -> "RESP".equals(d.kind()))
+                .toList();
     }
 
-    private String nodeText(UnifiedModel.UNode node) {
+    private String modelText(UnifiedModel model) {
         try {
-            // 复用 ObjectMapper 序列化（JsonProtocolAdapter 的逆操作在此内联）
-            return objectMapper.writeValueAsString(toJsonNode(node));
+            // D-M3-4 收敛后：UnifiedModel 序列化统一走协议适配器的静态转换，不再内联 toJsonNode
+            return objectMapper.writeValueAsString(JsonProtocolAdapter.fromUnified(model.root(), objectMapper));
         } catch (Exception e) {
             return null;
         }
     }
 
-    private JsonNode toJsonNode(UnifiedModel.UNode node) {
-        return switch (node) {
-            case UnifiedModel.ObjectNode obj -> {
-                tools.jackson.databind.node.ObjectNode out = objectMapper.createObjectNode();
-                obj.fields().forEach((k, v) -> out.set(k, toJsonNode(v)));
-                yield out;
-            }
-            case UnifiedModel.ArrayNode arr -> {
-                tools.jackson.databind.node.ArrayNode out = objectMapper.createArrayNode();
-                arr.items().forEach(v -> out.add(toJsonNode(v)));
-                yield out;
-            }
-            case UnifiedModel.ScalarNode s -> switch (s.type()) {
-                case STRING -> objectMapper.getNodeFactory().textNode((String) s.value());
-                case INT -> objectMapper.getNodeFactory().numberNode((Long) s.value());
-                case DECIMAL -> objectMapper.getNodeFactory().numberNode((java.math.BigDecimal) s.value());
-                case BOOLEAN -> objectMapper.getNodeFactory().booleanNode((Boolean) s.value());
-                case NULL -> objectMapper.getNodeFactory().nullNode();
-            };
-        };
+    /** UnifiedModel → JsonNode（D-M3-4 收敛后统一走协议适配器的静态转换；失败返回 null） */
+    private JsonNode toJson(UnifiedModel.UNode node) {
+        try {
+            return node == null ? null : JsonProtocolAdapter.fromUnified(node, objectMapper);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private JsonNode parseLenient(String text) {

@@ -11,6 +11,7 @@ import com.deepx.apicenter.exception.BizException;
 import com.deepx.apicenter.model.InterfaceRow;
 import com.deepx.apicenter.repository.AppRepository;
 import com.deepx.apicenter.repository.GroupRepository;
+import com.deepx.apicenter.repository.InboundDeliveryRepository;
 import com.deepx.apicenter.repository.InterfaceRepository;
 import com.deepx.apicenter.repository.OutboundRequestRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -38,17 +39,23 @@ public class InterfaceService {
     private final AppRepository appRepository;
     private final GroupRepository groupRepository;
     private final OutboundRequestRepository outboundRequestRepository;
+    private final InboundDeliveryRepository inboundDeliveryRepository;
+    private final CallbackUrlValidator callbackUrlValidator;
     private final JdbcTemplate jdbcTemplate;
 
     public InterfaceService(InterfaceRepository interfaceRepository,
                             AppRepository appRepository,
                             GroupRepository groupRepository,
                             OutboundRequestRepository outboundRequestRepository,
+                            InboundDeliveryRepository inboundDeliveryRepository,
+                            CallbackUrlValidator callbackUrlValidator,
                             JdbcTemplate jdbcTemplate) {
         this.interfaceRepository = interfaceRepository;
         this.appRepository = appRepository;
         this.groupRepository = groupRepository;
         this.outboundRequestRepository = outboundRequestRepository;
+        this.inboundDeliveryRepository = inboundDeliveryRepository;
+        this.callbackUrlValidator = callbackUrlValidator;
         this.jdbcTemplate = jdbcTemplate;
     }
 
@@ -134,8 +141,10 @@ public class InterfaceService {
     public void delete(long id) {
         interfaceRepository.findById(id).orElseThrow(() -> BizException.ifaceNotFound(id));
         // 删除守卫（schema.sql 删除策略）：存在运行数据仅允许下线，
-        // 否则 outbound_request / inbound_delivery 悬空（无外键不报错，但监控/重放/对账全部失效）
-        if (outboundRequestRepository.countByInterface(id) > 0) {
+        // 否则 outbound_request / inbound_delivery 悬空（无外键不报错，但监控/重放/对账全部失效）。
+        // M3 补查 inbound_delivery（M2 仅守卫 outbound_request，评审 N4 遗留）
+        if (outboundRequestRepository.countByInterface(id) > 0
+                || inboundDeliveryRepository.countByInterface(id) > 0) {
             throw BizException.fieldInvalid("接口存在运行数据，仅允许下线（禁止删除）");
         }
         // 调用日志保留、引用置 NULL（schema.sql 约定：可观测数据不丢）
@@ -186,6 +195,8 @@ public class InterfaceService {
             if (!req.callbackUrl().matches("^https?://[^\\s]+$")) {
                 throw BizException.fieldInvalid("回调地址必须是完整 URL（http/https）");
             }
+            // SSRF 防护（M0-03 §4 点名 M3）：内网 / 回环地址拒绝（callback-allow-private 开关控制）
+            callbackUrlValidator.validateForSave(req.callbackUrl());
             if (!isBlank(req.upstreamPath())) {
                 throw BizException.fieldInvalid("入站接口不允许配置上游路径 upstreamPath");
             }

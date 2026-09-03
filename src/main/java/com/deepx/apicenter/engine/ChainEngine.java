@@ -73,6 +73,15 @@ public class ChainEngine {
      * 阶段失败（验签/解码/映射/编码）直接抛 BizException，不落运行表（M0-01 D7）。
      */
     public AdapterContext execute(long interfaceId, UnifiedModel inboundPayload, String traceId, byte[] rawBody) {
+        return execute(interfaceId, inboundPayload, traceId, rawBody, Map.of());
+    }
+
+    /**
+     * 同 {@link #execute}；initialAttrs 为链执行前的附加上下文
+     * （入站回调经此传入请求头 headers，供 INBOUND_AUTH 回调验签读取）。
+     */
+    public AdapterContext execute(long interfaceId, UnifiedModel inboundPayload, String traceId, byte[] rawBody,
+                                  Map<String, Object> initialAttrs) {
         InterfaceRow iface = interfaceRepository.findById(interfaceId)
                 .orElseThrow(() -> BizException.ifaceNotFound(interfaceId));
         AppRow app = appRepository.findById(iface.appId())
@@ -86,6 +95,7 @@ public class ChainEngine {
                 new AdapterContext.TraceMeta(traceId),
                 null, new com.deepx.apicenter.client.OutboundRequestSpec());
         ctx.attrs().put("rawBody", rawBody);
+        initialAttrs.forEach(ctx.attrs()::put);
 
         for (ChainPhase phase : ChainPhase.values()) {
             ctx.phase(phase);
@@ -114,16 +124,27 @@ public class ChainEngine {
     private Chain assemble(InterfaceRow iface) {
         Map<ChainPhase, ChainStep> steps = new java.util.EnumMap<>(ChainPhase.class);
 
-        // 1. 入站鉴权：Flow A 调用方鉴权属平台统一能力（范围外）→ Noop 占位；Flow B 回调验签（M3 接入）
+        // 1. 入站鉴权：Flow A 调用方鉴权属平台统一能力（范围外）→ Noop 占位；
+        //    Flow B 回调验签（M3 交付）：CALLBACK_AUTH 角色解析（接口覆盖 → 应用默认 → 平台默认 Noop）
         steps.put(ChainPhase.INBOUND_AUTH, ctx -> {
-            ctx.attrs().put("inboundAuthPassed", true);
-            return ctx;
+            if (!"INBOUND".equals(iface.ifType())) {
+                ctx.attrs().put("inboundAuthPassed", true);
+                return ctx;
+            }
+            AdapterInstance instance = resolveBound("CALLBACK_AUTH", iface,
+                    ifaceBinding(iface.id(), "CALLBACK_AUTH"),
+                    appOf(iface).callbackAuthAdapterId());
+            return instance.process(ctx);
         });
 
         // 2. 协议解码（protocol_in 自动推导，不参与绑定；M0-01 D5 平台默认参数）
         steps.put(ChainPhase.DECODE, ctx -> {
             Adapter adapter = protocolAdapter(iface.protocolIn(), "解码");
             ctx.attrs().put("adapterParams", objectMapper.createObjectNode());
+            // XML 全文本解码的类型提示（D-M3-1）：入站参数声明 → TypeRegistry 转换（仅顶层字段）
+            ctx.attrs().put("paramTypes", interfaceRepository.findParams(iface.id()).stream()
+                    .filter(p -> "IN".equals(p.side()))
+                    .collect(Collectors.toMap(InterfaceRow.ParamRow::name, InterfaceRow.ParamRow::type, (a, b) -> a)));
             return adapter.process(ctx);
         });
 
@@ -160,12 +181,35 @@ public class ChainEngine {
         return new Chain(steps);
     }
 
-    /** 协议适配器自动推导（M0-01 §5.1）：M2 仅 JSON；XML 为 M3 交付 */
+    /** 协议适配器自动推导（M0-01 §5.1）：JSON / XML 双实现（XML 为 M3 交付） */
     private Adapter protocolAdapter(String protocol, String action) {
         if ("JSON".equals(protocol)) {
             return bean("JsonProtocolAdapter");
         }
-        throw BizException.fieldInvalid("协议 " + protocol + " " + action + " 未实现（XML 为 M3 交付）");
+        if ("XML".equals(protocol)) {
+            return bean("XmlProtocolAdapter");
+        }
+        throw BizException.fieldInvalid("协议 " + protocol + " " + action + " 未实现");
+    }
+
+    /**
+     * 响应方向解码（D-M3-4）：按 protocol_out 推导协议适配器，与请求方向同一条 DECODE 路径。
+     * 响应方向不做入站参数类型转换（类型由 RESP 过滤按 field_def.type 转换，见 D-M3-3）。
+     */
+    public UnifiedModel decodeResponse(long interfaceId, byte[] body) {
+        InterfaceRow iface = interfaceRepository.findById(interfaceId)
+                .orElseThrow(() -> BizException.ifaceNotFound(interfaceId));
+        AppRow app = appRepository.findById(iface.appId())
+                .orElseThrow(() -> BizException.appNotFound(iface.appId()));
+        Adapter adapter = protocolAdapter(iface.protocolOut(), "响应解码");
+        AdapterContext ctx = AdapterContext.create(
+                ChainPhase.DECODE, UnifiedModel.emptyObject(),
+                AdapterContext.InterfaceMeta.of(iface),
+                new AdapterContext.AppMeta(app.appId(), app.baseUrl()),
+                new AdapterContext.TraceMeta(null),
+                null, new com.deepx.apicenter.client.OutboundRequestSpec());
+        ctx.attrs().put("rawBody", body);
+        return adapter.process(ctx).payload();
     }
 
     /**
@@ -189,7 +233,7 @@ public class ChainEngine {
     private AdapterInstance defaultInstance(String role) {
         return switch (role) {
             case "MESSAGE" -> instanceOf("NoopMessageAdapter", objectMapper.createObjectNode());
-            case "AUTH" -> instanceOf("NoopAuthAdapter", objectMapper.createObjectNode());
+            case "AUTH", "CALLBACK_AUTH" -> instanceOf("NoopAuthAdapter", objectMapper.createObjectNode());
             default -> throw BizException.fieldInvalid("未知绑定角色：" + role);
         };
     }

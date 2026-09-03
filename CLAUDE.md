@@ -11,7 +11,7 @@
 - **Flow A 出站**（调用方 → 组件 → 供应商）：入站鉴权 → 适配器链（协议解码 → 报文适配 → 字段映射 → 协议编码）→ 出站鉴权（供应商签名）→ 调供应商 → 反向适配回调用方。失败按状态机处理：5xx/429 指数退避重试 → 补偿；4xx → 死信；超时 → UNKNOWN 对账。
 - **Flow B 入站回调**（供应商回调 → 组件 → 调用方）：回调验签（凭证独立于出站签名）→ 适配器链 → 送达回调地址 → 收到即回 ack 回执（与送达解耦）→ 送达失败由补偿 worker 重送。
 
-## 当前开发状态（2026-09-02）
+## 当前开发状态（2026-09-03）
 
 | 项 | 状态 |
 |---|---|
@@ -19,7 +19,7 @@
 | M0 契约设计 | **已评审通过 v1.0（2026-09-02）**：`doc/开发文档/` M0-01/02/03/04（确认点全部通过） |
 | 旧 demo 代码 | 已删除（commit `ad55cea`），git 历史可查 |
 | 数据库 | MySQL PolarDB 已按新 schema 建库（连接信息见 application.yaml） |
-| 工程代码 | **M1 + M2 已落地并测试通过（全库 45 个 @Test，2026-09-03）**：管理面后端（应用 / 分组 / 接口 / 适配器 / 凭证）+ Vue3 前端（`frontend/`）；链引擎 + 映射引擎（Aviator）+ 通用客户端（RestClient 直调）+ 出站状态机 + 补偿 worker，fastmoss 黄金用例 G1-G4 在 WireMock 对端端到端跑通 = **首个可演示版本**（真实 fastmoss 联调待 token）。测试归属：M1 相关 22（M1IntegrationTest 14 + CryptoServiceTest 7 + 冒烟 1）/ M2 相关 23（MappingEngineTest 14 + M2IntegrationTest 6 + JsonProtocolAdapterTest 3） |
+| 工程代码 | **M1 + M2 + M3 已落地并测试通过（全库 103 个 @Test，2026-09-03）**：M3 = XmlProtocolAdapter（Woodstox StAX，D-M3-1 语义 + XXE 防护）、HmacCallbackVerifyAdapter + InboundEngine（PENDING 首落 / 同步送达 / ack 解耦 / 快照重放）、RESP 白名单过滤与类型矩阵、ACK 渲染、响应方向收敛（D-M3-4）、模拟回调端点、SSRF 校验与开关、报文大小限制（1MB）、seed 增量补齐 IF-FM-CB-001。M3 编码依据：`doc/开发文档/M3开发计划.md`（12 人日，七轮评审定稿）。测试归属：M1 相关 22 / M2 相关 23 / **M3 相关 58**（XmlProtocolAdapterTest 13 + HmacCallbackVerifyAdapterTest 10 + InboundEngineTest 9 + CallbackUrlValidatorTest 4 + RespFieldFilterTest 8 + AckRendererTest 3 + M3IntegrationTest 11） |
 | 未拍板决策 | 无（M0 全部评审通过，2026-09-02） |
 
 ## 设计文档（现行）
@@ -43,6 +43,7 @@
 | `M0-02动态映射语义规范.md` | 6 操作 × param 语法、类型注册表转换矩阵、condition 沙箱（Aviator 选型）、null_strategy 四值、24 例预期输出矩阵 |
 | `M0-03通用客户端与对账协议.md` | 通用 ExchangeClient（动态 URI / 凭证组装）、异常→状态机映射表、UNKNOWN 对账三分支（M2 人工 / M4 降级 / v1.1 自动查询） |
 | `M0-04凭证轮换存储方案.md` | 已评审通过：app_credential 凭证表（第 16 张）+ ACTIVE/ROTATING/RETIRED 状态机 + 验签并存 / 签名激活 + AES-256-GCM 加密约定 |
+| `M3开发计划.md` | **M3 编码依据（2026-09-03 定稿，七轮评审）**：D-M3-1 XML 语义 / D-M3-2 入站引擎与 HMAC 回调验签 / D-M3-3 RESP·ACK 语义 / D-M3-4 响应收敛；任务拆解 12 人日、自动化测试点 B1-B6·X1-X3、手动验收方案（本地 WireMock stub 随仓库 `src/test/resources/m3-manual-stubs/`） |
 
 关键设计要点（改动前先读设计方案对应章节）：
 

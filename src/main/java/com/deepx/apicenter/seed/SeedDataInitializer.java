@@ -7,6 +7,7 @@ import com.deepx.apicenter.dto.InterfaceDtos.BindingDto;
 import com.deepx.apicenter.dto.InterfaceDtos.BodyDto;
 import com.deepx.apicenter.dto.InterfaceDtos.FieldDefDto;
 import com.deepx.apicenter.dto.InterfaceDtos.InterfaceRequest;
+import com.deepx.apicenter.dto.InterfaceDtos.MappingDto;
 import com.deepx.apicenter.dto.InterfaceDtos.ParamDto;
 import com.deepx.apicenter.model.AdapterRow;
 import com.deepx.apicenter.repository.AdapterRepository;
@@ -90,6 +91,15 @@ public class SeedDataInitializer implements ApplicationRunner {
             return;
         }
         if (appRepository.existsById("fastmoss")) {
+            if (m2SeedIntact()) {
+                // M2 种子完整、仅缺 M3 入站种子 → 增量补齐（不清理重建，避免删除黄金用例与既有运行数据）
+                log.info("fastmoss M2 种子完整，增量补齐 M3 入站回调种子…");
+                seedAdapters();
+                seedCallbackCredentialIfAbsent();
+                seedInboundInterface();
+                log.info("M3 入站回调种子补齐完成");
+                return;
+            }
             // 存在但不完整（如外部导入只含主表、参数子表缺失）→ 清理后重建
             log.warn("fastmoss 种子数据不完整，清理后重建");
             cleanFastmossSeed();
@@ -97,17 +107,35 @@ public class SeedDataInitializer implements ApplicationRunner {
         log.info("开始导入 fastmoss 黄金用例种子…");
         seedAdapters();
         seedApp();
-        seedCredential();
+        seedCredentials();
         long groupId = seedGroup();
         seedInterface(groupId);
+        seedInboundInterface();
         log.info("fastmoss 黄金用例种子导入完成");
     }
 
     /**
-     * 种子完整性校验：应用 + 凭证 + 接口主表 + 参数子表（黄金用例 8 条参数）。
-     * 存在但缺参数/接口 → 视为不完整，走清理重建（seed 只管理 fastmoss 自身数据）。
+     * 种子完整性校验（M2 黄金用例 + M3 入站回调用例）：
+     * 应用 + OUTBOUND 凭证 + IF-FM-001 参数子表 + IF-FM-CB-001 + CALLBACK 凭证 + HMAC 验签适配器实例。
      */
     private boolean seedIntact() {
+        if (!m2SeedIntact()) {
+            return false;
+        }
+        // M3 入站种子三件套（计划 §3 种子扩展：seedIntact 判定必须扩展，否则既有库永不导入）
+        if (interfaceService.list("fastmoss", null).stream()
+                .noneMatch(i -> "IF-FM-CB-001".equals(i.code()))) {
+            return false;
+        }
+        if (credentialService.listViews("fastmoss").stream()
+                .noneMatch(v -> "CALLBACK".equals(v.kind()) && "ACTIVE".equals(v.status()))) {
+            return false;
+        }
+        return adapterRepository.existsById("ADP-301");
+    }
+
+    /** M2 完整性（黄金用例）：应用 + OUTBOUND 凭证 + IF-FM-001 参数子表（8 条 = IN 4 + OUT 4） */
+    private boolean m2SeedIntact() {
         if (!appRepository.existsById("fastmoss")) {
             return false;
         }
@@ -138,6 +166,10 @@ public class SeedDataInitializer implements ApplicationRunner {
                 "{\"headerName\":\"Authorization\",\"prefix\":\"Bearer\"}");
         insertAdapter("ADP-201", "信封报文适配", "message", "EnvelopeMessageAdapter",
                 "{\"envelope\":\"data\",\"codeField\":\"code\",\"successValue\":\"0\",\"messageField\":\"message\"}");
+        // M3 种子：HMAC 回调验签实例（D-M3-2 默认参数；密钥在 app_credential kind=CALLBACK）
+        insertAdapter("ADP-301", "HMAC 回调验签", "auth", "HmacCallbackVerifyAdapter",
+                "{\"signatureAlgorithm\":\"HMAC-SHA256\",\"signatureHeader\":\"X-Partner-Signature\","
+                        + "\"timestampToleranceSeconds\":\"300\",\"replayProtection\":false}");
     }
 
     private void insertAdapter(String id, String name, String type, String impl, String params) {
@@ -158,9 +190,18 @@ public class SeedDataInitializer implements ApplicationRunner {
         appService.enable("fastmoss");
     }
 
-    private void seedCredential() {
+    private void seedCredentials() {
         // 黄金用例 OUTBOUND 凭证 = Bearer token（测试占位值，运行时加密落库）
         credentialService.update("fastmoss", new UpdateRequest("OUTBOUND", FASTBOSS_TEST_TOKEN));
+        seedCallbackCredentialIfAbsent();
+    }
+
+    /** CALLBACK 回调验签凭证（M3 种子；demo 密钥，验签新旧并存由 M0-04 轮换机制支持） */
+    private void seedCallbackCredentialIfAbsent() {
+        if (credentialService.listViews("fastmoss").stream()
+                .noneMatch(v -> "CALLBACK".equals(v.kind()) && "ACTIVE".equals(v.status()))) {
+            credentialService.update("fastmoss", new UpdateRequest("CALLBACK", "fastmoss-callback-demo-secret"));
+        }
     }
 
     private long seedGroup() {
@@ -192,6 +233,47 @@ public class SeedDataInitializer implements ApplicationRunner {
                 List.of(
                         new BindingDto("AUTH", "ADP-101", null),
                         new BindingDto("MESSAGE", "ADP-201", null))));
+        interfaceService.publish(interfaceId);
+    }
+
+    /**
+     * M3 种子：fastmoss 入站回调用例 IF-FM-CB-001（M3 计划 §3 种子扩展）——
+     * 回调字段 event_id/order_id/state → 送达字段（state 演示 rename 为 order_state）；
+     * ACK 回执字段 returnCode(number)/returnMsg(string)；CALLBACK_AUTH 接口级绑定 ADP-301；
+     * 回调地址与手动验收 WireMock stub 一致（测试覆盖）。
+     */
+    private void seedInboundInterface() {
+        if (interfaceService.list("fastmoss", null).stream().anyMatch(i -> "IF-FM-CB-001".equals(i.code()))) {
+            return; // 幂等
+        }
+        Long groupId = jdbcTemplate.queryForList(
+                        "SELECT id FROM app_group WHERE app_id = ? ORDER BY id LIMIT 1", Long.class, "fastmoss")
+                .stream().findFirst().orElseThrow();
+        List<ParamDto> inParams = List.of(
+                new ParamDto("IN", "event_id", "string", true, "evt-1", 1),
+                new ParamDto("IN", "order_id", "string", true, "ORD-1", 2),
+                new ParamDto("IN", "state", "string", true, "PAID", 3));
+        List<ParamDto> outParams = List.of(
+                new ParamDto("OUT", "event_id", "string", true, null, 1),
+                new ParamDto("OUT", "order_id", "string", true, null, 2),
+                new ParamDto("OUT", "order_state", "string", true, null, 3));
+        long interfaceId = interfaceService.create(new InterfaceRequest(
+                "IF-FM-CB-001", "FastMoss 订单回调（演示）", "INBOUND", "POST", "/callback/fastmoss/order-state",
+                "JSON", "JSON", "fastmoss", groupId,
+                null, "http://localhost:18080/delivery-ok",
+                null, 3000, 4, "fastmoss 入站回调用例（M3 计划种子扩展）",
+                1,
+                java.util.stream.Stream.concat(inParams.stream(), outParams.stream()).toList(),
+                List.of(new BodyDto("IN", "json",
+                        "{\"event_id\":\"evt-1\",\"order_id\":\"ORD-1\",\"state\":\"PAID\"}", null)),
+                List.of( // 非空白名单：显式 rename 保留需要透传的字段（M0-02 D3 语义）
+                        new MappingDto("event_id", "rename", "event_id", null, null, 1),
+                        new MappingDto("order_id", "rename", "order_id", null, null, 2),
+                        new MappingDto("state", "rename", "order_state", null, null, 3)),
+                List.of(
+                        new FieldDefDto("ACK", "returnCode", "number", "回执码（平台固定 0）", 1),
+                        new FieldDefDto("ACK", "returnMsg", "string", "回执消息（平台固定 success）", 2)),
+                List.of(new BindingDto("CALLBACK_AUTH", "ADP-301", null))));
         interfaceService.publish(interfaceId);
     }
 }

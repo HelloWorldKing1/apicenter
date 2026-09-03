@@ -315,7 +315,7 @@
       </template>
     </el-dialog>
 
-    <!-- ============ 测试接口弹窗（管理面调试：真实走一遍出站链路） ============ -->
+    <!-- ============ 测试接口弹窗（管理面调试：真实走一遍出站链路，仅 OUTBOUND） ============ -->
     <el-dialog v-model="test.visible" :title="`测试接口 · ${detail.row.code || ''}`" width="760px" top="5vh">
       <div class="test-layout">
         <div class="test-side">
@@ -328,6 +328,25 @@
         <div class="test-side">
           <div class="side-desc" style="margin-bottom: 8px">响应（统一信封 { code, msg, data }）</div>
           <pre class="test-resp" :class="{ 'resp-error': test.isError }">{{ test.resp }}</pre>
+        </div>
+      </div>
+    </el-dialog>
+
+    <!-- ============ 模拟回调弹窗（M3 手动验收：INBOUND 调试，真实网关路径 + HMAC 自签名） ============ -->
+    <el-dialog v-model="cbTest.visible" :title="`模拟回调 · ${detail.row.code || ''}`" width="760px" top="5vh">
+      <div class="test-layout">
+        <div class="test-side">
+          <div class="side-desc" style="margin-bottom: 8px">
+            回调报文（预填入站 Body 模板，可编辑；平台按 HMAC 回调验签约定自动签名后自调网关）
+          </div>
+          <textarea v-model="cbTest.body" class="raw-editor test-body"></textarea>
+          <el-button type="primary" :loading="cbTest.sending" style="margin-top: 10px" @click="sendCallbackTest">
+            发送回调
+          </el-button>
+        </div>
+        <div class="test-side">
+          <div class="side-desc" style="margin-bottom: 8px">供应商视角 ack + 送达状态</div>
+          <pre class="test-resp" :class="{ 'resp-error': cbTest.isError }">{{ cbTest.resp }}</pre>
         </div>
       </div>
     </el-dialog>
@@ -370,7 +389,10 @@
 
       <div class="detail-actions">
         <el-button type="primary" @click="openEdit(detail.row)">编辑</el-button>
-        <el-button type="warning" @click="openTest(detail.row)">测试接口</el-button>
+        <!-- M3：测试接口仅 OUTBOUND；INBOUND 用「模拟回调」（否则入站接口会错误地走出站链路） -->
+        <el-button v-if="detail.row.ifType === 'OUTBOUND'" type="warning"
+                   @click="openTest(detail.row)">测试接口</el-button>
+        <el-button v-else type="warning" @click="openCallbackTest(detail.row)">模拟回调</el-button>
         <el-button v-if="['DRAFT','OFFLINE'].includes(detail.row.status)" type="success"
                    @click="act(detail.row, 'publish')">发布</el-button>
         <el-button v-if="detail.row.status === 'PUBLISHED'" type="info"
@@ -688,7 +710,7 @@ async function copyPath() {
   }
 }
 
-// ---------- 测试接口（管理面调试：POST /api/admin/interfaces/{id}/test） ----------
+// ---------- 测试接口（管理面调试：POST /api/admin/interfaces/{id}/test，仅 OUTBOUND） ----------
 const test = reactive({ visible: false, body: '{}', sending: false, resp: '', isError: false })
 
 function openTest(row) {
@@ -715,6 +737,35 @@ async function sendTest() {
       : (e.message || '请求失败')
   } finally {
     test.sending = false
+  }
+}
+
+// ---------- 模拟回调（M3：POST /api/admin/interfaces/{id}/test-callback，仅 INBOUND；接口需已发布） ----------
+const cbTest = reactive({ visible: false, body: '{}', sending: false, resp: '', isError: false })
+
+function openCallbackTest(row) {
+  const inBody = row.bodies?.find((b) => b.side === 'IN')
+  cbTest.body = inBody && inBody.raw ? inBody.raw : '{}'
+  cbTest.resp = ''
+  cbTest.isError = false
+  cbTest.visible = true
+}
+
+async function sendCallbackTest() {
+  cbTest.sending = true
+  cbTest.resp = ''
+  try {
+    const obj = JSON.parse(cbTest.body)
+    const result = await http.post(`/interfaces/${detail.row.id}/test-callback`, obj)
+    cbTest.isError = false
+    cbTest.resp = JSON.stringify(result, null, 2)
+  } catch (e) {
+    cbTest.isError = true
+    cbTest.resp = e.response?.data
+      ? JSON.stringify(e.response.data, null, 2)
+      : (e.message || '请求失败')
+  } finally {
+    cbTest.sending = false
   }
 }
 
