@@ -18,16 +18,24 @@
       <el-form-item v-for="f in currentMeta.fields" :key="f.key" :label="f.label" :required="f.required"
                     style="margin-top: 12px">
         <div style="width: 100%">
-          <el-select v-if="f.kind === 'select'" v-model="modelValue.params[f.key]" clearable style="width: 100%">
+          <!-- 提示尽量放 placeholder（输入前即见）；switch 无占位，用行内灰字兜底 -->
+          <el-select v-if="f.kind === 'select'" v-model="modelValue.params[f.key]" clearable
+                     :placeholder="f.hint || '请选择'" style="width: 100%">
             <el-option v-for="o in f.options" :key="o" :label="o" :value="o" />
           </el-select>
-          <el-input-number v-else-if="f.kind === 'number'" v-model="modelValue.params[f.key]" style="width: 100%" />
-          <el-switch v-else-if="f.kind === 'switch'" v-model="modelValue.params[f.key]" />
-          <el-input v-else-if="f.kind === 'textarea'" v-model="modelValue.params[f.key]" type="textarea" :rows="3" />
-          <el-input v-else-if="f.kind === 'codeMap'" v-model="modelValue.params[f.key]" placeholder="上游码→平台码，逗号分隔" />
-          <el-input v-else-if="f.kind === 'secret'" disabled placeholder="凭证值请到「应用管理 → 点击应用 → 凭证」中维护" />
-          <el-input v-else v-model="modelValue.params[f.key]" />
-          <div v-if="f.hint" class="f-hint">{{ f.hint }}</div>
+          <el-input-number v-else-if="f.kind === 'number'" v-model="modelValue.params[f.key]"
+                           :placeholder="f.hint" style="width: 100%" />
+          <div v-else-if="f.kind === 'switch'" style="display: flex; align-items: center; gap: 10px">
+            <el-switch v-model="modelValue.params[f.key]" />
+            <span v-if="f.hint" class="f-inline-hint">{{ f.hint }}</span>
+          </div>
+          <el-input v-else-if="f.kind === 'textarea'" v-model="modelValue.params[f.key]" type="textarea"
+                    :rows="3" :placeholder="f.hint || '请输入'" />
+          <el-input v-else-if="f.kind === 'codeMap'" v-model="modelValue.params[f.key]"
+                    :placeholder="f.hint || '上游码→平台码，逗号分隔'" />
+          <el-input v-else-if="f.kind === 'secret'" disabled
+                    :placeholder="f.hint || '凭证值请到「应用管理 → 点击应用 → 凭证」中维护'" />
+          <el-input v-else v-model="modelValue.params[f.key]" :placeholder="f.hint || '请输入'" />
         </div>
       </el-form-item>
     </template>
@@ -75,10 +83,9 @@ function onImplChange(impl) {
   padding: 0 3px;
   border-radius: 3px;
 }
-.f-hint {
+.f-inline-hint {
   font-size: 12px;
   color: #a0a4ab;
   line-height: 1.5;
-  margin-top: 3px;
 }
 </style>

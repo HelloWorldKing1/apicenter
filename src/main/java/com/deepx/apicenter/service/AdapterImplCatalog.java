@@ -27,7 +27,7 @@ public class AdapterImplCatalog {
                     f("signatureAlgorithm", "签名算法", "select", true, List.of("HMAC-SHA256", "HMAC-SHA1", "HMAC-SHA512"), null),
                     f("signatureHeader", "签名 Header 名", "select", true, List.of("X-Signature", "X-Hub-Signature-256"), null),
                     f("timestampToleranceSeconds", "时间戳容差(秒)", "number", true, List.of(), "如 300，超时拒绝"),
-                    f("replayProtection", "防重放", "switch", false, null, "开启后同摘要只接受一次")))),
+                    f("replayProtection", "防重放", "switch", false, null, "开启后同摘要只接受一次"))),
             new ImplMeta("BearerTokenAuthAdapter", "auth", "Bearer Token", List.of(
                     f("token", "Token", "secret", false, null, "凭证值在「应用管理 → 点击应用 → 凭证」中维护"),
                     f("headerName", "Token Header 名", "select", true, List.of("Authorization", "X-Auth-Token", "X-Access-Token"), null),
@@ -38,7 +38,7 @@ public class AdapterImplCatalog {
                     f("secretKey", "SecretKey", "secret", false, null, "凭证值在「应用管理 → 点击应用 → 凭证」中维护"),
                     f("service", "服务名", "text", true, null, "如 cvm / sts"),
                     f("region", "地域", "text", false, null, "如 ap-guangzhou / us-east-1"),
-                    f("signedHeaders", "签名 Header 列表", "text", false, null, "逗号分隔，如 content-type;host")))),
+                    f("signedHeaders", "签名 Header 列表", "text", false, null, "逗号分隔，如 content-type;host"))),
             new ImplMeta("CloudCallbackSignatureAdapter", "auth", "云厂商回调验签", List.of(
                     f("scheme", "回调验签规范", "select", true, List.of("TENCENT-EVENT", "AWS-SNS", "ALIYUN-CALLBACK"), null),
                     f("token", "回调 Token", "secret", false, null, "凭证值在「应用管理 → 点击应用 → 凭证」中维护"),
