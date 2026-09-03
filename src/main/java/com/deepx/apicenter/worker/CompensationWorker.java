@@ -34,16 +34,21 @@ public class CompensationWorker {
     public void scan() {
         List<OutboundRequestRow> due = outboundRequestRepository.findDueCompensating(LocalDateTime.now());
         for (OutboundRequestRow row : due) {
-            if (row.attemptCount() >= row.maxAttempts()) {
-                // 补偿耗尽 → 死信 + 告警（M4 接入告警通道）
-                outboundRequestRepository.updateState(row.id(), "DEAD_LETTER", null, null, null, "50201");
-                outboundRequestRepository.insertDeadLetter("OUTBOUND", row.id(),
-                        "补偿重试耗尽（attempt " + row.attemptCount() + "/" + row.maxAttempts() + "）",
-                        row.inPayload());
-                log.warn("outbound_request {} 补偿耗尽 → 死信", row.id());
-                continue;
+            try {
+                if (row.attemptCount() >= row.maxAttempts()) {
+                    // 补偿耗尽 → 死信 + 告警（M4 接入告警通道）
+                    outboundRequestRepository.updateState(row.id(), "DEAD_LETTER", null, null, null, "50201");
+                    outboundRequestRepository.insertDeadLetter("OUTBOUND", row.id(),
+                            "补偿重试耗尽（attempt " + row.attemptCount() + "/" + row.maxAttempts() + "）",
+                            row.inPayload());
+                    log.warn("outbound_request {} 补偿耗尽 → 死信", row.id());
+                    continue;
+                }
+                outboundEngine.replay(row);
+            } catch (Exception e) {
+                // 单行异常隔离：一行失败不影响本批次其余记录（高危 #2 修复）
+                log.error("补偿扫描处理 outbound_request {} 失败，跳过该行", row.id(), e);
             }
-            outboundEngine.replay(row);
         }
     }
 }

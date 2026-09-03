@@ -247,6 +247,29 @@ class M2IntegrationTest {
         assertThat(row.errorCode()).isEqualTo("50401");
     }
 
+    // ---------- 补偿重放超时 → UNKNOWN 对账（高危 #2 修复验证） ----------
+
+    @Test
+    void 补偿重放遇超时_转UNKNOWN而非盲目重试() {
+        stubFor(post("/shop/v1/creatorList").willReturn(okJson(GOLDEN_RESPONSE).withFixedDelay(3500)));
+        long groupId = groupService.list(TEST_APP).get(0).id();
+        long ifaceId = interfaceService.create(goldenInterface(groupId, 0)); // maxRetries=0
+        interfaceService.publish(ifaceId);
+
+        // 直接构造一条到期的 COMPENSATING 记录（模拟首送已耗尽进入补偿队列）
+        jdbcTemplate.update("""
+                INSERT INTO outbound_request (interface_id, app_id, biz_id, in_payload, status,
+                                              attempt_count, max_attempts, next_retry_at, trace_id)
+                VALUES (?, ?, ?, ?, 'COMPENSATING', 1, 5, NOW() - INTERVAL 1 SECOND, 'trace-replay')
+                """, ifaceId, TEST_APP, "biz-replay-timeout", GOLDEN_REQUEST);
+
+        compensationWorker.scan();
+
+        OutboundRequestRow row = outboundRequestRepository.findByBizId(TEST_APP, "biz-replay-timeout").get(0);
+        assertThat(row.status()).isEqualTo("UNKNOWN");
+        assertThat(row.errorCode()).isEqualTo("50401");
+    }
+
     // ---------- helpers ----------
 
     private InterfaceRequest goldenInterface(long groupId, int maxRetries) {

@@ -64,6 +64,21 @@ public class MappingEngine {
             out.set(rule.target(), UnifiedModel.ScalarNode.str(rule.param() == null ? "" : rule.param()));
             return;
         }
+        // condition 特殊（M0-02 §4.5，矩阵 #17-20）：先求值表达式——
+        // false → 跳过，不触发 null 策略；true 且 source 为空 → 才走 null 策略。
+        // 不能走下方统一 null 前置（那会让「条件过滤」退化成「字段必填」）。
+        if ("condition".equals(op)) {
+            if (!conditionEvaluator.eval(rule.param(), inbound)) {
+                return;
+            }
+            Optional<UnifiedModel.UNode> src = inbound.get(rule.source());
+            if (src.isEmpty()) {
+                applyNullStrategy(out, rule);
+                return;
+            }
+            out.set(rule.target(), src.get());
+            return;
+        }
         // null 触发：source 不存在或 NULL → 不执行 op 本体（M0-02 D5）
         Optional<UnifiedModel.UNode> src = inbound.get(rule.source());
         if (src.isEmpty()) {
@@ -75,11 +90,6 @@ public class MappingEngine {
                 case "rename" -> out.set(rule.target(), src.get());
                 case "typeCast" -> out.set(rule.target(), typeCast(src.get(), rule.param()));
                 case "enumMap" -> out.set(rule.target(), enumMap(src.get(), rule.param()));
-                case "condition" -> {
-                    if (conditionEvaluator.eval(rule.param(), inbound)) {
-                        out.set(rule.target(), src.get());
-                    }
-                }
                 case "aggregate" -> aggregate(inbound, out, rule);
                 default -> throw BizException.fieldInvalid("非法映射操作：" + op);
             }

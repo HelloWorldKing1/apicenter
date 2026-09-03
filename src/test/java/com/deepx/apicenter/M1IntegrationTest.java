@@ -257,6 +257,30 @@ class M1IntegrationTest {
         assertThat(warning).contains("立即补发");
     }
 
+    // ---------- 删除守卫（存在运行数据仅允许下线） ----------
+
+    @Test
+    void 接口存在运行数据禁止删除() {
+        setupTestApp();
+        long groupId = createTestGroup();
+        long id = interfaceService.create(baseOutboundReq(groupId));
+
+        // 模拟该接口已被调用（产生运行数据）
+        jdbcTemplate.update("""
+                INSERT INTO outbound_request (interface_id, app_id, biz_id, in_payload, status,
+                                              attempt_count, max_attempts, trace_id)
+                VALUES (?, ?, ?, '{}', 'SUCCESS', 1, 5, 'trace-delete-guard')
+                """, id, TEST_APP, "biz-delete-guard");
+        assertThatThrownBy(() -> interfaceService.delete(id))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("运行数据");
+
+        // 清理运行数据后可删除（且删除后详情 404）
+        jdbcTemplate.update("DELETE FROM outbound_request WHERE interface_id = ?", id);
+        interfaceService.delete(id);
+        assertThatThrownBy(() -> interfaceService.detail(id)).isInstanceOf(BizException.class);
+    }
+
     // ---------- 乐观锁 ----------
 
     @Test

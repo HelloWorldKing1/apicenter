@@ -112,6 +112,17 @@ class MappingEngineTest {
     }
 
     @Test
+    void condition_source缺失且条件为假_不触发null策略不报错() {
+        // 矩阵 #20 补充：source 为 null + 条件 false + ERROR → 不报错、不写
+        for (String ns : List.of("KEEP", "NULL", "DEFAULT", "ERROR")) {
+            assertThat(value(apply(rule("nonexistent", "condition", "t", "a == '999'", ns)), "t"))
+                    .isEqualTo("__ABSENT__");
+        }
+        // source 为 null + 条件 true + KEEP → 写 null（走 null 策略）
+        assertThat(value(apply(rule("b", "condition", "t", "a == '1'", "KEEP")), "t")).isNull();
+    }
+
+    @Test
     void aggregate_SUM_四空值策略() {
         assertThat(value(apply(rule("c", "aggregate", "t", "SUM", "KEEP")), "t")).isEqualTo(3L);
         assertThat(value(apply(rule("b", "aggregate", "t", "SUM", "KEEP")), "t")).isNull();

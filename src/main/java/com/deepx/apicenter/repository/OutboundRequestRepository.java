@@ -71,6 +71,13 @@ public class OutboundRequestRepository {
         return jdbc.update("DELETE FROM outbound_request WHERE app_id = ?", appId);
     }
 
+    /** 接口的运行数据条数（删除守卫：存在运行数据仅允许下线，schema.sql 删除策略） */
+    public int countByInterface(long interfaceId) {
+        Integer n = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM outbound_request WHERE interface_id = ?", Integer.class, interfaceId);
+        return n == null ? 0 : n;
+    }
+
     /** 状态流转（含诊断字段与下次重试时间；传 null 表示不改）。attempt_count 由 incrementAttempt 显式维护 */
     public int updateState(long id, String status, String outPayload, String respPayload,
                            LocalDateTime nextRetryAt, String errorCode) {

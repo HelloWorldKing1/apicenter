@@ -12,6 +12,8 @@ import com.deepx.apicenter.model.InterfaceRow;
 import com.deepx.apicenter.repository.AppRepository;
 import com.deepx.apicenter.repository.GroupRepository;
 import com.deepx.apicenter.repository.InterfaceRepository;
+import com.deepx.apicenter.repository.OutboundRequestRepository;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,13 +37,19 @@ public class InterfaceService {
     private final InterfaceRepository interfaceRepository;
     private final AppRepository appRepository;
     private final GroupRepository groupRepository;
+    private final OutboundRequestRepository outboundRequestRepository;
+    private final JdbcTemplate jdbcTemplate;
 
     public InterfaceService(InterfaceRepository interfaceRepository,
                             AppRepository appRepository,
-                            GroupRepository groupRepository) {
+                            GroupRepository groupRepository,
+                            OutboundRequestRepository outboundRequestRepository,
+                            JdbcTemplate jdbcTemplate) {
         this.interfaceRepository = interfaceRepository;
         this.appRepository = appRepository;
         this.groupRepository = groupRepository;
+        this.outboundRequestRepository = outboundRequestRepository;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     // ---------- 查询 ----------
@@ -125,7 +133,13 @@ public class InterfaceService {
     @Transactional
     public void delete(long id) {
         interfaceRepository.findById(id).orElseThrow(() -> BizException.ifaceNotFound(id));
-        // 存在运行数据仅允许下线（M2 起校验 outbound_request / inbound_delivery）
+        // 删除守卫（schema.sql 删除策略）：存在运行数据仅允许下线，
+        // 否则 outbound_request / inbound_delivery 悬空（无外键不报错，但监控/重放/对账全部失效）
+        if (outboundRequestRepository.countByInterface(id) > 0) {
+            throw BizException.fieldInvalid("接口存在运行数据，仅允许下线（禁止删除）");
+        }
+        // 调用日志保留、引用置 NULL（schema.sql 约定：可观测数据不丢）
+        jdbcTemplate.update("UPDATE call_log SET interface_id = NULL WHERE interface_id = ?", id);
         interfaceRepository.deleteCascade(id);
     }
 
