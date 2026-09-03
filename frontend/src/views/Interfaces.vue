@@ -18,7 +18,7 @@
             <el-option label="已发布" value="PUBLISHED" />
             <el-option label="下线" value="OFFLINE" />
           </el-select>
-          <el-input v-model="filterKeyword" placeholder="名称 / 标识 / 路径" clearable style="width: 200px" @input="load" />
+          <el-input v-model="filterKeyword" placeholder="名称 / 标识 / 路径" clearable style="width: 200px" @input="onKeywordInput" />
         </div>
         <el-button type="primary" @click="openCreate">＋ 新建接口</el-button>
       </div>
@@ -416,6 +416,7 @@ const authAdapters = computed(() => adapters.value.filter((a) => a.type === 'aut
 const messageAdapters = computed(() => adapters.value.filter((a) => a.type === 'message' && a.enabled))
 const filterGroups = computed(() => groups.value.filter((g) => g.appId === filterApp.value))
 
+// 筛选只查接口列表；字典（应用/分组/适配器）仅在首次加载拉取（评审中危 #10 拆请求）
 async function load() {
   loading.value = true
   try {
@@ -426,15 +427,26 @@ async function load() {
       status: filterStatus.value || undefined,
       keyword: filterKeyword.value || undefined
     }})
-    apps.value = await http.get('/apps')
-    groups.value = await http.get('/groups')
-    adapters.value = await http.get('/adapters')
   } finally {
     loading.value = false
   }
 }
+
+async function loadDicts() {
+  apps.value = await http.get('/apps')
+  groups.value = await http.get('/groups')
+  adapters.value = await http.get('/adapters')
+}
+
+// 搜索防抖（评审中危 #10）
+let keywordTimer
+function onKeywordInput() {
+  clearTimeout(keywordTimer)
+  keywordTimer = setTimeout(load, 300)
+}
+
 onMounted(async () => {
-  await load()
+  await Promise.all([load(), loadDicts()])
   // 从分组管理「分组详情 → 点击接口」跳转而来，自动打开接口详情
   const id = Number(route.query.id)
   if (id) {
@@ -576,12 +588,21 @@ function toFormJson(rows) {
   return JSON.stringify((rows || []).filter((r) => r.key).map((r) => [r.key, r.value || '']))
 }
 
-/** 类型切换：清空互斥字段（设计 §3.1 类型互斥字段按类型清空） */
+/**
+ * 类型切换：清空互斥字段（设计 §3.1 类型互斥字段按类型清空）。
+ * 出站侧语义随类型变化（OUTBOUND=目标请求 / INBOUND=送达报文），
+ * 连同映射与出站侧参数一并清空，避免旧语义残留错提交（评审中危 #9）。
+ */
 function onTypeChange() {
   form.upstreamPath = ''
   form.callbackUrl = ''
   form.fieldDefs = []
   form.authAdapterId = null
+  form.mappings = []
+  form.outParams = []
+  form.outFormRows = []
+  form.outBodyType = 'none'
+  form.outBodyRaw = ''
 }
 function onAppChange() {
   form.groupId = null

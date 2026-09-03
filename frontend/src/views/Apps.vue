@@ -3,7 +3,7 @@
     <el-card shadow="never">
       <div class="toolbar">
         <div class="toolbar-filters">
-          <el-input v-model="keyword" placeholder="按名称 / 标识搜索" clearable style="width: 220px" @input="load" />
+          <el-input v-model="keyword" placeholder="按名称 / 标识搜索" clearable style="width: 220px" @input="onKeywordInput" />
           <el-select v-model="filterStatus" placeholder="状态" clearable style="width: 130px" @change="load">
             <el-option label="草稿" value="DRAFT" />
             <el-option label="启用" value="ENABLED" />
@@ -98,6 +98,26 @@
       </template>
     </el-dialog>
 
+    <!-- 凭证录入弹窗（更新/重置，支持出站签名与回调验签两类） -->
+    <el-dialog v-model="credDialog.visible" :title="credDialog.mode === 'update' ? '更新凭证（旧凭证并存 24h）' : '重置凭证（旧凭证立即失效）'" width="520px">
+      <el-form label-width="100px">
+        <el-form-item label="凭证类型" required>
+          <el-radio-group v-model="credDialog.kind">
+            <el-radio value="OUTBOUND">出站签名</el-radio>
+            <el-radio value="CALLBACK">回调验签</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="凭证内容" required>
+          <el-input v-model="credDialog.credential" type="textarea" :rows="4"
+                    placeholder="供应商提供的密钥 / token（保存后仅显示尾 4 位指纹，永不回显明文）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="credDialog.visible = false">取消</el-button>
+        <el-button type="primary" @click="saveCred">保存</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 内联创建适配器（原型「＋ 自定义鉴权适配器」平移，保存后回填下拉） -->
     <el-dialog v-model="inlineDialog.visible" title="自定义适配器" width="560px" append-to-body>
       <el-form label-width="120px">
@@ -155,8 +175,8 @@
         </el-table-column>
       </el-table>
       <div class="cred-actions">
-        <el-button size="small" @click="updateCred">更新凭证（供应商已换密钥）</el-button>
-        <el-button size="small" @click="resetCred">重置（应急换新）</el-button>
+        <el-button size="small" @click="openCredDialog('update')">更新凭证（供应商已换密钥）</el-button>
+        <el-button size="small" @click="openCredDialog('reset')">重置（应急换新）</el-button>
       </div>
     </el-drawer>
   </div>
@@ -176,6 +196,13 @@ const filterStatus = ref('')
 const authAdapters = ref([])
 const messageAdapters = ref([])
 const impls = ref([])
+
+// 搜索防抖（评审中危 #10）
+let keywordTimer
+function onKeywordInput() {
+  clearTimeout(keywordTimer)
+  keywordTimer = setTimeout(load, 300)
+}
 
 async function load() {
   loading.value = true
@@ -305,16 +332,30 @@ async function retire(cred) {
   else ElMessage.success('已失效')
   openDetail(detail.row)
 }
-async function updateCred() {
-  const { value } = await ElMessageBox.prompt('输入供应商提供的新凭证内容', '更新凭证', { inputType: 'textarea' })
-  await http.post(`/apps/${detail.row.appId}/credentials/update`, { kind: 'OUTBOUND', credential: value })
-  ElMessage.success('已更新，旧凭证并存 24h')
-  openDetail(detail.row)
+// 凭证录入（支持 OUTBOUND / CALLBACK 两类，修复评审中危 #8 写死 OUTBOUND）
+const credDialog = reactive({ visible: false, mode: 'update', kind: 'OUTBOUND', credential: '' })
+
+function openCredDialog(mode) {
+  credDialog.mode = mode
+  credDialog.kind = 'OUTBOUND'
+  credDialog.credential = ''
+  credDialog.visible = true
 }
-async function resetCred() {
-  const { value } = await ElMessageBox.prompt('输入新凭证内容（旧凭证将全部立即失效）', '重置凭证', { inputType: 'textarea' })
-  await http.post(`/apps/${detail.row.appId}/credentials/reset`, { kind: 'OUTBOUND', credential: value })
-  ElMessage.success('已重置')
+
+async function saveCred() {
+  if (!credDialog.credential) {
+    ElMessage.warning('请输入凭证内容')
+    return
+  }
+  const payload = { kind: credDialog.kind, credential: credDialog.credential }
+  if (credDialog.mode === 'update') {
+    await http.post(`/apps/${detail.row.appId}/credentials/update`, payload)
+    ElMessage.success('已更新，旧凭证并存 24h')
+  } else {
+    await http.post(`/apps/${detail.row.appId}/credentials/reset`, payload)
+    ElMessage.success('已重置（旧凭证已立即失效）')
+  }
+  credDialog.visible = false
   openDetail(detail.row)
 }
 
