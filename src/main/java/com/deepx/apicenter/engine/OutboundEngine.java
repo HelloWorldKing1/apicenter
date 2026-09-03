@@ -85,6 +85,7 @@ public class OutboundEngine {
         }
         String trace = traceId == null ? UUID.randomUUID().toString().replace("-", "") : traceId;
         String biz = bizId == null || bizId.isBlank() ? UUID.randomUUID().toString() : bizId;
+        log.info("路由命中接口 code={} appId={} 上游={}", iface.code(), iface.appId(), iface.upstreamPath());
         return execute(iface, body, biz, trace);
     }
 
@@ -146,6 +147,7 @@ public class OutboundEngine {
         UnifiedModel respModel = parseResponse(respBody);
         String outPayload = modelText(respModel);
         outboundRequestRepository.updateState(recordId, "SUCCESS", null, outPayload, null, null);
+        log.info("出站请求 {} 成功（响应 {} 字节）", recordId, respBody.length);
 
         JsonNode envelopeParams = envelopeParamsOf(iface);
         if (envelopeParams == null) {

@@ -3,6 +3,8 @@ package com.deepx.apicenter.controller;
 import com.deepx.apicenter.dto.ApiResult;
 import com.deepx.apicenter.engine.OutboundEngine;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -19,6 +21,8 @@ import java.util.Enumeration;
  */
 @RestController
 public class GatewayController {
+
+    private static final Logger log = LoggerFactory.getLogger(GatewayController.class);
 
     private final OutboundEngine outboundEngine;
 
@@ -38,6 +42,8 @@ public class GatewayController {
         // traceId 透传（M4 OTel 埋点前先透传请求头）与业务键（上游幂等依赖，ADR 5）
         String traceId = firstHeader(request, "X-Trace-Id", "traceparent");
         String bizId = firstHeader(request, "X-Biz-Id");
+        log.info("接入层请求 method={} path={} bizId={} traceId={} bodyBytes={}",
+                request.getMethod(), fullPath, bizId, traceId, body == null ? 0 : body.length);
         ApiResult<?> result = outboundEngine.dispatch(fullPath, request.getMethod(), body, bizId, traceId);
         return ResponseEntity.ok(result);
     }
