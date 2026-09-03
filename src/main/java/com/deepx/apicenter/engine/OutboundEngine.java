@@ -99,7 +99,15 @@ public class OutboundEngine {
             if (e instanceof BizException) {
                 throw e; // 链失败不污染状态机（M0-01 D7）；死信/业务失败已在 doInvoke 内落状态
             }
-            log.error("出站请求 {} 执行异常", recordId, e);
+            // 预期内的传输异常（超时/429/5xx）已按状态机归类，仅记单行 warn 不打堆栈；
+            // 真正意外的异常保留 ERROR 堆栈便于排查
+            if (e instanceof org.springframework.web.client.ResourceAccessException
+                    || e instanceof org.springframework.web.client.HttpClientErrorException.TooManyRequests
+                    || e instanceof org.springframework.web.client.HttpServerErrorException) {
+                log.warn("出站请求 {} 传输异常（{} → code {}）", recordId, e.getClass().getSimpleName(), mapped.getCode());
+            } else {
+                log.error("出站请求 {} 执行异常", recordId, e);
+            }
             throw mapped;
         }
     }
@@ -187,8 +195,13 @@ public class OutboundEngine {
             if (e instanceof BizException) {
                 // 链失败（D7）与死信/业务失败（doInvoke 内已落状态）不重复分类，仅记录
                 log.warn("补偿重放 outbound_request {} 失败：{}", row.id(), mapped.getMessage());
+            } else if (e instanceof org.springframework.web.client.ResourceAccessException
+                    || e instanceof org.springframework.web.client.HttpClientErrorException.TooManyRequests
+                    || e instanceof org.springframework.web.client.HttpServerErrorException) {
+                log.warn("补偿重放 outbound_request {} 传输异常（{} → code {}）", row.id(),
+                        e.getClass().getSimpleName(), mapped.getCode());
             } else {
-                log.error("补偿重放 outbound_request {} 异常（已按 {} 归类）", row.id(), mapped.getCode(), e);
+                log.error("补偿重放 outbound_request {} 执行异常", row.id(), e);
             }
         }
     }
