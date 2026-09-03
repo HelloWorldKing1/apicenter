@@ -76,12 +76,14 @@ public class InterfaceController {
      * 失败分支（死信 / 补偿 / UNKNOWN）由全局异常处理返回对应错误信封（msg 含死信编号等诊断信息）。
      */
     @PostMapping("/{id}/test")
-    public ApiResult<?> test(@PathVariable long id, @RequestBody(required = false) String body) {
+    public ApiResult<?> test(@PathVariable long id, @RequestBody(required = false) byte[] body) {
         InterfaceRow iface = interfaceRepository.findById(id)
                 .orElseThrow(() -> BizException.ifaceNotFound(id));
-        byte[] raw = body == null || body.isBlank()
+        // byte[] 原样接收（ByteArrayHttpMessageConverter 对任何 Content-Type 均按原始字节读取），
+        // 避免 String + application/json 的字符串字面量解析歧义、也避免 form-urlencoded 的编码污染。
+        byte[] raw = body == null || body.length == 0
                 ? "{}".getBytes(StandardCharsets.UTF_8)
-                : body.getBytes(StandardCharsets.UTF_8);
+                : body;
         return outboundEngine.execute(iface, raw,
                 "TEST-" + UUID.randomUUID().toString().substring(0, 8), null);
     }

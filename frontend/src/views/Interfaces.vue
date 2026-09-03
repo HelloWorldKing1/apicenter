@@ -664,7 +664,9 @@ async function sendTest() {
   test.sending = true
   test.resp = ''
   try {
-    const result = await http.post(`/interfaces/${detail.row.id}/test`, test.body)
+    // 发 JSON 对象（axios 序列化为 application/json，后端 byte[] 原样收）——避免字符串被表单编码
+    const obj = JSON.parse(test.body)
+    const result = await http.post(`/interfaces/${detail.row.id}/test`, obj)
     test.isError = false
     test.resp = JSON.stringify({ code: 0, msg: 'ok', data: result }, null, 2)
   } catch (e) {

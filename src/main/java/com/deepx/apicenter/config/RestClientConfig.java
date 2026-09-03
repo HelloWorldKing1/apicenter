@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
+import java.net.http.HttpClient;
 import java.time.Duration;
 
 /**
@@ -25,7 +26,12 @@ public class RestClientConfig {
 
     @Bean
     public RestClient restClient() {
-        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory();
+        // 连接超时经自定义 HttpClient 设置（JdkClientHttpRequestFactory 无 setConnectTimeout）；
+        // 缺失连接超时会导致「连不上的上游」在 TCP 连接阶段无限挂起，读超时永不触发。
+        HttpClient httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofMillis(3000))
+                .build();
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
         requestFactory.setReadTimeout(Duration.ofMillis(3000));
         return RestClient.builder()
                 .requestFactory(requestFactory)
