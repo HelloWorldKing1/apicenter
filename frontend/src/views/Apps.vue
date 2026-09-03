@@ -170,7 +170,7 @@
           <template #default="{ row }">
             <el-button v-if="row.status === 'ROTATING'" link type="primary" @click="activate(row)">激活</el-button>
             <el-button v-if="row.status === 'ROTATING'" link type="success" @click="finishRotation(row)">完成轮换</el-button>
-            <el-button v-if="row.status !== 'RETIRED'" link type="danger" @click="retire(row)">失效</el-button>
+            <el-button v-if="row.status !== 'RETIRED'" link type="danger" @click="retire(row)">吊销</el-button>
             <el-button v-else link type="danger" @click="removeCred(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -327,10 +327,10 @@ async function finishRotation(cred) {
   openDetail(detail.row)
 }
 async function retire(cred) {
-  await ElMessageBox.confirm('失效后立即不可用，确认？', '确认', { type: 'warning' })
+  await ElMessageBox.confirm('吊销后该凭证立即不可用，确认？', '确认', { type: 'warning' })
   const warning = await http.post(`/apps/${detail.row.appId}/credentials/${cred.id}/retire`)
   if (warning) ElMessage.warning(warning)
-  else ElMessage.success('已失效')
+  else ElMessage.success('已吊销')
   openDetail(detail.row)
 }
 async function removeCred(cred) {
