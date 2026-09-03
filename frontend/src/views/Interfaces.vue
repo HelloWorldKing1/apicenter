@@ -347,8 +347,10 @@
           </el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="方法与路径" :span="2">
-          <span class="mono">{{ detail.row.method }} {{ detail.row.path }}</span>
-          <el-button link size="small" type="primary" @click="copyPath">复制</el-button>
+          <div class="path-row">
+            <span class="mono">{{ detail.row.method }} {{ detail.row.path }}</span>
+            <el-button link size="small" type="primary" @click="copyPath">复制</el-button>
+          </div>
         </el-descriptions-item>
         <el-descriptions-item label="归属">{{ detail.row.appName }} / {{ detail.row.groupName }}</el-descriptions-item>
         <el-descriptions-item label="版本">v{{ detail.row.version }}</el-descriptions-item>
@@ -652,9 +654,9 @@ async function openDetail(row) {
   detail.visible = true
 }
 
-// ---------- 一键复制完整 URL（方法 + host + 平台侧路径；生产同源部署时 host 即后端地址） ----------
+// ---------- 一键复制完整 URL（host + 平台侧路径；生产同源部署时 host 即后端地址） ----------
 async function copyPath() {
-  const text = `${detail.row.method} ${window.location.origin}${detail.row.path}`
+  const text = `${window.location.origin}${detail.row.path}`
   try {
     await navigator.clipboard.writeText(text)
     ElMessage.success('已复制：' + text)
@@ -731,6 +733,7 @@ const chainSteps = computed(() => {
 h4 { margin: 20px 0 10px; color: #303133; }
 .chain-desc { color: #606266; font-size: 13px; }
 .mono { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; }
+.path-row { display: flex; align-items: center; justify-content: space-between; width: 100%; }
 .detail-actions { margin-top: 20px; display: flex; gap: 8px; }
 
 /* ---------- Postman 风格（签名元素：请求地址栏） ---------- */
