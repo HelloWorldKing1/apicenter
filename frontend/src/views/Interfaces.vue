@@ -346,7 +346,10 @@
             {{ { DRAFT: '草稿', PUBLISHED: '已发布', OFFLINE: '下线' }[detail.row.status] }}
           </el-tag>
         </el-descriptions-item>
-        <el-descriptions-item label="方法与路径" :span="2">{{ detail.row.method }} {{ detail.row.path }}</el-descriptions-item>
+        <el-descriptions-item label="方法与路径" :span="2">
+          <span class="mono">{{ detail.row.method }} {{ detail.row.path }}</span>
+          <el-button link size="small" type="primary" @click="copyPath">复制</el-button>
+        </el-descriptions-item>
         <el-descriptions-item label="归属">{{ detail.row.appName }} / {{ detail.row.groupName }}</el-descriptions-item>
         <el-descriptions-item label="版本">v{{ detail.row.version }}</el-descriptions-item>
         <el-descriptions-item label="上游路径" :span="2" v-if="detail.row.ifType === 'OUTBOUND'">{{ detail.row.upstreamPath }}</el-descriptions-item>
@@ -649,6 +652,17 @@ async function openDetail(row) {
   detail.visible = true
 }
 
+// ---------- 一键复制路径（方法 + 平台侧路径，即接口路由标识） ----------
+async function copyPath() {
+  const text = `${detail.row.method} ${detail.row.path}`
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('已复制：' + text)
+  } catch {
+    ElMessage.error('复制失败，请手动复制')
+  }
+}
+
 // ---------- 测试接口（管理面调试：POST /api/admin/interfaces/{id}/test） ----------
 const test = reactive({ visible: false, body: '{}', sending: false, resp: '', isError: false })
 
@@ -716,6 +730,7 @@ const chainSteps = computed(() => {
 .muted { color: #c0c4cc; font-size: 12px; }
 h4 { margin: 20px 0 10px; color: #303133; }
 .chain-desc { color: #606266; font-size: 13px; }
+.mono { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; }
 .detail-actions { margin-top: 20px; display: flex; gap: 8px; }
 
 /* ---------- Postman 风格（签名元素：请求地址栏） ---------- */
