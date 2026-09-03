@@ -253,11 +253,12 @@ class M2IntegrationTest {
     void 接口绑定为空_继承应用默认出站鉴权() {
         stubFor(post("/shop/v1/creatorList").willReturn(okJson(GOLDEN_RESPONSE)));
         long groupId = groupService.list(TEST_APP).get(0).id();
-        // 管理面保存形态：绑定行存在但 adapter_id 为空（显式继承应用默认 ADP-101）
-        long ifaceId = interfaceService.create(goldenInterface(groupId, 1, true));
+        // 管理面保存形态：绑定行存在但 adapter_id 为空（显式继承应用默认 ADP-101）；
+        // 用 maxRetries=0 变体（code=M2-GOLDEN-NR 不与 setup 已建接口冲突）
+        long ifaceId = interfaceService.create(goldenInterface(groupId, 0, true));
         interfaceService.publish(ifaceId);
 
-        ApiResult<?> result = outboundEngine.dispatch("/test/m2/golden", "POST",
+        ApiResult<?> result = outboundEngine.dispatch("/test/m2/golden-no-retry", "POST",
                 GOLDEN_REQUEST.getBytes(StandardCharsets.UTF_8), "biz-inherit", "trace-inherit");
 
         assertThat(result.code()).isZero();
