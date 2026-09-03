@@ -31,7 +31,10 @@ public class GatewayController {
     public ResponseEntity<ApiResult<?>> gateway(@PathVariable String path,
                                                 @RequestBody(required = false) byte[] body,
                                                 HttpServletRequest request) {
-        String fullPath = path == null ? "/" : "/" + path;
+        // Spring 7 的 {*path} 通配捕获值自带前导斜杠，此处统一归一化为单个前导斜杠
+        // （否则拼成 "//fastmoss/creatorList" 与接口库路径精确匹配失败）
+        String p = path == null ? "" : path.replaceAll("^/+", "");
+        String fullPath = p.isEmpty() ? "/" : "/" + p;
         // traceId 透传（M4 OTel 埋点前先透传请求头）与业务键（上游幂等依赖，ADR 5）
         String traceId = firstHeader(request, "X-Trace-Id", "traceparent");
         String bizId = firstHeader(request, "X-Biz-Id");
