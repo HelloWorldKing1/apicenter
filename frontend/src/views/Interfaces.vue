@@ -654,9 +654,11 @@ async function openDetail(row) {
   detail.visible = true
 }
 
-// ---------- 一键复制完整 URL（host + 平台侧路径；生产同源部署时 host 即后端地址） ----------
+// ---------- 一键复制完整 URL（host + 平台侧路径） ----------
+// dev 联调时后端在 8080（vite dev server 是 5173）；生产 build 后前端由后端 serve，同源 origin 即后端地址
 async function copyPath() {
-  const text = `${window.location.origin}${detail.row.path}`
+  const host = import.meta.env.DEV ? 'http://localhost:8080' : window.location.origin
+  const text = `${host}${detail.row.path}`
   try {
     await navigator.clipboard.writeText(text)
     ElMessage.success('已复制：' + text)
