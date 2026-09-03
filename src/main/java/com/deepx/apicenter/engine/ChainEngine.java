@@ -3,6 +3,8 @@ package com.deepx.apicenter.engine;
 import com.deepx.apicenter.exception.BizException;
 import com.deepx.apicenter.mapping.MappingEngine;
 import com.deepx.apicenter.model.AdapterRow;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.deepx.apicenter.model.AppRow;
 import com.deepx.apicenter.model.CredentialRow;
 import com.deepx.apicenter.model.InterfaceRow;
@@ -32,6 +34,8 @@ import java.util.stream.Collectors;
  */
 @Component
 public class ChainEngine {
+
+    private static final Logger log = LoggerFactory.getLogger(ChainEngine.class);
 
     private final InterfaceRepository interfaceRepository;
     private final AppRepository appRepository;
@@ -147,6 +151,9 @@ public class ChainEngine {
                     ifaceBinding(iface.id(), "AUTH"),
                     appOf(iface).authAdapterId());
             injectCredential(ctx, appOf(iface).appId());
+            log.info("出站鉴权解析 impl={} adapterId={} 凭证已注入={}",
+                    instance.impl(), instance.adapterId(),
+                    ctx.attrs().get("outboundCredential") != null);
             return instance.process(ctx);
         });
 
