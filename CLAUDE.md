@@ -16,10 +16,10 @@
 | 项 | 状态 |
 |---|---|
 | 设计文档 | 已定稿：`src/main/resources/doc/` 6 份 + schema.sql（16 张表） |
-| M0 契约设计 | **已评审通过 v1.0（2026-09-02）**：`doc/开发文档/` M0-01/02/03（9 个确认点全部通过） |
+| M0 契约设计 | **已评审通过 v1.0（2026-09-02）**：`doc/开发文档/` M0-01/02/03/04（确认点全部通过） |
 | 旧 demo 代码 | 已删除（commit `ad55cea`），git 历史可查 |
 | 数据库 | MySQL PolarDB 已按新 schema 建库（连接信息见 application.yaml） |
-| 工程代码 | **M1 已落地并测试通过（17/17，2026-09-02）**：管理面后端（应用 / 分组 / 接口 / 适配器 / 凭证）+ Vue3 前端（`frontend/`，待浏览器联调）；**M2 已落地并测试通过（34/34，2026-09-02）**：链引擎 + 映射引擎（Aviator）+ 通用客户端（RestClient 直调）+ 出站状态机，fastmoss 黄金用例 G1-G4 在 WireMock 对端端到端跑通 = **首个可演示版本** |
+| 工程代码 | **M1 + M2 已落地并测试通过（全库 45 个 @Test，2026-09-03）**：管理面后端（应用 / 分组 / 接口 / 适配器 / 凭证）+ Vue3 前端（`frontend/`）；链引擎 + 映射引擎（Aviator）+ 通用客户端（RestClient 直调）+ 出站状态机 + 补偿 worker，fastmoss 黄金用例 G1-G4 在 WireMock 对端端到端跑通 = **首个可演示版本**（真实 fastmoss 联调待 token）。测试归属：M1 相关 22（M1IntegrationTest 14 + CryptoServiceTest 7 + 冒烟 1）/ M2 相关 23（MappingEngineTest 14 + M2IntegrationTest 6 + JsonProtocolAdapterTest 3） |
 | 未拍板决策 | 无（M0 全部评审通过，2026-09-02） |
 
 ## 设计文档（现行）
@@ -59,7 +59,7 @@ Java 21 · Spring Boot 4.1（parent `spring-boot-starter-parent:4.1.0`）· Spri
 
 持久化无 JPA/Repository，全部为 `JdbcTemplate` 直连 SQL，DDL 见 `src/main/resources/doc/schema.sql`。
 
-> 待定：动态映射 condition 表达式内核 **Aviator**（M0-02 D10，评审通过后 M2 引入依赖）。
+> 动态映射 condition 表达式内核 **Aviator 5**（M0-02 D10，M2 已落地：`com.googlecode.aviator:aviator`，纯解释器无反射、天然防注入）。
 
 ## 常用命令
 

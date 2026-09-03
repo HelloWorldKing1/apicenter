@@ -65,9 +65,12 @@ public class CredentialService {
      * 生成新凭证（平台生成随机值），status=ROTATING 待激活——出站轮换第一步：
      * 先到供应商侧配置新凭证，确认后调 activate（M0-04 流程①）。
      * 明文仅本次回显，此后不可再读。
+     * 方法级 synchronized 为单机并发兜底（防同 (app_id, kind) 双 ROTATING）：
+     * 「前置 count 检查 + 插入」非原子，管理面低频操作下串行化即可；
+     * 多实例部署时需在库级加唯一约束（M5 生产加固，见 M2代码评审记录 N2）。
      */
     @Transactional
-    public CredentialIssuedView prepare(String appId, PrepareRequest req) {
+    public synchronized CredentialIssuedView prepare(String appId, PrepareRequest req) {
         requireApp(appId);
         validateKind(req.kind());
         if (credentialRepository.countByStatus(appId, req.kind(), "ROTATING") > 0) {
