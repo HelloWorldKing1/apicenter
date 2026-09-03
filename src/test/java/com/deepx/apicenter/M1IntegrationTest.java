@@ -1,5 +1,6 @@
 package com.deepx.apicenter;
 
+import com.deepx.apicenter.dto.AdapterDtos.AdapterRequest;
 import com.deepx.apicenter.dto.AppDtos.AppRequest;
 import com.deepx.apicenter.dto.AppDtos.AppResponse;
 import com.deepx.apicenter.dto.CredentialDtos.CredentialView;
@@ -16,6 +17,7 @@ import com.deepx.apicenter.model.InterfaceRow;
 import com.deepx.apicenter.repository.AppRepository;
 import com.deepx.apicenter.repository.CredentialRepository;
 import com.deepx.apicenter.repository.InterfaceRepository;
+import com.deepx.apicenter.service.AdapterService;
 import com.deepx.apicenter.service.AppService;
 import com.deepx.apicenter.service.CredentialService;
 import com.deepx.apicenter.service.GroupService;
@@ -59,6 +61,8 @@ class M1IntegrationTest {
     private AppRepository appRepository;
     @Autowired
     private InterfaceRepository interfaceRepository;
+    @Autowired
+    private AdapterService adapterService;
 
     /** 清理本测试类产生的数据（接口及子表 + 应用；seed 的 fastmoss 数据不动） */
     @AfterEach
@@ -279,6 +283,85 @@ class M1IntegrationTest {
         jdbcTemplate.update("DELETE FROM outbound_request WHERE interface_id = ?", id);
         interfaceService.delete(id);
         assertThatThrownBy(() -> interfaceService.detail(id)).isInstanceOf(BizException.class);
+    }
+
+    // ---------- 适配器 D6：同 impl 至多 1 条启用（create 默认启用 + update 双路径） ----------
+
+    @Test
+    void 适配器同impl双启用拒绝() {
+        // 用种子不存在的 impl（HmacAuthAdapter 仅元数据，无实现 Bean 也可创建）
+        adapterService.create(new AdapterRequest("M1-TEST-ADP1", "测试适配器1", "auth", "HmacAuthAdapter",
+                true, "1.0", "{}"));
+        try {
+            // create 时 enabled 缺省（默认 true）→ 拒绝
+            assertThatThrownBy(() -> adapterService.create(new AdapterRequest("M1-TEST-ADP2", "测试适配器2",
+                    "auth", "HmacAuthAdapter", null, "1.0", "{}")))
+                    .isInstanceOf(BizException.class)
+                    .hasMessageContaining("至多 1 条启用");
+            // update 把 disabled 改为 enabled → 拒绝（中危 #4：update 路径漏检）
+            adapterService.create(new AdapterRequest("M1-TEST-ADP3", "测试适配器3", "auth", "HmacAuthAdapter",
+                    false, "1.0", "{}"));
+            assertThatThrownBy(() -> adapterService.update("M1-TEST-ADP3",
+                    new AdapterRequest("M1-TEST-ADP3", "测试适配器3", "auth", "HmacAuthAdapter",
+                            true, "1.0", "{}")))
+                    .isInstanceOf(BizException.class)
+                    .hasMessageContaining("至多 1 条启用");
+        } finally {
+            adapterService.delete("M1-TEST-ADP1");
+            if (adapterRepository("M1-TEST-ADP3")) {
+                adapterService.delete("M1-TEST-ADP3");
+            }
+        }
+    }
+
+    private boolean adapterRepository(String id) {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM adapter WHERE id = ?", Integer.class, id) > 0;
+    }
+
+    // ---------- 凭证重复激活（CAS 状态校验） ----------
+
+    @Test
+    void 凭证激活后重复激活被拒() {
+        setupTestApp();
+        credentialService.update(TEST_APP, new UpdateRequest("OUTBOUND", "secret-aaaa"));
+        credentialService.update(TEST_APP, new UpdateRequest("OUTBOUND", "secret-bbbb")); // 旧 ACTIVE → ROTATING
+
+        CredentialView rotating = credentialService.listViews(TEST_APP).stream()
+                .filter(v -> "ROTATING".equals(v.status()))
+                .findFirst().orElseThrow();
+        credentialService.activate(TEST_APP, rotating.id());
+
+        // 激活后目标已 ACTIVE，重复激活被状态校验拒绝
+        assertThatThrownBy(() -> credentialService.activate(TEST_APP, rotating.id()))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("仅待激活");
+    }
+
+    // ---------- 目标地址格式校验（中危 #7） ----------
+
+    @Test
+    void 接口目标地址格式校验() {
+        setupTestApp();
+        long groupId = createTestGroup();
+
+        // OUTBOUND 上游路径含协议 → 拒绝
+        assertThatThrownBy(() -> interfaceService.create(new InterfaceRequest(
+                "IF-M1-URL-1", "x", "OUTBOUND", "POST", "/t/url1", "JSON", "JSON", TEST_APP, groupId,
+                "https://evil.com/path", null, null, 3000, 4, null, 1,
+                baseOutboundReq(groupId).params(), List.of(), List.of(), List.of(), List.of())))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("相对路径");
+        // INBOUND 回调地址非完整 URL → 拒绝
+        assertThatThrownBy(() -> interfaceService.create(new InterfaceRequest(
+                "IF-M1-URL-2", "x", "INBOUND", "POST", "/t/url2", "JSON", "JSON", TEST_APP, groupId,
+                null, "not-a-url", null, 3000, 4, null, 1,
+                List.of(new ParamDto("IN", "e", "string", true, null, 1),
+                        new ParamDto("OUT", "e", "string", true, null, 1)),
+                List.of(), List.of(),
+                List.of(new FieldDefDto("ACK", "code", "string", null, 1)), List.of())))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("完整 URL");
     }
 
     // ---------- 乐观锁 ----------

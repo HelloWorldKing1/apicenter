@@ -93,10 +93,18 @@ public class CredentialService {
         if (!"ROTATING".equals(target.status())) {
             throw BizException.fieldInvalid("仅待激活（ROTATING）凭证可激活，当前状态：" + target.status());
         }
-        credentialRepository.findActive(appId, target.kind()).ifPresent(old ->
-                credentialRepository.updateStatus(old.id(), "ROTATING", null,
-                        LocalDateTime.now().plusHours(24)));
-        credentialRepository.updateStatus(id, "ACTIVE", null, null);
+        // CAS 式流转（并发防双 ACTIVE）：条件更新判行数，0 = 已被并发变更
+        credentialRepository.findActive(appId, target.kind()).ifPresent(old -> {
+            int n = credentialRepository.transitionStatus(old.id(), "ACTIVE", "ROTATING", null,
+                    LocalDateTime.now().plusHours(24));
+            if (n == 0) {
+                throw BizException.fieldInvalid("凭证状态已被并发变更，请刷新后重试");
+            }
+        });
+        int n = credentialRepository.transitionStatus(id, "ROTATING", "ACTIVE", null, null);
+        if (n == 0) {
+            throw BizException.fieldInvalid("凭证状态已被并发变更，请刷新后重试");
+        }
     }
 
     /**
@@ -107,9 +115,14 @@ public class CredentialService {
     public void update(String appId, UpdateRequest req) {
         requireApp(appId);
         validateKind(req.kind());
-        credentialRepository.findActive(appId, req.kind()).ifPresent(old ->
-                credentialRepository.updateStatus(old.id(), "ROTATING", null,
-                        LocalDateTime.now().plusHours(24)));
+        // CAS 式流转（并发防双 ACTIVE）
+        credentialRepository.findActive(appId, req.kind()).ifPresent(old -> {
+            int n = credentialRepository.transitionStatus(old.id(), "ACTIVE", "ROTATING", null,
+                    LocalDateTime.now().plusHours(24));
+            if (n == 0) {
+                throw BizException.fieldInvalid("凭证状态已被并发变更，请刷新后重试");
+            }
+        });
         credentialRepository.insert(new CredentialRow(0, appId, req.kind(),
                 cryptoService.encrypt(req.credential()), "ACTIVE", null, null, null, null));
     }

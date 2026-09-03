@@ -165,6 +165,10 @@ public class InterfaceService {
             if (isBlank(req.upstreamPath())) {
                 throw BizException.fieldInvalid("出站接口必填上游路径 upstreamPath");
             }
+            // 上游路径应为相对路径（拼应用服务地址），拒绝绝对 URL 与路径穿越（中危 #7）
+            if (req.upstreamPath().matches("^https?://.*") || req.upstreamPath().contains("..")) {
+                throw BizException.fieldInvalid("上游路径应为相对路径（拼应用服务地址），不含协议与「..」");
+            }
             if (!isBlank(req.callbackUrl())) {
                 throw BizException.fieldInvalid("出站接口不允许配置回调地址 callbackUrl");
             }
@@ -177,6 +181,10 @@ public class InterfaceService {
         } else {
             if (isBlank(req.callbackUrl())) {
                 throw BizException.fieldInvalid("入站接口必填回调地址 callbackUrl");
+            }
+            // 回调地址必须是完整 URL（http/https），防错配与 SSRF 面（中危 #7）
+            if (!req.callbackUrl().matches("^https?://[^\\s]+$")) {
+                throw BizException.fieldInvalid("回调地址必须是完整 URL（http/https）");
             }
             if (!isBlank(req.upstreamPath())) {
                 throw BizException.fieldInvalid("入站接口不允许配置上游路径 upstreamPath");

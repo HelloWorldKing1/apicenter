@@ -259,7 +259,11 @@ public class OutboundEngine {
             return new UnifiedModel.ArrayNode(items);
         }
         if (node.isIntegralNumber()) {
-            return UnifiedModel.ScalarNode.num(node.longValue());
+            // 超出 long 范围的大整数（BigInteger）→ DECIMAL，不静默截断（M0-01 §1 类型标注）
+            if (node.canConvertToLong()) {
+                return UnifiedModel.ScalarNode.num(node.longValue());
+            }
+            return UnifiedModel.ScalarNode.decimal(node.decimalValue());
         }
         if (node.isFloatingPointNumber() || node.isBigDecimal()) {
             return UnifiedModel.ScalarNode.decimal(node.decimalValue());

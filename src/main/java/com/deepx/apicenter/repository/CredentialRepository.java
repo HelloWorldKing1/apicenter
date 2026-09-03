@@ -81,6 +81,18 @@ public class CredentialRepository {
                 """, status, retiredAt, rotatingUntil, id);
     }
 
+    /**
+     * CAS 式状态流转（并发安全，M0-04 状态机约束兜底）：仅当当前状态为 fromStatus 时更新。
+     * 返回受影响行数（0 = 已被并发变更），调用方据此拒绝/重试，防止同 (app_id, kind) 双 ACTIVE / 双 ROTATING。
+     */
+    public int transitionStatus(long id, String fromStatus, String toStatus,
+                                LocalDateTime retiredAt, LocalDateTime rotatingUntil) {
+        return jdbc.update("""
+                UPDATE app_credential SET status = ?, retired_at = ?, rotating_until = ?
+                WHERE id = ? AND status = ?
+                """, toStatus, retiredAt, rotatingUntil, id, fromStatus);
+    }
+
     /** 按 (app_id, kind) 批量置状态（reset：旧凭证全部 RETIRED） */
     public int retireAll(String appId, String kind) {
         return jdbc.update("""

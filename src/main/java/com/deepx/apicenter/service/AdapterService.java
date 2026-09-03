@@ -96,9 +96,11 @@ public class AdapterService {
         if (!meta.type().equals(req.type())) {
             throw BizException.fieldInvalid("适配器类型不匹配：" + req.impl() + " 属于 " + meta.type());
         }
-        if (excludeId == null && req.enabled() != null && req.enabled()
-                && adapterRepository.countEnabledByImpl(req.impl(), "") > 0) {
-            throw BizException.fieldInvalid("同一实现类至多 1 条启用记录（M0-01 D6）");
+        // D6「同 impl 至多 1 条 enabled」双路径校验：enabled 为空按默认 true（toRow 同语义），
+        // create 与 update（排除自身）均须校验（中危 #4 修复）
+        boolean enabled = req.enabled() == null || req.enabled();
+        if (enabled && adapterRepository.countEnabledByImpl(req.impl(), excludeId == null ? "" : excludeId) > 0) {
+            throw BizException.fieldInvalid("同一实现类至多 1 条启用记录（M0-01 D6），请先停用同 impl 的其他适配器");
         }
         // params 按 impl schema 校验并归一化
         JsonNode node;
