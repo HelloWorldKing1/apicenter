@@ -168,10 +168,16 @@ public class ChainEngine {
         throw BizException.fieldInvalid("协议 " + protocol + " " + action + " 未实现（XML 为 M3 交付）");
     }
 
-    /** 绑定解析：接口绑定 → 应用默认 → 平台默认（M0-01 §5.1，定稿 D4） */
+    /**
+     * 绑定解析（M0-01 §5.1，定稿 D4）：接口绑定（adapter_id 非空）→ 应用默认 → 平台默认。
+     * 注意：绑定行存在但 adapter_id 为空 = 「显式继承应用默认」，必须回退到 appDefaultAdapterId，
+     * 不能直接判空兜底（管理面前端恒提交空绑定行，会吞掉应用级配置）。
+     */
     private AdapterInstance resolveBound(String role, InterfaceRow iface,
                                         InterfaceRow.BindingRow binding, String appDefaultAdapterId) {
-        String adapterId = binding != null ? binding.adapterId() : appDefaultAdapterId;
+        String adapterId = (binding != null && binding.adapterId() != null && !binding.adapterId().isBlank())
+                ? binding.adapterId()
+                : appDefaultAdapterId;
         if (adapterId == null || adapterId.isBlank()) {
             return defaultInstance(role);
         }

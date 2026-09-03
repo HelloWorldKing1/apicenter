@@ -247,6 +247,25 @@ class M2IntegrationTest {
         assertThat(row.errorCode()).isEqualTo("50401");
     }
 
+    // ---------- 接口绑定为空 → 继承应用默认出站鉴权（绑定解析契约回归） ----------
+
+    @Test
+    void 接口绑定为空_继承应用默认出站鉴权() {
+        stubFor(post("/shop/v1/creatorList").willReturn(okJson(GOLDEN_RESPONSE)));
+        long groupId = groupService.list(TEST_APP).get(0).id();
+        // 管理面保存形态：绑定行存在但 adapter_id 为空（显式继承应用默认 ADP-101）
+        long ifaceId = interfaceService.create(goldenInterface(groupId, 1, true));
+        interfaceService.publish(ifaceId);
+
+        ApiResult<?> result = outboundEngine.dispatch("/test/m2/golden", "POST",
+                GOLDEN_REQUEST.getBytes(StandardCharsets.UTF_8), "biz-inherit", "trace-inherit");
+
+        assertThat(result.code()).isZero();
+        // 应用默认 ADP-101（Bearer）生效：WireMock 收到的请求带凭证头
+        wireMock.verify(postRequestedFor(urlEqualTo("/shop/v1/creatorList"))
+                .withHeader("Authorization", equalTo("Bearer m2-golden-token")));
+    }
+
     // ---------- 补偿重放超时 → UNKNOWN 对账（高危 #2 修复验证） ----------
 
     @Test
@@ -273,6 +292,11 @@ class M2IntegrationTest {
     // ---------- helpers ----------
 
     private InterfaceRequest goldenInterface(long groupId, int maxRetries) {
+        return goldenInterface(groupId, maxRetries, false);
+    }
+
+    /** inheritAuth=true：AUTH 绑定行存在但 adapter_id 为空（管理面保存形态，继承应用默认） */
+    private InterfaceRequest goldenInterface(long groupId, int maxRetries, boolean inheritAuth) {
         boolean noRetry = maxRetries == 0;
         List<ParamDto> inParams = List.of(
                 new ParamDto("IN", "filter.seller_id", "string", true, "7494312521977267257", 1),
@@ -294,7 +318,7 @@ class M2IntegrationTest {
                         new FieldDefDto("RESP", "total", "number", "结果总数", 1),
                         new FieldDefDto("RESP", "list", "array", "达人列表", 2)),
                 List.of(
-                        new BindingDto("AUTH", "ADP-101", null),
+                        new BindingDto("AUTH", inheritAuth ? null : "ADP-101", null),
                         new BindingDto("MESSAGE", "ADP-201", null)));
     }
 
