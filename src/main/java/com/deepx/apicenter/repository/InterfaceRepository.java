@@ -35,7 +35,7 @@ public class InterfaceRepository {
 
     // ---------- 主表 ----------
 
-    public List<InterfaceRow> findAll(String appId, Long groupId) {
+    public List<InterfaceRow> findAll(String appId, Long groupId, String ifType, String status, String keyword) {
         StringBuilder sql = new StringBuilder(SELECT_SQL + " WHERE 1 = 1 ");
         List<Object> args = new java.util.ArrayList<>();
         if (appId != null && !appId.isBlank()) {
@@ -45,6 +45,21 @@ public class InterfaceRepository {
         if (groupId != null) {
             sql.append("AND i.group_id = ? ");
             args.add(groupId);
+        }
+        if (ifType != null && !ifType.isBlank()) {
+            sql.append("AND i.if_type = ? ");
+            args.add(ifType);
+        }
+        if (status != null && !status.isBlank()) {
+            sql.append("AND i.status = ? ");
+            args.add(status);
+        }
+        if (keyword != null && !keyword.isBlank()) {
+            sql.append("AND (i.name LIKE ? OR i.code LIKE ? OR i.path LIKE ?) ");
+            String like = "%" + keyword.trim() + "%";
+            args.add(like);
+            args.add(like);
+            args.add(like);
         }
         sql.append("ORDER BY i.created_at DESC");
         return jdbc.query(sql.toString(), InterfaceRow.MAPPER, args.toArray());

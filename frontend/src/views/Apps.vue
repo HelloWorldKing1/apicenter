@@ -2,7 +2,15 @@
   <div>
     <el-card shadow="never">
       <div class="toolbar">
-        <el-input v-model="keyword" placeholder="按名称 / 标识搜索" clearable style="width: 240px" @input="load" />
+        <div class="toolbar-filters">
+          <el-input v-model="keyword" placeholder="按名称 / 标识搜索" clearable style="width: 220px" @input="load" />
+          <el-select v-model="filterStatus" placeholder="状态" clearable style="width: 130px" @change="load">
+            <el-option label="草稿" value="DRAFT" />
+            <el-option label="启用" value="ENABLED" />
+            <el-option label="停用" value="DISABLED" />
+            <el-option label="注销" value="CANCELLED" />
+          </el-select>
+        </div>
         <el-button type="primary" @click="openCreate">＋ 新建应用</el-button>
       </div>
 
@@ -164,6 +172,7 @@ import AdapterParamsEditor from '@/components/AdapterParamsEditor.vue'
 const apps = ref([])
 const loading = ref(false)
 const keyword = ref('')
+const filterStatus = ref('')
 const authAdapters = ref([])
 const messageAdapters = ref([])
 const impls = ref([])
@@ -171,7 +180,7 @@ const impls = ref([])
 async function load() {
   loading.value = true
   try {
-    apps.value = await http.get('/apps', { params: { keyword: keyword.value || undefined } })
+    apps.value = await http.get('/apps', { params: { keyword: keyword.value || undefined, status: filterStatus.value || undefined } })
     const all = await http.get('/adapters')
     authAdapters.value = all.filter(a => a.type === 'auth' && a.enabled)
     messageAdapters.value = all.filter(a => a.type === 'message' && a.enabled)
@@ -316,6 +325,7 @@ const statusType = (s) => ({ DRAFT: 'info', ENABLED: 'success', DISABLED: 'warni
 
 <style scoped>
 .toolbar { display: flex; justify-content: space-between; margin-bottom: 14px; }
+.toolbar-filters { display: flex; gap: 10px; }
 .cred-actions { margin-top: 14px; display: flex; gap: 8px; }
 h4 { margin: 20px 0 10px; color: #303133; }
 .cred-hint { font-size: 12px; color: #909399; margin: -4px 0 10px; }

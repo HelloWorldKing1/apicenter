@@ -31,7 +31,11 @@ public class AppService {
     }
 
     public List<AppResponse> list(String keyword) {
-        return appRepository.findAll(keyword).stream().map(AppResponse::from).toList();
+        return list(keyword, null);
+    }
+
+    public List<AppResponse> list(String keyword, String status) {
+        return appRepository.findAll(keyword, status).stream().map(AppResponse::from).toList();
     }
 
     public AppResponse detail(String appId) {

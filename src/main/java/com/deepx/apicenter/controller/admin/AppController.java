@@ -31,8 +31,9 @@ public class AppController {
     }
 
     @GetMapping
-    public ApiResult<List<AppResponse>> list(@RequestParam(required = false) String keyword) {
-        return ApiResult.ok(appService.list(keyword));
+    public ApiResult<List<AppResponse>> list(@RequestParam(required = false) String keyword,
+                                             @RequestParam(required = false) String status) {
+        return ApiResult.ok(appService.list(keyword, status));
     }
 
     @GetMapping("/{appId}")

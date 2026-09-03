@@ -28,13 +28,25 @@ public class AppRepository {
         this.jdbc = jdbc;
     }
 
-    public List<AppRow> findAll(String keyword) {
-        String like = keyword == null || keyword.isBlank() ? null : "%" + keyword.trim() + "%";
-        if (like == null) {
-            return jdbc.query(SELECT_SQL + " ORDER BY a.created_at DESC", AppRow.MAPPER);
+    public List<AppRow> findAll(String keyword, String status) {
+        StringBuilder sql = new StringBuilder(SELECT_SQL);
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        java.util.List<String> where = new java.util.ArrayList<>();
+        if (keyword != null && !keyword.isBlank()) {
+            where.add("(a.name LIKE ? OR a.app_id LIKE ?)");
+            String like = "%" + keyword.trim() + "%";
+            args.add(like);
+            args.add(like);
         }
-        return jdbc.query(SELECT_SQL + " WHERE a.name LIKE ? OR a.app_id LIKE ? ORDER BY a.created_at DESC",
-                AppRow.MAPPER, like, like);
+        if (status != null && !status.isBlank()) {
+            where.add("a.status = ?");
+            args.add(status);
+        }
+        if (!where.isEmpty()) {
+            sql.append(" WHERE ").append(String.join(" AND ", where));
+        }
+        sql.append(" ORDER BY a.created_at DESC");
+        return jdbc.query(sql.toString(), AppRow.MAPPER, args.toArray());
     }
 
     public Optional<AppRow> findById(String appId) {

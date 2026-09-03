@@ -2,10 +2,23 @@
   <div>
     <el-card shadow="never">
       <div class="toolbar">
-        <div>
-          <el-select v-model="filterApp" clearable placeholder="按应用筛选" style="width: 200px" @change="load">
+        <div class="toolbar-filters">
+          <el-select v-model="filterApp" clearable placeholder="应用" style="width: 160px" @change="onFilterAppChange">
             <el-option v-for="a in apps" :key="a.appId" :label="`${a.name}（${a.appId}）`" :value="a.appId" />
           </el-select>
+          <el-select v-model="filterGroup" clearable placeholder="分组" style="width: 140px" @change="load">
+            <el-option v-for="g in filterGroups" :key="g.id" :label="g.name" :value="g.id" />
+          </el-select>
+          <el-select v-model="filterType" clearable placeholder="类型" style="width: 120px" @change="load">
+            <el-option label="出站中转" value="OUTBOUND" />
+            <el-option label="入站回调" value="INBOUND" />
+          </el-select>
+          <el-select v-model="filterStatus" clearable placeholder="状态" style="width: 120px" @change="load">
+            <el-option label="草稿" value="DRAFT" />
+            <el-option label="已发布" value="PUBLISHED" />
+            <el-option label="下线" value="OFFLINE" />
+          </el-select>
+          <el-input v-model="filterKeyword" placeholder="名称 / 标识 / 路径" clearable style="width: 200px" @input="load" />
         </div>
         <el-button type="primary" @click="openCreate">＋ 新建接口</el-button>
       </div>
@@ -680,6 +693,7 @@ const chainSteps = computed(() => {
 
 <style scoped>
 .toolbar { display: flex; justify-content: space-between; margin-bottom: 14px; }
+.toolbar-filters { display: flex; gap: 10px; flex-wrap: wrap; }
 .muted { color: #c0c4cc; font-size: 12px; }
 h4 { margin: 20px 0 10px; color: #303133; }
 .chain-desc { color: #606266; font-size: 13px; }

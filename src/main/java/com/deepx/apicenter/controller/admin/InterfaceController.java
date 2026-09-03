@@ -46,8 +46,11 @@ public class InterfaceController {
 
     @GetMapping
     public ApiResult<List<InterfaceResponse>> list(@RequestParam(required = false) String appId,
-                                                   @RequestParam(required = false) Long groupId) {
-        return ApiResult.ok(interfaceService.list(appId, groupId));
+                                                   @RequestParam(required = false) Long groupId,
+                                                   @RequestParam(required = false) String ifType,
+                                                   @RequestParam(required = false) String status,
+                                                   @RequestParam(required = false) String keyword) {
+        return ApiResult.ok(interfaceService.list(appId, groupId, ifType, status, keyword));
     }
 
     @GetMapping("/{id}")

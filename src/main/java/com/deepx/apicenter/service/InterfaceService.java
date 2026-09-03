@@ -47,7 +47,11 @@ public class InterfaceService {
     // ---------- 查询 ----------
 
     public List<InterfaceResponse> list(String appId, Long groupId) {
-        return interfaceRepository.findAll(appId, groupId).stream()
+        return list(appId, groupId, null, null, null);
+    }
+
+    public List<InterfaceResponse> list(String appId, Long groupId, String ifType, String status, String keyword) {
+        return interfaceRepository.findAll(appId, groupId, ifType, status, keyword).stream()
                 .map(r -> toResponse(r, List.of(), List.of(), List.of(), List.of(), List.of()))
                 .toList();
     }
