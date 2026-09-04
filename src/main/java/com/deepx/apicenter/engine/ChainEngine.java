@@ -168,6 +168,11 @@ public class ChainEngine {
 
         // 6. 出站鉴权（AUTH 角色：接口覆盖 → 应用默认 → 平台默认 Noop；凭证注入 attrs）
         steps.put(ChainPhase.OUTBOUND_AUTH, ctx -> {
+            if ("INBOUND".equals(iface.ifType())) {
+                // D-M3-2：入站送达向回调地址签名默认无（设计 §5.3「可选，默认无」）——
+                // 不解析应用默认供应商签名、不注入出站凭证（评审缺陷 1 修复：防供应商密钥外泄给回调地址）
+                return instanceOf("NoopAuthAdapter", objectMapper.createObjectNode()).process(ctx);
+            }
             AdapterInstance instance = resolveBound("AUTH", iface,
                     ifaceBinding(iface.id(), "AUTH"),
                     appOf(iface).authAdapterId());

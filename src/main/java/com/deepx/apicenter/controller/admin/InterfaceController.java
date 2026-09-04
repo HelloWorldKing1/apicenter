@@ -100,6 +100,10 @@ public class InterfaceController {
     public ApiResult<?> test(@PathVariable long id, @RequestBody(required = false) byte[] body) {
         InterfaceRow iface = interfaceRepository.findById(id)
                 .orElseThrow(() -> BizException.ifaceNotFound(id));
+        // OUTBOUND 门控（评审遗漏 4 修复）：INBOUND 接口走「模拟回调」，避免误走出站链路
+        if (!"OUTBOUND".equals(iface.ifType())) {
+            throw BizException.fieldInvalid("测试接口仅适用于出站中转接口（INBOUND 请用「模拟回调」）");
+        }
         // byte[] 原样接收（ByteArrayHttpMessageConverter 对任何 Content-Type 均按原始字节读取），
         // 避免 String + application/json 的字符串字面量解析歧义、也避免 form-urlencoded 的编码污染。
         byte[] raw = body == null || body.length == 0

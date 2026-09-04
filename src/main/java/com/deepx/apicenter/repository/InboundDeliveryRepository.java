@@ -72,9 +72,13 @@ public class InboundDeliveryRepository {
                 """, status, nextRetryAt == null ? null : java.sql.Timestamp.valueOf(nextRetryAt), id);
     }
 
-    /** 尝试次数 +1（重放前调用；首期落库 attempt_count=1 即首送） */
-    public int incrementAttempt(long id) {
-        return jdbc.update("UPDATE inbound_delivery SET attempt_count = attempt_count + 1 WHERE id = ?", id);
+    /** 条件认领重放（评审遗漏 6 修复）：仅 PENDING 才 attempt+1——并发双扫（调度 + 手动 scan）时
+     *  已被他线程处理至 ACKED/DEAD 的记录不再重复送达。返回 false = 未认领（调用方放弃重放）。 */
+    public boolean claimForRedeliver(long id) {
+        return jdbc.update("""
+                UPDATE inbound_delivery SET attempt_count = attempt_count + 1
+                WHERE id = ? AND delivery_status = 'PENDING'
+                """, id) > 0;
     }
 
     /** 补偿 worker 扫描：到期可重送的 PENDING 记录（按 (delivery_status, next_retry_at) 索引） */

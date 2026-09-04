@@ -147,12 +147,19 @@ class M3IntegrationTest {
                             + "\"timestampToleranceSeconds\":\"300\",\"replayProtection\":false}",
                     null, null));
         }
+        // ADP-101（缺陷 1 回归：应用级默认出站鉴权存在时，入站送达仍不得携带该签名头）
+        if (!adapterRepository.existsById("ADP-101")) {
+            adapterRepository.insert(new AdapterRow("ADP-101", "Bearer Token", "auth",
+                    "BearerTokenAuthAdapter", true, "1.0",
+                    "{\"headerName\":\"Authorization\",\"prefix\":\"Bearer\"}", null, null));
+        }
         if (!appRepository.existsById(TEST_APP)) {
             appService.create(new AppRequest(TEST_APP, "M3 测试供应商", null,
-                    null, "ADP-301", null, WM_BASE, null, null, null, null,
-                    "M3 集成测试：HMAC 回调验签应用级默认 + WireMock 对端"));
+                    "ADP-101", "ADP-301", null, WM_BASE, null, null, null, null,
+                    "M3 集成测试：应用级默认出站鉴权（缺陷 1 回归）+ HMAC 回调验签 + WireMock 对端"));
             appService.enable(TEST_APP);
             credentialService.update(TEST_APP, new UpdateRequest("CALLBACK", CALLBACK_SECRET));
+            credentialService.update(TEST_APP, new UpdateRequest("OUTBOUND", "m3-outbound-token"));
             groupId = groupService.create(new GroupRequest(TEST_APP, "测试分组", 0));
             cbInterfaceId = interfaceService.create(jsonCallbackInterface(groupId));
             interfaceService.publish(cbInterfaceId);
@@ -195,8 +202,9 @@ class M3IntegrationTest {
         assertThat(row.payload()).contains("\"order_id\":\"ORD-1\"");
         assertThat(row.callbackEventId()).isEqualTo("evt-1"); // 报文顶层 event_id 提取
         assertThat(row.callbackUrlSnapshot()).isEqualTo(WM_BASE + "/delivery-ok");
-        // 送达确实发到回调地址（固定 POST）
-        wireMock.verify(postRequestedFor(urlEqualTo("/delivery-ok")));
+        // 送达确实发到回调地址（固定 POST），且不携带应用默认出站签名头（缺陷 1 回归：应用级 AUTH=ADP-101 存在）
+        wireMock.verify(postRequestedFor(urlEqualTo("/delivery-ok"))
+                .withoutHeader("Authorization"));
     }
 
     // ---------- B2 验签失败 / 过期时间戳 → 401 不落运行表 ----------
@@ -390,6 +398,43 @@ class M3IntegrationTest {
         JsonNode envelope = parse(resp.getBody());
         assertThat(envelope.get("code").asInt()).isZero();
         assertThat(envelope.get("data").get("total").asInt()).isEqualTo(5); // JSON 响应 INT 兼容 number
+    }
+
+    // ---------- 报文大小限制（§4 安全测试点，双向 40002） ----------
+
+    @Test
+    void 报文大小限制_超1MB双向40002() {
+        byte[] big = new byte[1024 * 1024 + 1];
+        java.util.Arrays.fill(big, (byte) 'a');
+
+        // 出站方向：超限先于路由（/m3/x1 未建也无妨——拦截器在 body 读取前按 Content-Length 拒绝）
+        ResponseEntity<byte[]> outbound = httpPost("/m3/x1", big, jsonHeaders());
+        assertThat(outbound.getStatusCode().value()).isEqualTo(400);
+        assertThat(new String(outbound.getBody(), StandardCharsets.UTF_8)).contains("40002");
+
+        // 入站方向：超限先于验签，不落运行表
+        int before = countDeliveries();
+        ResponseEntity<byte[]> inbound = httpPost("/callback/m3/order", big, jsonHeaders());
+        assertThat(inbound.getStatusCode().value()).isEqualTo(400);
+        assertThat(new String(inbound.getBody(), StandardCharsets.UTF_8)).contains("40002");
+        assertThat(countDeliveries()).isEqualTo(before);
+    }
+
+    // ---------- 请求头大小写不敏感（评审 N1 回归） ----------
+
+    @Test
+    void b1c_头名小写_验签不区分大小写() {
+        byte[] body = "{\"event_id\":\"evt-lc\",\"order_id\":\"ORD-LC\"}".getBytes(StandardCharsets.UTF_8);
+        String ts = String.valueOf(System.currentTimeMillis() / 1000);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("x-timestamp", ts); // 小写头名：Servlet 不保证返回客户端原始大小写，验签需不区分大小写
+        headers.set("x-partner-signature", HmacSigner.sign("HMAC-SHA256", CALLBACK_SECRET, ts, body));
+        headers.set("X-Trace-Id", "trace-m3-lc");
+
+        ResponseEntity<byte[]> resp = httpPost("/callback/m3/order", body, headers);
+
+        assertThat(resp.getStatusCode().value()).isEqualTo(200);
     }
 
     // ---------- 模拟回调端点（管理面测试工具） ----------

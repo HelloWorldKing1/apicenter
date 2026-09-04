@@ -92,7 +92,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 | `adapter/` | 鉴权 / 协议 / 报文三类适配器实现 | M2 |
 | `mapping/` | 动态字段映射引擎（M0-02 规范，6 操作运行时解释器） | M2 |
 | `client/` | 通用声明式 HTTP 客户端（M0-03 契约，动态 URI / 凭证组装） | M2 |
-| `worker/` | 补偿 / 对账 worker（按 (status, next_retry_at) 扫描） | M2 / M4 |
+| `worker/` | 补偿 / 对账 worker（按 (status, next_retry_at) 扫描） | M2 / M3（入站重送）/ M4（对账） |
 | `aspect/` | AOP 调用日志、traceId、脱敏 | M4 |
 | `config/` | 配置与 Bean 装配 | M1 |
 

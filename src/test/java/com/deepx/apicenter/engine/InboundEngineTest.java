@@ -21,6 +21,7 @@ import org.springframework.web.client.HttpServerErrorException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -31,6 +32,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -172,12 +174,13 @@ class InboundEngineTest {
                 "{\"order_id\":\"ORD-1\"}", "http://old-snapshot/delivery", "PENDING",
                 2, 5, LocalDateTime.now().minusSeconds(1), "ACKED", "t",
                 LocalDateTime.now(), LocalDateTime.now());
+        when(inboundDeliveryRepository.claimForRedeliver(100L)).thenReturn(true);
         when(upstreamInvoker.invoke(any())).thenReturn(
                 ResponseEntity.status(HttpStatusCode.valueOf(200)).body(new byte[0]));
 
         engine.redeliver(row);
 
-        verify(inboundDeliveryRepository).incrementAttempt(100L);
+        verify(inboundDeliveryRepository).claimForRedeliver(100L); // 条件认领（仅 PENDING）
         ArgumentCaptor<OutboundRequestSpec> captor = ArgumentCaptor.forClass(OutboundRequestSpec.class);
         verify(upstreamInvoker).invoke(captor.capture());
         assertThat(captor.getValue().url()).isEqualTo("http://old-snapshot/delivery"); // 按快照，不按接口当前地址
@@ -191,11 +194,60 @@ class InboundEngineTest {
                 "{\"order_id\":\"ORD-1\"}", "http://old-snapshot/delivery", "PENDING",
                 2, 5, LocalDateTime.now().minusSeconds(1), "ACKED", "t",
                 LocalDateTime.now(), LocalDateTime.now());
+        when(inboundDeliveryRepository.claimForRedeliver(100L)).thenReturn(true);
         when(upstreamInvoker.invoke(any())).thenThrow(
                 new org.springframework.web.client.ResourceAccessException("timeout"));
 
         engine.redeliver(row);
 
         verify(inboundDeliveryRepository).updateState(eq(100L), eq("PENDING"), any(LocalDateTime.class));
+    }
+
+    @Test
+    void 认领失败放弃重放() {
+        InboundDeliveryRow row = new InboundDeliveryRow(100L, 7L, "M3DEMO", "evt-1",
+                "{\"order_id\":\"ORD-1\"}", "http://old-snapshot/delivery", "ACKED",
+                2, 5, LocalDateTime.now().minusSeconds(1), "ACKED", "t",
+                LocalDateTime.now(), LocalDateTime.now());
+        when(inboundDeliveryRepository.claimForRedeliver(100L)).thenReturn(false); // 已被他线程处理
+
+        engine.redeliver(row);
+
+        verify(upstreamInvoker, never()).invoke(any()); // 不再重复送达
+    }
+
+    // ---------- callback_event_id 提取三分支（评审遗漏 5） ----------
+
+    @Test
+    void callbackEventId_报文优先_Header兜底_皆无NULL() {
+        when(upstreamInvoker.invoke(any())).thenReturn(
+                ResponseEntity.status(HttpStatusCode.valueOf(200)).body(new byte[0]));
+
+        // ① 报文 event_id 优先（setUp payload 含 event_id=evt-1；Header 同时存在）
+        when(request.getHeader("X-Event-Id")).thenReturn("evt-hdr");
+        engine.handle(request, "/callback/demo/order", "POST", new byte[0], "t");
+        ArgumentCaptor<InboundDeliveryRow> c1 = ArgumentCaptor.forClass(InboundDeliveryRow.class);
+        verify(inboundDeliveryRepository).insert(c1.capture());
+        assertThat(c1.getValue().callbackEventId()).isEqualTo("evt-1");
+
+        // ② 报文无 event_id → Header 兜底（readHeaders 按 getHeaderNames 枚举收集，需让该头名出现）
+        when(request.getHeaderNames())
+                .thenReturn(Collections.enumeration(List.of("X-Event-Id")));
+        AdapterContext ctxNoEvent = AdapterContext.create(ChainPhase.ENCODE, UnifiedModel.emptyObject(),
+                AdapterContext.InterfaceMeta.of(iface), new AdapterContext.AppMeta("M3DEMO", "http://x"),
+                new AdapterContext.TraceMeta("t1"), null, new OutboundRequestSpec());
+        ctxNoEvent.outbound().body("{\"order_id\":\"ORD-1\"}".getBytes(StandardCharsets.UTF_8));
+        when(chainEngine.execute(anyLong(), any(), anyString(), any(), any())).thenReturn(ctxNoEvent);
+        engine.handle(request, "/callback/demo/order", "POST", new byte[0], "t");
+        ArgumentCaptor<InboundDeliveryRow> c2 = ArgumentCaptor.forClass(InboundDeliveryRow.class);
+        verify(inboundDeliveryRepository, times(2)).insert(c2.capture());
+        assertThat(c2.getAllValues().get(1).callbackEventId()).isEqualTo("evt-hdr");
+
+        // ③ 皆无 → NULL
+        when(request.getHeader("X-Event-Id")).thenReturn(null);
+        engine.handle(request, "/callback/demo/order", "POST", new byte[0], "t");
+        ArgumentCaptor<InboundDeliveryRow> c3 = ArgumentCaptor.forClass(InboundDeliveryRow.class);
+        verify(inboundDeliveryRepository, times(3)).insert(c3.capture());
+        assertThat(c3.getAllValues().get(2).callbackEventId()).isNull();
     }
 }

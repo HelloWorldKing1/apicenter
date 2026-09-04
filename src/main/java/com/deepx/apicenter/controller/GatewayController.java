@@ -59,7 +59,8 @@ public class GatewayController {
         String bizId = firstHeader(request, "X-Biz-Id");
         log.info("接入层请求 method={} path={} bizId={} traceId={} bodyBytes={}",
                 request.getMethod(), fullPath, bizId, traceId, body == null ? 0 : body.length);
-        // 报文大小限制（M0-03 §1.3，M3 补齐）：超限 40002，防大报文拖垮链（双向生效）
+        // 报文大小限制第二道兜底（M0-03 §1.3，M3 补齐；第一道为 BodySizeLimitInterceptor 的 Content-Length 预检，
+        // chunked 传输无 Content-Length 时在此按实际字节拒绝）：超限 40002（出站请求与入站回调双向生效）
         if (body != null && body.length > maxBodyBytes) {
             throw new BizException(40002, "报文超过大小限制（" + maxBodyBytes + " 字节）");
         }

@@ -53,6 +53,9 @@ public class XmlProtocolAdapter implements Adapter {
     public static final String ROOT_REQUEST = "request";
     public static final String ROOT_RESPONSE = "response";
 
+    /** 解码递归深度上限（评审建议 7：防万层嵌套栈溢出） */
+    private static final int MAX_DEPTH = 512;
+
     private final XMLInputFactory inputFactory;
     private final XMLOutputFactory outputFactory;
 
@@ -108,7 +111,7 @@ public class XmlProtocolAdapter implements Adapter {
             if (ev != XMLStreamConstants.START_ELEMENT) {
                 throw new BizException(40002, "报文格式非法：缺少根元素");
             }
-            UnifiedModel.UNode root = readElement(reader);
+            UnifiedModel.UNode root = readElement(reader, 0);
             ctx.payload().root(root);
             applyParamTypes(ctx);
             return ctx;
@@ -128,7 +131,11 @@ public class XmlProtocolAdapter implements Adapter {
     }
 
     /** 递归读元素：容器元素 → ObjectNode（fields + attributes），叶元素 → 标量（文本 STRING / 空 NULL） */
-    private UnifiedModel.UNode readElement(XMLStreamReader r) throws XMLStreamException {
+    private UnifiedModel.UNode readElement(XMLStreamReader r, int depth) throws XMLStreamException {
+        // 深度上限（评审建议 7）：1MB 限制是间接兜底，万层嵌套可栈溢出，显式 40002
+        if (depth > MAX_DEPTH) {
+            throw new BizException(40002, "报文格式非法：XML 嵌套深度超过 " + MAX_DEPTH);
+        }
         String name = r.getLocalName();
         Map<String, String> attributes = new LinkedHashMap<>();
         for (int i = 0; i < r.getAttributeCount(); i++) {
@@ -142,7 +149,7 @@ public class XmlProtocolAdapter implements Adapter {
             if (ev == XMLStreamConstants.START_ELEMENT) {
                 hasChildren = true;
                 String childName = r.getLocalName();
-                merge(fields, childName, readElement(r)); // 递归消费到子元素 END_ELEMENT
+                merge(fields, childName, readElement(r, depth + 1)); // 递归消费到子元素 END_ELEMENT
             } else if (ev == XMLStreamConstants.CHARACTERS || ev == XMLStreamConstants.CDATA) {
                 text.append(r.getText());
             } else if (ev == XMLStreamConstants.END_ELEMENT) {
@@ -230,6 +237,10 @@ public class XmlProtocolAdapter implements Adapter {
             XMLStreamWriter w = outputFactory.createXMLStreamWriter(out, "UTF-8");
             w.writeStartDocument("UTF-8", "1.0");
             String root = ctx.attrs().get("xmlRoot") instanceof String s ? s : ROOT_REQUEST;
+            if (!(ctx.payload().root() instanceof ObjectNode)) {
+                // XML 文档单根约束（评审 N3）：数组/标量根无合法 XML 表示，明确报错而非产出非法多根文档
+                throw new BizException(50000, "报文编码失败：XML 根节点必须为对象");
+            }
             writeNode(w, root, ctx.payload().root());
             w.writeEndDocument();
             w.flush();
