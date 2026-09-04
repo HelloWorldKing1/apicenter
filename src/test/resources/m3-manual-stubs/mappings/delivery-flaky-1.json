@@ -1,0 +1,7 @@
+{
+  "scenarioName": "flaky",
+  "requiredScenarioState": "Started",
+  "newScenarioState": "1",
+  "request": { "method": "POST", "url": "/delivery-flaky" },
+  "response": { "status": 500, "body": "flaky 500 #1" }
+}
