@@ -81,9 +81,9 @@ public class MonitorService {
             outboundRequestRepository.clearErrorCode(outboundRequestId);
             outboundRequestRepository.updateState(outboundRequestId, "SUCCESS", null, null, null, null);
         } else {
-            // 未到达：转补偿立即入队（重放携带同一 biz_id，去重依赖上游幂等，ADR 5）
-            outboundRequestRepository.updateState(outboundRequestId, "COMPENSATING", null, null,
-                    LocalDateTime.now(), null);
+            // 未到达：转补偿立即入队（重放携带同一 biz_id，去重依赖上游幂等，ADR 5）；
+            // attempt 清零——首送预算已随 UNKNOWN 挂起消耗，不清零会被 worker 直接判死信（C3 缺陷修复）
+            outboundRequestRepository.degradeUnknownToCompensating(outboundRequestId, LocalDateTime.now());
         }
         reconcileAuditRepository.insert(outboundRequestId, row.status(), target, "MANUAL", operator, reason);
         log.info("人工对账 outbound_request {}：UNKNOWN → {}（operator={}）", outboundRequestId, target, operator);
@@ -98,8 +98,9 @@ public class MonitorService {
         LocalDateTime expireBefore = LocalDateTime.now().minusMinutes(unknownTtlMinutes);
         List<OutboundRequestRow> expired = outboundRequestRepository.findUnknownExpired(expireBefore);
         for (OutboundRequestRow row : expired) {
-            outboundRequestRepository.updateState(row.id(), "COMPENSATING", null, null,
-                    LocalDateTime.now().plusSeconds(TTL_RETRY_INTERVAL_SECONDS), null);
+            // attempt 清零（同 reconcile COMPENSATING 分支：降级记录需新预算才有机会重放）
+            outboundRequestRepository.degradeUnknownToCompensating(row.id(),
+                    LocalDateTime.now().plusSeconds(TTL_RETRY_INTERVAL_SECONDS));
             reconcileAuditRepository.insert(row.id(), "UNKNOWN", "COMPENSATING", "TTL",
                     "TTL-WORKER", "UNKNOWN 超过 " + unknownTtlMinutes + " 分钟自动降级（重放依赖上游幂等，ADR 5）");
             log.info("UNKNOWN 超时降级 outbound_request {}（updated_at 超 {} 分钟）→ COMPENSATING", row.id(), unknownTtlMinutes);

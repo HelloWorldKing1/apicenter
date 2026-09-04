@@ -73,12 +73,16 @@ public class GatewayGuard {
             return; // 空/0 = 不限
         }
         long currentSecond = System.currentTimeMillis() / 1000;
-        long[] window = qpsWindows.compute(app.appId(), (k, old) ->
-                old == null || old[0] != currentSecond ? new long[]{currentSecond, 0} : old);
-        // compute 内已完成窗口滚动判断；count 非原子但单写线程场景近似准确（保护语义达标）
-        long count = ++window[1];
-        if (count > qpsLimit) {
-            log.warn("应用 {} QPS 限流（窗口计数 {} > 上限 {}）", app.appId(), count, qpsLimit);
+        // 窗口滚动与计数在同一次 compute 内完成（per-key 原子，并发请求不丢计数）
+        long[] window = qpsWindows.compute(app.appId(), (k, old) -> {
+            if (old == null || old[0] != currentSecond) {
+                return new long[]{currentSecond, 1};
+            }
+            old[1]++;
+            return old;
+        });
+        if (window[1] > qpsLimit) {
+            log.warn("应用 {} QPS 限流（窗口计数 {} > 上限 {}）", app.appId(), window[1], qpsLimit);
             throw new BizException(QPS_LIMITED, "QPS 限流（上限 " + qpsLimit + " 次/秒）");
         }
     }

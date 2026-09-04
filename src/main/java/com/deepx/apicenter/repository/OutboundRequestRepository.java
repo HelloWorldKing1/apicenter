@@ -96,6 +96,19 @@ public class OutboundRequestRepository {
         return jdbc.update("UPDATE outbound_request SET attempt_count = attempt_count + 1 WHERE id = ?", id);
     }
 
+    /**
+     * UNKNOWN 对账 / TTL 降级 → COMPENSATING：attempt 清零 + 指定 next_retry_at。
+     * 首送预算已随 UNKNOWN 挂起消耗（attempt ≥ max_attempts 会被 worker 直接判死信），
+     * 对账重放需新预算（与死信重放 resetForReplay 同一口径）；带 status='UNKNOWN' 条件防并发重复降级。
+     */
+    public int degradeUnknownToCompensating(long id, LocalDateTime nextRetryAt) {
+        return jdbc.update("""
+                UPDATE outbound_request
+                SET status = 'COMPENSATING', attempt_count = 0, next_retry_at = ?
+                WHERE id = ? AND status = 'UNKNOWN'
+                """, nextRetryAt == null ? null : java.sql.Timestamp.valueOf(nextRetryAt), id);
+    }
+
     /** 补偿 worker 扫描：到期可重试的 COMPENSATING 记录（按 (status, next_retry_at) 索引） */
     public List<OutboundRequestRow> findDueCompensating(LocalDateTime now) {
         return jdbc.query("""

@@ -454,26 +454,39 @@ class M4IntegrationTest {
     // ---------- C8：QPS 限流拒绝不污染状态机 ----------
 
     @Test
-    void c8_QPS限流_超限42901_不落运行表() {
+    void c8_QPS限流_超限42901_不落运行表() throws Exception {
         stubFor(post("/echo-ok").willReturn(aResponse().withStatus(200)
                 .withHeader("Content-Type", "application/json").withBody("{\"ok\":true}")));
 
         long recordsBefore = countOutbound(LIMIT_APP);
-        int passed = 0;
-        int rejected = 0;
-        // 6 连发（qps_limit=2，同秒窗口；即使跨秒边界也至多 2×2 通过 → 必有拒绝）
-        for (int i = 0; i < 6; i++) {
-            ResponseEntity<byte[]> resp = httpPost("/m4/limit", "{}".getBytes(StandardCharsets.UTF_8));
+        // 并发 8 连发（qps_limit=2）：串行请求受远端 DB 时延影响可能跨秒分布（每秒 ≤2 个则永不触发限流），
+        // 并发提交保证同一固定窗口内计数超限；guard 计数为 per-key 原子 compute，并发不丢计数
+        List<ResponseEntity<byte[]>> responses;
+        try (var executor = java.util.concurrent.Executors.newFixedThreadPool(8)) {
+            var futures = new java.util.ArrayList<java.util.concurrent.Future<ResponseEntity<byte[]>>>();
+            for (int i = 0; i < 8; i++) {
+                futures.add(executor.submit(() ->
+                        httpPost("/m4/limit", "{}".getBytes(StandardCharsets.UTF_8))));
+            }
+            responses = futures.stream().map(f -> {
+                try {
+                    return f.get();
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+            }).toList();
+        }
+        long rejected = responses.stream().filter(r -> r.getStatusCode().value() == 429).count();
+        long passed = responses.size() - rejected;
+        assertThat(rejected).isGreaterThanOrEqualTo(1);
+        assertThat(passed).isLessThanOrEqualTo(4); // 至多两秒窗 × 2
+        for (ResponseEntity<byte[]> resp : responses) {
             if (resp.getStatusCode().value() == 429) {
-                rejected++;
                 assertThat(body(resp)).contains("42901");
             } else {
                 assertThat(resp.getStatusCode().value()).isEqualTo(200);
-                passed++;
             }
         }
-        assertThat(rejected).isGreaterThanOrEqualTo(1);
-        assertThat(passed).isLessThanOrEqualTo(4); // 至多两秒窗 × 2
         // 不污染状态机：运行表增量 = 放行数（拒绝发生在 createRecord 之前）
         assertThat(countOutbound(LIMIT_APP)).isEqualTo(recordsBefore + passed);
     }

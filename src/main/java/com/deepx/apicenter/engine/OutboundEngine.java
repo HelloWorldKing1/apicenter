@@ -154,7 +154,7 @@ public class OutboundEngine {
 
         // 状态 MAPPING → 调上游
         outboundRequestRepository.updateState(recordId, "MAPPING", null, null, null, null);
-        UpstreamInvoker.MAX_RETRIES.set((long) iface.maxRetries());
+        UpstreamInvoker.beginRetryBudget(iface.maxRetries());
         ResponseEntity<byte[]> resp;
         try {
             resp = upstreamInvoker.invoke(ctx.outbound());
@@ -169,7 +169,7 @@ public class OutboundEngine {
             }
             throw e;
         } finally {
-            UpstreamInvoker.MAX_RETRIES.remove();
+            UpstreamInvoker.endRetryBudget();
         }
         return classify(recordId, iface, resp);
     }

@@ -121,7 +121,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 - **中文注释**：全库代码注释、README、设计文档均为简体中文，新代码保持中文注释。
 - **MapStruct + Lombok**：通过 `maven-compiler-plugin` 的 `annotationProcessorPaths` 显式配置（compile 与 test-compile 两个 execution）。MapStruct 只用于固定结构映射（统一信封组装、实体 ↔ DTO），动态映射走规则解释器（M0-02）。
 - **Boot 4 不自动装配 `RestClient.Builder`**：手动构建 `RestClient` Bean（`RestClientConfig`）。
-- **Spring 7 内置 @Retryable**（`org.springframework.resilience.annotation`，**不是 spring-retry**）：退避参数内联（无 @Backoff）、耗尽透传原异常（无 RetryExhaustedException）、动态次数用 `maxRetriesString`（SpEL）+ ThreadLocal。详见《技术踩坑记录.md》§1。
+- **Spring 7 内置 @Retryable**（`org.springframework.resilience.annotation`，**不是 spring-retry**）：退避参数内联（无 @Backoff）、耗尽透传原异常（无 RetryExhaustedException）。**大坑：`maxRetriesString` 的 SpEL 只在方法首次调用时求值一次（MethodRetrySpec 按方法缓存），ThreadLocal + SpEL 动态次数方案不生效**——动态重试预算必须走 `@Retryable(predicate=...)` 扩展点 + 引擎 `beginRetryBudget/endRetryBudget` 包裹（实现见 `UpstreamInvoker`）。详见《技术踩坑记录.md》§1.1。
 - **Spring 7 声明式客户端 URI 模板坑**：`@HttpExchange` 的动态完整 URL 模板变量会被路径编码（scheme 丢失）——**动态 URL 一律 RestClient 直调**（`uri(URI)`），且需 `defaultStatusHandler` 禁用默认 4xx/5xx 抛异常（引擎分类）。详见《技术踩坑记录.md》§3。
 - **Jackson 3**：包名 `tools.jackson.*`；`JsonNode.fields()` 已更名为 `properties()`。
 - **WireMock 3**：verify 用 `postRequestedFor(urlEqualTo(...))` + `equalTo(...)`；请求计数跨测试累积，`@BeforeEach` 需 `resetAll()`。

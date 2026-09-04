@@ -167,7 +167,7 @@ public class InboundEngine {
             log.warn("inbound_delivery {} 回调地址安全校验失败 → 死信", deliveryId);
             return;
         }
-        UpstreamInvoker.MAX_RETRIES.set((long) iface.maxRetries());
+        UpstreamInvoker.beginRetryBudget(iface.maxRetries());
         try {
             ResponseEntity<byte[]> resp = upstreamInvoker.invoke(spec);
             if (resp.getStatusCode().is2xxSuccessful()) {
@@ -185,7 +185,7 @@ public class InboundEngine {
             safeState(deliveryId, "PENDING", LocalDateTime.now().plusSeconds(RETRY_INTERVAL_SECONDS));
             log.warn("inbound_delivery {} 送达失败 → PENDING 待重送（{}）", deliveryId, e.getClass().getSimpleName());
         } finally {
-            UpstreamInvoker.MAX_RETRIES.remove();
+            UpstreamInvoker.endRetryBudget();
         }
     }
 
