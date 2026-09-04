@@ -109,8 +109,14 @@ public class InterfaceController {
         byte[] raw = body == null || body.length == 0
                 ? "{}".getBytes(StandardCharsets.UTF_8)
                 : body;
-        return outboundEngine.execute(iface, raw,
-                "TEST-" + UUID.randomUUID().toString().substring(0, 8), null);
+        try {
+            return outboundEngine.execute(iface, raw,
+                    "TEST-" + UUID.randomUUID().toString().substring(0, 8), null);
+        } finally {
+            // 调试端点直调引擎不经网关：按 CallLogContext 清理契约自行清理
+            // （有意不落 IN 条 call_log——避免调试流量污染成功率口径；OUT 条经 Invoker 切面照常落库）
+            com.deepx.apicenter.aspect.CallLogContext.clear();
+        }
     }
 
     /**

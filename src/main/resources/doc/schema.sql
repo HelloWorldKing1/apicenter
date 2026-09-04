@@ -1,6 +1,6 @@
 -- ============================================================
 -- API 中心（现行设计）· 建表脚本
--- 依据《表结构设计.html》生成，共 16 张表：配置类 11 + 运行类 5
+-- 依据《表结构设计.html》生成，共 18 张表：配置类 11 + 运行类 7（M4 新增 reconcile_audit / alert_event）
 -- 目标库：MySQL 5.7 / 8.0 InnoDB（双兼容），字符集 utf8mb4
 -- 注意：与 doc_old/schema.sql（旧版 ERP demo 9 表）不是同一套，勿混用
 -- 不使用数据库外键约束：引用完整性由应用层保证，引用列均建索引（见各表）
@@ -264,6 +264,36 @@ CREATE TABLE app_credential (
     created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_credential_app (app_id, kind, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='应用凭证（出站签名 / 回调验签，支持轮换并存）';
+
+-- 17 对账审计（M4 交付，D-M4-2）：人工置位与 TTL 自动降级均留痕（谁、何时、UNKNOWN→?）
+CREATE TABLE reconcile_audit (
+    id                  BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    outbound_request_id BIGINT       NOT NULL COMMENT '关联 outbound_request.id',
+    from_status         VARCHAR(32)  NOT NULL COMMENT '对账前状态（恒 UNKNOWN）',
+    to_status           VARCHAR(32)  NOT NULL COMMENT '对账后状态（SUCCESS / COMPENSATING）',
+    source              VARCHAR(16)  NOT NULL COMMENT 'MANUAL 人工 / TTL 超时自动降级',
+    operator            VARCHAR(64)  COMMENT '操作人（TTL 降级记 TTL-WORKER；管理面无用户体系，前端弹窗填写）',
+    reason              VARCHAR(500) COMMENT '对账依据说明',
+    created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_ra_outbound (outbound_request_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='对账审计（M0-03 §3.2 操作留痕）';
+
+-- 18 告警事件（M4 交付，D-M4-5）：alert_rule 触发记录 + 内置告警（验签连续失败等）；监控页展示与冷却判重
+CREATE TABLE alert_event (
+    id         BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    rule_id    BIGINT       COMMENT '关联 alert_rule.id（NULL = 内置告警，如验签连续失败）',
+    metric     VARCHAR(64)  NOT NULL COMMENT '指标：success_rate / p99_latency / dead_letter_backlog / retry_backlog / verify_fail_streak',
+    level      VARCHAR(16)  NOT NULL COMMENT 'WARN / CRITICAL',
+    message    VARCHAR(500) NOT NULL COMMENT '告警内容',
+    context    VARCHAR(1000) COMMENT '详情 JSON（指标值 / 阈值 / 通知渠道等）',
+    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_ae_time (created_at),
+    KEY idx_ae_rule (rule_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='告警事件';
+
+-- M4 评审定稿：AlertWorker success_rate 按更新时间窗口聚合，需 updated_at 索引
+-- （现有 idx_outreq_scan(status, next_retry_at) 对 updated_at 范围过滤只能走 status 前缀扫全部历史 SUCCESS 行）
+ALTER TABLE outbound_request ADD KEY idx_outreq_updated (updated_at);
 
 -- ============================================================
 -- 删除策略约定（不设数据库外键，引用完整性由应用层保证）

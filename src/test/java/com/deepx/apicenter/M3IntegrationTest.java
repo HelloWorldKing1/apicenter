@@ -35,6 +35,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import com.deepx.apicenter.engine.CircuitBreakerRegistry;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
@@ -108,6 +109,8 @@ class M3IntegrationTest {
     private CompensationWorker compensationWorker;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @Autowired
+    private CircuitBreakerRegistry circuitBreakerRegistry;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -137,6 +140,8 @@ class M3IntegrationTest {
 
     @BeforeEach
     void setupTestConfig() {
+        // M4：熔断状态复位（防 5xx 用例累计失败跨用例开闸污染既有断言）
+        circuitBreakerRegistry.resetAll();
         wireMock.resetAll();
         stubFor(post("/delivery-ok").willReturn(aResponse().withStatus(200).withBody("{}")));
         // HMAC 回调验签实例（不依赖 seed 时机；与种子 ADP-301 同 id 幂等）

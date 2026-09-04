@@ -1,0 +1,15 @@
+{
+  "scenarioName": "reject",
+  "requiredScenarioState": "released",
+  "newScenarioState": "released",
+  "request": {
+    "method": "POST",
+    "url": "/reject-supplier"
+  },
+  "response": {
+    "status": 200,
+    "jsonBody": {
+      "ok": true
+    }
+  }
+}

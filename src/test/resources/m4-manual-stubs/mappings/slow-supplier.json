@@ -1,0 +1,13 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "/slow-supplier"
+  },
+  "response": {
+    "status": 200,
+    "jsonBody": {
+      "ok": true
+    },
+    "fixedDelayMilliseconds": 5000
+  }
+}

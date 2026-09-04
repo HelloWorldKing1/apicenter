@@ -105,6 +105,98 @@ public class OutboundRequestRepository {
                 """, OutboundRequestRow.MAPPER, java.sql.Timestamp.valueOf(now));
     }
 
+    /** 对账 TTL 扫描（M4 交付，D-M4-2）：UNKNOWN 持续超 unknown_ttl 的记录 → 自动降级 COMPENSATING */
+    public List<OutboundRequestRow> findUnknownExpired(LocalDateTime expireBefore) {
+        return jdbc.query("""
+                SELECT * FROM outbound_request
+                WHERE status = 'UNKNOWN' AND updated_at <= ?
+                ORDER BY id LIMIT 100
+                """, OutboundRequestRow.MAPPER, java.sql.Timestamp.valueOf(expireBefore));
+    }
+
+    /** 死信重放状态重置（M4 交付，D-M4-3）：置回 COMPENSATING、attempt 清零（防立即再转死信死循环）、
+     *  next_retry_at=now 由 worker 自然扫描重放（重放复用既有 replay 路径，零新执行逻辑） */
+    public int resetForReplay(long id) {
+        return jdbc.update("""
+                UPDATE outbound_request
+                SET status = 'COMPENSATING', attempt_count = 0, next_retry_at = NOW()
+                WHERE id = ?
+                """, id);
+    }
+
+    /** 监控页运行记录查询（M4 交付，D-M4-2）：status / bizId / traceId 可空 = 不过滤，倒序分页 */
+    public List<OutboundRequestRow> findPaged(String status, String bizId, String traceId, int offset, int limit) {
+        StringBuilder sql = new StringBuilder("SELECT * FROM outbound_request WHERE 1=1");
+        List<Object> args = new java.util.ArrayList<>();
+        appendFilter(sql, args, status, bizId, traceId);
+        sql.append(" ORDER BY id DESC LIMIT ").append(Math.max(1, limit))
+                .append(" OFFSET ").append(Math.max(0, offset));
+        return jdbc.query(sql.toString(), OutboundRequestRow.MAPPER, args.toArray());
+    }
+
+    /** 监控页计数（与 findPaged 同过滤口径） */
+    public long countPaged(String status, String bizId, String traceId) {
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM outbound_request WHERE 1=1");
+        List<Object> args = new java.util.ArrayList<>();
+        appendFilter(sql, args, status, bizId, traceId);
+        Long n = jdbc.queryForObject(sql.toString(), Long.class, args.toArray());
+        return n == null ? 0 : n;
+    }
+
+    private void appendFilter(StringBuilder sql, List<Object> args, String status, String bizId, String traceId) {
+        if (status != null && !status.isBlank()) {
+            sql.append(" AND status = ?");
+            args.add(status);
+        }
+        if (bizId != null && !bizId.isBlank()) {
+            sql.append(" AND biz_id = ?");
+            args.add(bizId);
+        }
+        if (traceId != null && !traceId.isBlank()) {
+            sql.append(" AND trace_id = ?");
+            args.add(traceId);
+        }
+    }
+
+    /** 状态计数（监控统计卡 / AlertWorker retry_backlog 指标） */
+    public long countByStatus(String status) {
+        Long n = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM outbound_request WHERE status = ?", Long.class, status);
+        return n == null ? 0 : n;
+    }
+
+    /** 今日（updated_at 当日）指定状态计数（监控统计卡「今日成功率」分子分母，走 idx_outreq_updated） */
+    public long countTodayByStatus(String status) {
+        Long n = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM outbound_request
+                WHERE status = ? AND updated_at >= CURDATE()
+                """, Long.class, status);
+        return n == null ? 0 : n;
+    }
+
+    /** 近 N 分钟终态成功率（AlertWorker success_rate 指标，走 idx_outreq_updated；无终态返回 -1 表示无样本） */
+    public double successRateRecent(int windowMinutes) {
+        var result = jdbc.queryForMap("""
+                SELECT
+                    SUM(CASE WHEN status = 'SUCCESS' THEN 1 ELSE 0 END) AS successCount,
+                    SUM(CASE WHEN status IN ('SUCCESS', 'DEAD_LETTER') THEN 1 ELSE 0 END) AS totalCount
+                FROM outbound_request
+                WHERE status IN ('SUCCESS', 'DEAD_LETTER')
+                  AND updated_at >= DATE_SUB(NOW(), INTERVAL ? MINUTE)
+                """, windowMinutes);
+        long total = result.get("totalCount") == null ? 0 : ((Number) result.get("totalCount")).longValue();
+        if (total == 0) {
+            return -1; // 无样本：不做告警判断
+        }
+        long success = result.get("successCount") == null ? 0 : ((Number) result.get("successCount")).longValue();
+        return (double) success * 100 / total;
+    }
+
+    /** 清空 error_code（对账收敛 SUCCESS 时显式清空——updateState 的 COALESCE(null) 不覆盖旧值） */
+    public int clearErrorCode(long id) {
+        return jdbc.update("UPDATE outbound_request SET error_code = NULL WHERE id = ?", id);
+    }
+
     /** 死信落库（设计 §6.1：4xx / 重试耗尽 / 补偿耗尽） */
     public void insertDeadLetter(String bizType, long refId, String reason, String payload) {
         jdbc.update("""

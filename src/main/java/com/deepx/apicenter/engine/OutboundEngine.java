@@ -2,6 +2,7 @@ package com.deepx.apicenter.engine;
 
 import com.deepx.apicenter.adapter.message.EnvelopeMessageAdapter;
 import com.deepx.apicenter.adapter.protocol.JsonProtocolAdapter;
+import com.deepx.apicenter.aspect.CallLogContext;
 import com.deepx.apicenter.dto.ApiResult;
 import com.deepx.apicenter.exception.BizException;
 import com.deepx.apicenter.model.AppRow;
@@ -37,6 +38,9 @@ public class OutboundEngine {
 
     private static final Logger log = LoggerFactory.getLogger(OutboundEngine.class);
 
+    /** 熔断短路顺延上限（与补偿固定间隔 3s 口径对齐，D-M4-1） */
+    private static final long CIRCUIT_DEFER_SECONDS = 3;
+
     private final InterfaceRepository interfaceRepository;
     private final AppRepository appRepository;
     private final AdapterRepository adapterRepository;
@@ -46,6 +50,7 @@ public class OutboundEngine {
     private final AppService appService;
     private final EnvelopeMessageAdapter envelopeMessageAdapter;
     private final ObjectMapper objectMapper;
+    private final CircuitBreakerRegistry circuitBreakerRegistry;
 
     public OutboundEngine(InterfaceRepository interfaceRepository,
                           AppRepository appRepository,
@@ -55,7 +60,8 @@ public class OutboundEngine {
                           UpstreamInvoker upstreamInvoker,
                           AppService appService,
                           EnvelopeMessageAdapter envelopeMessageAdapter,
-                          ObjectMapper objectMapper) {
+                          ObjectMapper objectMapper,
+                          CircuitBreakerRegistry circuitBreakerRegistry) {
         this.interfaceRepository = interfaceRepository;
         this.appRepository = appRepository;
         this.adapterRepository = adapterRepository;
@@ -65,6 +71,7 @@ public class OutboundEngine {
         this.appService = appService;
         this.envelopeMessageAdapter = envelopeMessageAdapter;
         this.objectMapper = objectMapper;
+        this.circuitBreakerRegistry = circuitBreakerRegistry;
     }
 
     /**
@@ -91,8 +98,9 @@ public class OutboundEngine {
         return execute(iface, body, biz, trace);
     }
 
-    /** 执行出站链路（首送与补偿重放共用入口） */
+    /** 执行出站链路（首送与补偿重放共用入口）。M4：入口填充调用日志上下文（清理契约见 CallLogContext） */
     public ApiResult<?> execute(InterfaceRow iface, byte[] body, String bizId, String traceId) {
+        CallLogContext.set(iface.id(), iface.appId(), traceId);
         long recordId = createRecord(iface, body, bizId, traceId);
         try {
             return doInvoke(recordId, iface, body, traceId);
@@ -120,10 +128,29 @@ public class OutboundEngine {
         // 链执行：入站鉴权 → 解码 → 报文适配 → 字段映射 → 编码 → 出站鉴权（链内统一载体 payload）
         AdapterContext ctx = chainEngine.execute(iface.id(), UnifiedModel.emptyObject(), traceId, body);
 
-        // 出站规格补全：URL / 方法 / 超时（M0-03 §1.2）
+        // 出站规格补全：URL / 方法 / 超时（M0-03 §1.2）+ M4 元数据与 traceId 透传（D-M4-4：
+        // X-Trace-Id 平台 → 上游公共头，补齐 M2 缺口；元数据供 OUT 方向 call_log 读取）
         ctx.outbound().url(appOf(iface).baseUrl() + iface.upstreamPath());
         ctx.outbound().method(iface.method());
         ctx.outbound().readTimeoutMs(iface.timeoutMs());
+        ctx.outbound().interfaceId(iface.id());
+        ctx.outbound().appId(iface.appId());
+        ctx.outbound().traceId(traceId);
+        if (traceId != null && !traceId.isBlank()) {
+            ctx.outbound().header("X-Trace-Id", traceId);
+        }
+
+        // 熔断闸门（D-M4-1，置于 @Retryable Invoker 调用之前，M0-03 §1.4）：
+        // OPEN 短路——不发起调用、不触发短重试，转 COMPENSATING 顺延（不 incrementAttempt）；
+        // 顺延无上限为有意语义（不因上游宕机杀死消息），50202 = 上游熔断短路
+        if (!circuitBreakerRegistry.tryAcquire(iface.id())) {
+            LocalDateTime next = LocalDateTime.now().plusSeconds(
+                    Math.min(circuitBreakerRegistry.retryAfterSeconds(iface.id()), CIRCUIT_DEFER_SECONDS));
+            outboundRequestRepository.updateState(recordId, "COMPENSATING", null, null, next, "50202");
+            circuitBreakerRegistry.logState("短路", iface.id(), iface.appId());
+            log.warn("出站请求 {} 熔断短路（接口 {} OPEN）→ COMPENSATING 顺延至 {}", recordId, iface.id(), next);
+            throw new BizException(50202, "上游熔断短路（已进入补偿队列）");
+        }
 
         // 状态 MAPPING → 调上游
         outboundRequestRepository.updateState(recordId, "MAPPING", null, null, null, null);
@@ -131,6 +158,16 @@ public class OutboundEngine {
         ResponseEntity<byte[]> resp;
         try {
             resp = upstreamInvoker.invoke(ctx.outbound());
+            // 熔断计数（D-M4-1：每请求一次）：invoke 正常返回 = 2xx 或 4xx 非 429（5xx/429/超时以异常到达 catch）
+            circuitBreakerRegistry.record(iface.id(), true);
+        } catch (Exception e) {
+            // 传输类异常（5xx/429/超时连接）计失败；链失败 / 业务异常不进熔断统计
+            if (e instanceof org.springframework.web.client.ResourceAccessException
+                    || e instanceof org.springframework.web.client.HttpClientErrorException.TooManyRequests
+                    || e instanceof org.springframework.web.client.HttpServerErrorException) {
+                circuitBreakerRegistry.record(iface.id(), false);
+            }
+            throw e;
         } finally {
             UpstreamInvoker.MAX_RETRIES.remove();
         }
@@ -185,6 +222,15 @@ public class OutboundEngine {
     public void replay(OutboundRequestRow row) {
         InterfaceRow iface = interfaceRepository.findById(row.interfaceId())
                 .orElseThrow(() -> BizException.ifaceNotFound(row.interfaceId()));
+        // 熔断闸门前置（D-M4-1）：OPEN 时不 incrementAttempt（未触达上游不计尝试，防熔断期间
+        // 空转消耗重试预算），只顺延 next_retry_at = min(冷却剩余, 3s)
+        if (!circuitBreakerRegistry.tryAcquire(row.interfaceId())) {
+            LocalDateTime next = LocalDateTime.now().plusSeconds(
+                    Math.min(circuitBreakerRegistry.retryAfterSeconds(row.interfaceId()), CIRCUIT_DEFER_SECONDS));
+            outboundRequestRepository.updateState(row.id(), "COMPENSATING", null, null, next, "50202");
+            log.info("补偿重放 outbound_request {} 熔断短路 → 顺延至 {}（不计数）", row.id(), next);
+            return;
+        }
         log.info("补偿重放 outbound_request {}（attempt {}/{}）", row.id(), row.attemptCount() + 1, row.maxAttempts());
         outboundRequestRepository.incrementAttempt(row.id());
         try {

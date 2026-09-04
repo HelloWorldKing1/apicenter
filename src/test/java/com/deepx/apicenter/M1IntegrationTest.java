@@ -23,9 +23,11 @@ import com.deepx.apicenter.service.CredentialService;
 import com.deepx.apicenter.service.GroupService;
 import com.deepx.apicenter.service.InterfaceService;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import com.deepx.apicenter.engine.CircuitBreakerRegistry;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.ArrayList;
@@ -48,6 +50,8 @@ class M1IntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
     @Autowired
+    private CircuitBreakerRegistry circuitBreakerRegistry;
+    @Autowired
     private AppService appService;
     @Autowired
     private GroupService groupService;
@@ -64,6 +68,12 @@ class M1IntegrationTest {
     @Autowired
     private AdapterService adapterService;
 
+    /** M4：熔断状态复位（防 5xx 用例累计失败跨用例开闸污染既有断言） */
+    @BeforeEach
+    void resetCircuitBreaker() {
+        circuitBreakerRegistry.resetAll();
+    }
+
     /** 清理本测试类产生的数据（接口及子表 + 应用；seed 的 fastmoss 数据不动） */
     @AfterEach
     void cleanup() {
@@ -77,10 +87,11 @@ class M1IntegrationTest {
     // ---------- DDL 落库 ----------
 
     @Test
-    void 十六张表已落库() {
+    void 十八张表已落库() {
+        // 16 张（设计 §表结构）+ M4 新增 alert_rule / reconcile_audit / alert_event
         Integer n = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'apicenter'", Integer.class);
-        assertThat(n).isEqualTo(16);
+        assertThat(n).isEqualTo(18);
     }
 
     // ---------- 黄金用例回读（开发计划 M2 出口基准的配置部分） ----------

@@ -97,6 +97,22 @@ public class InboundDeliveryRepository {
         return n == null ? 0 : n;
     }
 
+    /** 死信重放状态重置（M4 交付，D-M4-3）：置回 PENDING、attempt 清零，worker 自然重送（快照不变） */
+    public int resetForReplay(long id) {
+        return jdbc.update("""
+                UPDATE inbound_delivery
+                SET delivery_status = 'PENDING', attempt_count = 0, next_retry_at = NOW()
+                WHERE id = ?
+                """, id);
+    }
+
+    /** 状态计数（监控统计卡 / AlertWorker retry_backlog 指标） */
+    public long countByStatus(String status) {
+        Long n = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM inbound_delivery WHERE delivery_status = ?", Long.class, status);
+        return n == null ? 0 : n;
+    }
+
     /** 测试 / 运维清理：按应用删除运行数据（含其死信） */
     public int deleteByApp(String appId) {
         jdbc.update("DELETE FROM dead_letter WHERE ref_id IN (SELECT id FROM inbound_delivery WHERE app_id = ?)", appId);

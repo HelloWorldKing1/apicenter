@@ -1,11 +1,14 @@
 package com.deepx.apicenter.controller;
 
+import com.deepx.apicenter.config.TraceIdFilter;
 import com.deepx.apicenter.dto.ApiResult;
 import com.deepx.apicenter.engine.InboundEngine;
 import com.deepx.apicenter.engine.OutboundEngine;
 import com.deepx.apicenter.exception.BizException;
 import com.deepx.apicenter.model.InterfaceRow;
+import com.deepx.apicenter.repository.AppRepository;
 import com.deepx.apicenter.repository.InterfaceRepository;
+import com.deepx.apicenter.service.GatewayGuard;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,6 +35,8 @@ public class GatewayController {
     private final OutboundEngine outboundEngine;
     private final InboundEngine inboundEngine;
     private final InterfaceRepository interfaceRepository;
+    private final AppRepository appRepository;
+    private final GatewayGuard gatewayGuard;
 
     /** 报文大小上限（M0-03 §1.3 默认 1MB，超限 40002；出站请求与入站回调同网关入口，双向生效） */
     @Value("${app.api-center.max-body-bytes:1048576}")
@@ -39,10 +44,14 @@ public class GatewayController {
 
     public GatewayController(OutboundEngine outboundEngine,
                              InboundEngine inboundEngine,
-                             InterfaceRepository interfaceRepository) {
+                             InterfaceRepository interfaceRepository,
+                             AppRepository appRepository,
+                             GatewayGuard gatewayGuard) {
         this.outboundEngine = outboundEngine;
         this.inboundEngine = inboundEngine;
         this.interfaceRepository = interfaceRepository;
+        this.appRepository = appRepository;
+        this.gatewayGuard = gatewayGuard;
     }
 
     @RequestMapping(value = "/{*path}",
@@ -54,8 +63,12 @@ public class GatewayController {
         // （否则拼成 "//fastmoss/creatorList" 与接口库路径精确匹配失败）
         String p = path == null ? "" : path.replaceAll("^/+", "");
         String fullPath = p.isEmpty() ? "/" : "/" + p;
-        // traceId 透传（M4 OTel 埋点前先透传请求头）与业务键（上游幂等依赖，ADR 5）
-        String traceId = firstHeader(request, "X-Trace-Id", "traceparent");
+        // traceId：优先取 TraceIdFilter 已解析并写入请求属性的同一值（保证 MDC / 运行表 / call_log 三方一致），
+        // 兜底直读请求头（M4 OTel 埋点前先透传请求头）；业务键 X-Biz-Id（上游幂等依赖，ADR 5）
+        String traceId = (String) request.getAttribute(TraceIdFilter.ATTR_TRACE_ID);
+        if (traceId == null) {
+            traceId = firstHeader(request, "X-Trace-Id", "traceparent");
+        }
         String bizId = firstHeader(request, "X-Biz-Id");
         log.info("接入层请求 method={} path={} bizId={} traceId={} bodyBytes={}",
                 request.getMethod(), fullPath, bizId, traceId, body == null ? 0 : body.length);
@@ -67,6 +80,14 @@ public class GatewayController {
         // M3：按 if_type 分流——INBOUND → 入站执行引擎（成功回裸 ack 报文；
         // 验签 / 链失败抛 BizException → 全局异常处理转统一信封，不落运行表）
         InterfaceRow routed = interfaceRepository.findByPath(fullPath).orElse(null);
+        // M4 接入层防护（D-M4-6，补 M2 缺口）：QPS 限流 / 日配额 / IP 黑白名单——
+        // 路由命中后、引擎执行前（落 outbound_request 之前），拒绝不污染状态机；
+        // 应用启用校验仍由引擎承担（40102），此处仅限流配额与来源控制
+        if (routed != null) {
+            appRepository.findById(routed.appId()).ifPresent(app ->
+                    gatewayGuard.check(app, gatewayGuard.resolveClientIp(
+                            request.getRemoteAddr(), request.getHeader("X-Forwarded-For"))));
+        }
         if (routed != null && "INBOUND".equals(routed.ifType())) {
             return inboundEngine.handle(request, fullPath, request.getMethod(), body, traceId);
         }

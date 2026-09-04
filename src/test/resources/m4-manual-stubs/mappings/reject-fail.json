@@ -1,0 +1,13 @@
+{
+  "scenarioName": "reject",
+  "requiredScenarioState": "Started",
+  "newScenarioState": "released",
+  "request": {
+    "method": "POST",
+    "url": "/reject-supplier"
+  },
+  "response": {
+    "status": 404,
+    "body": "not found (dead letter demo)"
+  }
+}

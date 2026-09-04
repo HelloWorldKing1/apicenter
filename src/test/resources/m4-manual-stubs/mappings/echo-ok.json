@@ -1,0 +1,12 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "/echo-ok"
+  },
+  "response": {
+    "status": 200,
+    "jsonBody": {
+      "ok": true
+    }
+  }
+}

@@ -44,7 +44,7 @@
 <body>
 <div class="topbar">
   <h1>API 中心 · 表结构设计</h1>
-  <p>依据《API中心设计方案.md》《API中心原型.html》整理 · 共 16 张表：配置类 11 张 + 运行类 5 张 · 生产 MySQL 8.0 InnoDB</p>
+  <p>依据《API中心设计方案.md》《API中心原型.html》整理 · 共 18 张表：配置类 11 张 + 运行类 7 张（M4 新增 17/18 对账审计与告警事件）· 生产 MySQL 8.0 InnoDB</p>
 </div>
 <div class="wrap">
 
@@ -72,6 +72,8 @@
     <li><a href="#t-calllog">call_log 调用日志</a></li>
     <li><a href="#t-alert">alert_rule 告警规则</a></li>
     <li><a href="#t-credential">app_credential 应用凭证</a></li>
+    <li><a href="#t-reconcile">reconcile_audit 对账审计</a></li>
+    <li><a href="#t-alertevent">alert_event 告警事件</a></li>
   </ol>
 </div>
 
@@ -283,7 +285,7 @@
     <tr><td class="c">trace_id</td><td class="c">VARCHAR(32)</td><td></td><td>全链路 traceId</td></tr>
     <tr><td class="c">created_at / updated_at</td><td class="c">DATETIME</td><td>NOT NULL</td><td>创建 / 状态更新时间</td></tr>
   </table>
-  <div class="idx"><b>索引</b>：PK(id)，INDEX(status, next_retry_at)（补偿/对账扫描），INDEX(interface_id)，INDEX(app_id, biz_id)（定位），INDEX(trace_id)</div>
+  <div class="idx"><b>索引</b>：PK(id)，INDEX(status, next_retry_at)（补偿/对账扫描），INDEX(updated_at)（M4 告警 success_rate 按更新时间窗口聚合），INDEX(interface_id)，INDEX(app_id, biz_id)（定位），INDEX(trace_id)</div>
 </section>
 
 <!-- ============ 12. inbound_delivery ============ -->
@@ -388,6 +390,41 @@
   <div class="idx"><b>索引</b>：PK(id)，INDEX(app_id, kind, status)；应用层约束：每 (app_id, kind) 的 ACTIVE 与 ROTATING 各至多 1 条</div>
 </section>
 
+<!-- ============ 17. reconcile_audit ============ -->
+<section class="table" id="t-reconcile">
+  <div class="t-head"><span class="no">17</span><h2>对账审计（M4 交付，D-M4-2）</h2><span class="en">reconcile_audit</span></div>
+  <div class="t-desc">UNKNOWN 置位留痕：人工置位与 TTL 超时自动降级均记一行（谁、何时、UNKNOWN → ?），对应《M0-03 通用客户端与对账协议》§3.2 操作留痕。append-only，不更新。</div>
+  <table class="f">
+    <tr><th style="width:22%">字段</th><th style="width:20%">类型</th><th style="width:14%">约束</th><th>说明</th></tr>
+    <tr><td class="c pk">id</td><td class="c">BIGINT</td><td>PK 自增</td><td>主键</td></tr>
+    <tr><td class="c ref">outbound_request_id</td><td class="c">BIGINT</td><td>NOT NULL</td><td>关联 <a href="#t-outreq">outbound_request</a>.id</td></tr>
+    <tr><td class="c">from_status</td><td class="c">VARCHAR(32)</td><td>NOT NULL</td><td>对账前状态（恒 UNKNOWN）</td></tr>
+    <tr><td class="c">to_status</td><td class="c">VARCHAR(32)</td><td>NOT NULL</td><td>对账后状态（SUCCESS / COMPENSATING）</td></tr>
+    <tr><td class="c">source</td><td class="c">VARCHAR(16)</td><td>NOT NULL</td><td>MANUAL 人工 / TTL 超时自动降级</td></tr>
+    <tr><td class="c">operator</td><td class="c">VARCHAR(64)</td><td></td><td>操作人（TTL 降级记 TTL-WORKER；管理面无用户体系，前端弹窗填写）</td></tr>
+    <tr><td class="c">reason</td><td class="c">VARCHAR(500)</td><td></td><td>对账依据说明</td></tr>
+    <tr><td class="c">created_at</td><td class="c">DATETIME</td><td>NOT NULL DEFAULT CURRENT_TIMESTAMP</td><td>操作时间</td></tr>
+  </table>
+  <div class="idx"><b>索引</b>：PK(id)，INDEX(outbound_request_id)</div>
+</section>
+
+<!-- ============ 18. alert_event ============ -->
+<section class="table" id="t-alertevent">
+  <div class="t-head"><span class="no">18</span><h2>告警事件（M4 交付，D-M4-5）</h2><span class="en">alert_event</span></div>
+  <div class="t-desc"><a href="#t-alert">alert_rule</a> 触发记录 + 内置告警（验签连续失败等，rule_id 为空）；监控页展示与冷却判重依据。append-only。</div>
+  <table class="f">
+    <tr><th style="width:22%">字段</th><th style="width:20%">类型</th><th style="width:14%">约束</th><th>说明</th></tr>
+    <tr><td class="c pk">id</td><td class="c">BIGINT</td><td>PK 自增</td><td>主键</td></tr>
+    <tr><td class="c ref">rule_id</td><td class="c">BIGINT</td><td></td><td>关联 alert_rule.id（NULL = 内置告警，如验签连续失败）</td></tr>
+    <tr><td class="c">metric</td><td class="c">VARCHAR(64)</td><td>NOT NULL</td><td>指标：success_rate / p99_latency / dead_letter_backlog / retry_backlog / verify_fail_streak</td></tr>
+    <tr><td class="c">level</td><td class="c">VARCHAR(16)</td><td>NOT NULL</td><td>WARN / CRITICAL</td></tr>
+    <tr><td class="c">message</td><td class="c">VARCHAR(500)</td><td>NOT NULL</td><td>告警内容</td></tr>
+    <tr><td class="c">context</td><td class="c">VARCHAR(1000)</td><td></td><td>详情 JSON（指标值 / 阈值 / 通知渠道等）</td></tr>
+    <tr><td class="c">created_at</td><td class="c">DATETIME</td><td>NOT NULL DEFAULT CURRENT_TIMESTAMP</td><td>触发时间</td></tr>
+  </table>
+  <div class="idx"><b>索引</b>：PK(id)，INDEX(created_at)，INDEX(rule_id)</div>
+</section>
+
 <!-- ============ 附录 A ============ -->
 <h3 class="apx">附录 A · 状态与枚举汇总</h3>
 <section class="table">
@@ -408,6 +445,8 @@
     <tr><td class="c">inbound_delivery.delivery_status</td><td class="c">RECEIVED / ACKED / PENDING / DEAD_LETTER</td><td>入站送达状态机（Flow B）</td></tr>
     <tr><td class="c">dead_letter.status</td><td class="c">PENDING / HANDLED</td><td>待处理 / 已处理（重放）</td></tr>
     <tr><td class="c">call_log.direction</td><td class="c">IN / OUT</td><td>入站 / 出站</td></tr>
+    <tr><td class="c">reconcile_audit.source</td><td class="c">MANUAL / TTL</td><td>人工置位 / 超时自动降级（M0-03 §3 对账三分支）</td></tr>
+    <tr><td class="c">alert_event.level</td><td class="c">WARN / CRITICAL</td><td>告警级别</td></tr>
   </table>
 </section>
 

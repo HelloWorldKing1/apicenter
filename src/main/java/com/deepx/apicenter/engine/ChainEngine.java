@@ -2,6 +2,8 @@ package com.deepx.apicenter.engine;
 
 import com.deepx.apicenter.exception.BizException;
 import com.deepx.apicenter.mapping.MappingEngine;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import com.deepx.apicenter.model.AdapterRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,6 +47,7 @@ public class ChainEngine {
     private final MappingEngine mappingEngine;
     private final Map<String, Adapter> adapterBeans;
     private final ObjectMapper objectMapper;
+    private final ObservationRegistry observationRegistry;
 
     private final Map<Long, CachedChain> chainCache = new ConcurrentHashMap<>();
 
@@ -55,7 +58,8 @@ public class ChainEngine {
                        CryptoService cryptoService,
                        MappingEngine mappingEngine,
                        List<Adapter> adapters,
-                       ObjectMapper objectMapper) {
+                       ObjectMapper objectMapper,
+                       ObservationRegistry observationRegistry) {
         this.interfaceRepository = interfaceRepository;
         this.appRepository = appRepository;
         this.adapterRepository = adapterRepository;
@@ -66,6 +70,7 @@ public class ChainEngine {
         this.adapterBeans = adapters.stream()
                 .collect(Collectors.toMap(a -> a.getClass().getSimpleName(), Function.identity()));
         this.objectMapper = objectMapper;
+        this.observationRegistry = observationRegistry;
     }
 
     /**
@@ -79,6 +84,8 @@ public class ChainEngine {
     /**
      * 同 {@link #execute}；initialAttrs 为链执行前的附加上下文
      * （入站回调经此传入请求头 headers，供 INBOUND_AUTH 回调验签读取）。
+     * M4：整链与六阶段各建 Observation span（apicenter.chain / apicenter.chain.stage，
+     * 经 micrometer-observation 桥接 OTel；业务 traceId 以 span tag business.traceId 关联）。
      */
     public AdapterContext execute(long interfaceId, UnifiedModel inboundPayload, String traceId, byte[] rawBody,
                                   Map<String, Object> initialAttrs) {
@@ -87,6 +94,16 @@ public class ChainEngine {
         AppRow app = appRepository.findById(iface.appId())
                 .orElseThrow(() -> BizException.appNotFound(iface.appId()));
 
+        return Observation.createNotStarted("apicenter.chain", observationRegistry)
+                .lowCardinalityKeyValue("interfaceId", String.valueOf(interfaceId))
+                .lowCardinalityKeyValue("appId", app.appId())
+                .lowCardinalityKeyValue("ifType", iface.ifType())
+                .highCardinalityKeyValue("business.traceId", traceId == null ? "" : traceId)
+                .observe(() -> doExecute(iface, app, inboundPayload, traceId, rawBody, initialAttrs));
+    }
+
+    private AdapterContext doExecute(InterfaceRow iface, AppRow app, UnifiedModel inboundPayload,
+                                     String traceId, byte[] rawBody, Map<String, Object> initialAttrs) {
         Chain chain = chain(iface);
         AdapterContext ctx = AdapterContext.create(
                 ChainPhase.INBOUND_AUTH, inboundPayload,
@@ -103,7 +120,11 @@ public class ChainEngine {
             if (step == null) {
                 continue; // 无该阶段槽位（如 Flow A 入站鉴权 Noop 占位）
             }
-            ctx = step.execute(ctx);
+            ChainStep current = step;
+            AdapterContext currentCtx = ctx;
+            ctx = Observation.createNotStarted("apicenter.chain.stage", observationRegistry)
+                    .lowCardinalityKeyValue("stage", phase.name())
+                    .observe(() -> current.execute(currentCtx));
         }
         return ctx;
     }

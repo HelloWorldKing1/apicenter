@@ -24,6 +24,24 @@ app:
     callback-allow-private: true
     # UNKNOWN 超时自动降级为 COMPENSATING 的时长（M0-03 §3.1，M4 实现）
     unknown-ttl-minutes: 10
+    # M4 熔断器（D-M4-1）：三态参数 + 总开关；粒度 = interface_id（=「接口+供应商」）；
+    # 计数口径 = 每请求一次（invoke 整体出口计一次，@Retryable 内部重试不逐次计数）；
+    # OPEN 短路转 COMPENSATING 顺延（不 incrementAttempt）；入站送达不经闸门
+    circuit:
+      enabled: true
+      failure-rate-threshold: 0.5
+      sliding-window-seconds: 10
+      minimum-number-of-calls: 10
+      open-duration-seconds: 30
+      half-open-probes: 2
+    # M4 告警（D-M4-5）：worker 评估间隔 / 规则命中冷却 / 验签连续失败内置告警阈值（5 分钟窗口）；
+    # 通知渠道（邮件 / IM）首期仅随事件记录，SMTP / webhook 对接 v1.1
+    alert-worker-fixed-delay-ms: 30000
+    alert-cooldown-minutes: 5
+    verify-fail-alert-threshold: 10
+    # M4 接入层防护（D-M4-6）：来源地址取 X-Forwarded-For 首值的开关——
+    # 默认 false（防伪造 XFF 绕过白名单）；生产部署在可信反代之后才置 true
+    trust-xff: false
     crypto:
       # 凭证 AES-256-GCM 密钥（base64 编码 32 字节）。仅开发环境使用；
       # 生产环境用环境变量 APICENTER_CRYPTO_KEY 注入，密钥缺失时启动失败（拒绝明文裸跑）
@@ -44,3 +62,8 @@ management:
   tracing:
     export:
       enabled: false
+
+# M4：日志行输出业务 traceId（TraceIdFilter 写入 MDC；与运行表 trace_id / call_log.trace_id 同源）
+logging:
+  pattern:
+    level: "%5p [traceId=%X{traceId:-}]"

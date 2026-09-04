@@ -6,6 +6,7 @@ import com.deepx.apicenter.model.InboundDeliveryRow;
 import com.deepx.apicenter.model.OutboundRequestRow;
 import com.deepx.apicenter.repository.InboundDeliveryRepository;
 import com.deepx.apicenter.repository.OutboundRequestRepository;
+import com.deepx.apicenter.service.MonitorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -18,7 +19,8 @@ import java.util.List;
  * 补偿 worker（设计 §6.3）：定时扫描按 (status, next_retry_at) 重试。
  * - 出站：COMPENSATING 记录 → 重放（重放安全依赖上游对 biz_id 幂等，ADR 5）；
  * - 入站（M3 交付）：PENDING 记录 → 按 payload 快照 + callback_url_snapshot 重送（不重新走链、不随接口改址漂移）；
- * 两者超 max_attempts → 死信 + DEAD_LETTER（告警 M4 接入）。
+ * - UNKNOWN（M4 交付）：超 unknown_ttl 自动降级 COMPENSATING + 审计留痕（M0-03 §3.1 分支二，D-M4-2）；
+ * 两者超 max_attempts → 死信 + DEAD_LETTER（堆积告警由 AlertWorker dead_letter_backlog 指标承接）。
  */
 @Component
 public class CompensationWorker {
@@ -29,21 +31,37 @@ public class CompensationWorker {
     private final OutboundEngine outboundEngine;
     private final InboundDeliveryRepository inboundDeliveryRepository;
     private final InboundEngine inboundEngine;
+    private final MonitorService monitorService;
 
     public CompensationWorker(OutboundRequestRepository outboundRequestRepository,
                               OutboundEngine outboundEngine,
                               InboundDeliveryRepository inboundDeliveryRepository,
-                              InboundEngine inboundEngine) {
+                              InboundEngine inboundEngine,
+                              MonitorService monitorService) {
         this.outboundRequestRepository = outboundRequestRepository;
         this.outboundEngine = outboundEngine;
         this.inboundDeliveryRepository = inboundDeliveryRepository;
         this.inboundEngine = inboundEngine;
+        this.monitorService = monitorService;
     }
 
     @Scheduled(fixedDelayString = "${app.api-center.retry-worker-fixed-delay-ms:3000}")
     public void scan() {
         scanOutbound();
         scanInbound();
+        scanUnknown();
+    }
+
+    /** UNKNOWN TTL 自动降级（M4 交付，D-M4-2）：降级逻辑与审计在 MonitorService，worker 只做调度 */
+    private void scanUnknown() {
+        try {
+            int downgraded = monitorService.downgradeExpiredUnknown();
+            if (downgraded > 0) {
+                log.info("UNKNOWN TTL 降级本轮处理 {} 条", downgraded);
+            }
+        } catch (Exception e) {
+            log.error("UNKNOWN TTL 降级扫描失败", e);
+        }
     }
 
     /** 出站补偿：COMPENSATING → 重放；耗尽 → 死信 + 告警（M4 接入告警通道） */

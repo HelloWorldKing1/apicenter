@@ -1,0 +1,10 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "/breaker-supplier"
+  },
+  "response": {
+    "status": 500,
+    "body": "breaker 500 (constant)"
+  }
+}

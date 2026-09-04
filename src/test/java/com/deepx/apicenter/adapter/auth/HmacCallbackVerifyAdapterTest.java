@@ -36,8 +36,10 @@ class HmacCallbackVerifyAdapterTest {
 
     private final CredentialRepository credentialRepository = mock(CredentialRepository.class);
     private final CryptoService cryptoService = mock(CryptoService.class);
+    // M4：验签失败计数走 AlertService（单测 mock——内置告警逻辑由 AlertServiceTest 覆盖）
+    private final com.deepx.apicenter.service.AlertService alertService = mock(com.deepx.apicenter.service.AlertService.class);
     private final HmacCallbackVerifyAdapter adapter =
-            new HmacCallbackVerifyAdapter(credentialRepository, cryptoService);
+            new HmacCallbackVerifyAdapter(credentialRepository, cryptoService, alertService);
 
     private final byte[] body = "{\"event_id\":\"evt-1\"}".getBytes(StandardCharsets.UTF_8);
 

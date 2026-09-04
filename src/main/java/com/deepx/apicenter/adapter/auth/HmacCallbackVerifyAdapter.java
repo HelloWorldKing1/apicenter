@@ -31,13 +31,16 @@ public class HmacCallbackVerifyAdapter implements Adapter {
 
     private final CredentialRepository credentialRepository;
     private final CryptoService cryptoService;
+    private final com.deepx.apicenter.service.AlertService alertService;
 
     /** 防重放窗口缓存：key = appId + ":" + signature → 过期毫秒时间戳（容差窗口 ×2） */
     private final Map<String, Long> replayCache = new ConcurrentHashMap<>();
 
-    public HmacCallbackVerifyAdapter(CredentialRepository credentialRepository, CryptoService cryptoService) {
+    public HmacCallbackVerifyAdapter(CredentialRepository credentialRepository, CryptoService cryptoService,
+                                     com.deepx.apicenter.service.AlertService alertService) {
         this.credentialRepository = credentialRepository;
         this.cryptoService = cryptoService;
+        this.alertService = alertService;
     }
 
     @Override
@@ -50,7 +53,14 @@ public class HmacCallbackVerifyAdapter implements Adapter {
         if (ctx.phase() != ChainPhase.INBOUND_AUTH) {
             return ctx;
         }
-        verify(ctx);
+        try {
+            verify(ctx);
+        } catch (BizException e) {
+            // M4 内置告警（设计 §5.3「连续验签失败告警」，临时封禁仍属安全能力 v1.1）：
+            // 按应用维度 5 分钟窗口计数，达阈值由 AlertService 落 alert_event（rule_id=NULL）
+            alertService.recordVerifyFailure(ctx.app().appId());
+            throw e;
+        }
         ctx.attrs().put("inboundAuthPassed", true);
         ctx.attrs().put("authAppId", ctx.app().appId());
         return ctx;

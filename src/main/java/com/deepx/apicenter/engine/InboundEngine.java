@@ -1,5 +1,6 @@
 package com.deepx.apicenter.engine;
 
+import com.deepx.apicenter.aspect.CallLogContext;
 import com.deepx.apicenter.client.OutboundRequestSpec;
 import com.deepx.apicenter.exception.BizException;
 import com.deepx.apicenter.model.InboundDeliveryRow;
@@ -89,6 +90,8 @@ public class InboundEngine {
         String trace = traceId == null || traceId.isBlank()
                 ? UUID.randomUUID().toString().replace("-", "")
                 : traceId;
+        // M4：入口填充调用日志上下文（清理契约见 CallLogContext——网关切面 finally 清理）
+        CallLogContext.set(iface.id(), iface.appId(), trace);
         log.info("入站回调命中接口 code={} appId={}", iface.code(), iface.appId());
 
         // 2. 链执行：验签（INBOUND_AUTH，失败 40100/40101 抛异常不落运行表）→ 解码 → 报文适配 → 映射 → 编码
@@ -110,6 +113,7 @@ public class InboundEngine {
         // 4. 同步送达（复用 UpstreamInvoker 短重试 5xx/429；首期固定 POST；SSRF 运行时兜底）
         ctx.outbound().url(iface.callbackUrl());
         ctx.outbound().method("POST");
+        applyDeliveryMeta(ctx.outbound(), iface, trace);
         deliver(deliveryId, iface, ctx.outbound());
 
         // 5. 无论成败回 ack（与送达解耦，D-M3-3 渲染）
@@ -131,6 +135,7 @@ public class InboundEngine {
         spec.url(row.callbackUrlSnapshot());
         spec.method("POST");
         spec.body(row.payload() == null ? new byte[0] : row.payload().getBytes(StandardCharsets.UTF_8));
+        applyDeliveryMeta(spec, iface, row.traceId());
         // 重放 Content-Type 按接口当前 protocol_out 推导（D-M3-2：不锁传输元数据，不匹配则送达失败 → 死信）
         if ("XML".equals(iface.protocolOut())) {
             spec.header("Content-Type", "application/xml");
@@ -140,6 +145,16 @@ public class InboundEngine {
             spec.header("Accept", "application/json");
         }
         deliver(row.id(), iface, spec);
+    }
+
+    /** 送达 spec 元数据与 traceId 透传（D-M4-4：X-Trace-Id 平台 → 回调地址公共头；元数据供 OUT 方向 call_log 读取） */
+    private void applyDeliveryMeta(OutboundRequestSpec spec, InterfaceRow iface, String traceId) {
+        spec.interfaceId(iface.id());
+        spec.appId(iface.appId());
+        spec.traceId(traceId);
+        if (traceId != null && !traceId.isBlank()) {
+            spec.header("X-Trace-Id", traceId);
+        }
     }
 
     /** 送达公共路径：SSRF 兜底 → 短重试调用 → 2xx ACKED / 4xx 死信 / 异常保持 PENDING 续期。

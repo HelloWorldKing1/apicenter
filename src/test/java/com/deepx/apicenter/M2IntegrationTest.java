@@ -29,6 +29,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import com.deepx.apicenter.engine.CircuitBreakerRegistry;
 import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.JsonNode;
 
@@ -83,6 +84,8 @@ class M2IntegrationTest {
     private CompensationWorker compensationWorker;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @Autowired
+    private CircuitBreakerRegistry circuitBreakerRegistry;
 
     /** 黄金用例响应样例（开发计划 §2.4，简版但保留断言字段） */
     private static final String GOLDEN_RESPONSE = """
@@ -133,6 +136,8 @@ class M2IntegrationTest {
 
     @BeforeEach
     void setupTestConfig() {
+        // M4：熔断状态复位（防 5xx 用例累计失败跨用例开闸污染既有断言）
+        circuitBreakerRegistry.resetAll();
         // 清空 WireMock stub 与请求计数（跨测试隔离）
         wireMock.resetAll();
         // 确保平台默认与黄金用例适配器存在（seed 可能已导入，幂等）
