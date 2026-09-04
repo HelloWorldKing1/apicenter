@@ -69,7 +69,8 @@ public class UpstreamInvoker {
     public static class InterfaceRetryBudgetPredicate implements MethodRetryPredicate {
         @Override
         public boolean shouldRetry(Method method, Throwable throwable) {
-            long failures = RETRY_FAILURES.updateAndGet(v -> v + 1);
+            long failures = RETRY_FAILURES.get() + 1;
+            RETRY_FAILURES.set(failures);
             return failures <= MAX_RETRIES.get();
         }
     }

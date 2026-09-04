@@ -161,6 +161,8 @@ class M4IntegrationTest {
         alertEventIdFloor = maxId("alert_event");
         deadLetterIdFloor = maxId("dead_letter");
         jdbcTemplate.update("DELETE FROM alert_rule WHERE name LIKE 'M4-%'");
+        // call_log 跨运行持久化：清掉本用例固定 traceId 的历史行（C6 断言恰 2 条 IN+OUT）
+        jdbcTemplate.update("DELETE FROM call_log WHERE trace_id = ?", "trace-m4-c6");
 
         // ADP-101 Bearer（C6 脱敏断言；与种子 / M3 同 id 幂等）
         if (!adapterRepository.existsById("ADP-101")) {
