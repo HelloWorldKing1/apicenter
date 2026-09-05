@@ -39,6 +39,12 @@
           </template>
         </el-table-column>
         <el-table-column prop="path" label="平台侧路径" show-overflow-tooltip />
+        <el-table-column label="上游侧路径" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span v-if="row.ifType === 'OUTBOUND'" class="upstream-text">{{ row.upstreamPath }}</span>
+            <span v-else class="upstream-na">—</span>
+          </template>
+        </el-table-column>
         <el-table-column label="协议" width="140">
           <template #default="{ row }">{{ row.protocolIn }}→{{ row.protocolOut }}</template>
         </el-table-column>
@@ -69,7 +75,8 @@
       <!-- 请求地址栏（签名元素：方法 + 平台路径 → 上游目标） -->
       <div class="request-bar">
         <el-select v-model="form.method" class="method-select" :class="`method-${form.method}`" size="large">
-          <el-option v-for="m in ['POST','GET','PUT','DELETE']" :key="m" :label="m" :value="m" />
+          <el-option v-for="m in ['POST','GET','PUT','DELETE']" :key="m" :label="m" :value="m"
+                     :class="`method-${m}`" />
         </el-select>
         <el-input v-model="form.path" class="path-input" placeholder="平台侧路径，如 /api/orders" />
         <span class="arrow">→</span>
@@ -103,11 +110,12 @@
         <div class="basic-item">
           <span class="basic-label">分组</span>
           <el-select v-model="form.groupId" placeholder="先选应用" style="width: 100%" ref="groupSelectRef"
-                     @visible-change="onGroupPopVisible">
+                     :disabled="!form.appId" @visible-change="onGroupPopVisible">
             <el-option v-for="g in groupOptions" :key="g.id" :label="g.name" :value="g.id" />
             <!-- 分组内联创建（设计稿：doc/设计稿-分组下拉内联创建.html）：底部动作行原位变形为迷你表单 -->
             <template #footer>
-              <button v-if="!groupCreating" type="button" class="group-new-action" @click="openGroupCreate">
+              <button v-if="!groupCreating" type="button" class="group-new-action"
+                      :disabled="!form.appId" @click="openGroupCreate">
                 <span class="plus">＋</span> 新建分组
               </button>
               <div v-else class="group-new-form" :class="{ 'err-input': newGroupError }"
@@ -385,7 +393,7 @@
         </el-descriptions-item>
         <el-descriptions-item label="方法与路径" :span="2">
           <div class="path-row">
-            <span class="mono">{{ detail.row.method }} {{ detail.row.path }}</span>
+            <span class="mono"><b class="method-text" :class="`method-${detail.row.method}`">{{ detail.row.method }}</b> {{ detail.row.path }}</span>
             <el-button link size="small" type="primary" @click="copyPath">复制</el-button>
           </div>
         </el-descriptions-item>
@@ -664,6 +672,7 @@ const selectedAppLabel = computed(() => {
 })
 
 function openGroupCreate() {
+  if (!form.appId) return // 未选应用不可创建（双重防护：下拉本身已禁用）
   newGroupName.value = ''
   newGroupError.value = ''
   groupCreating.value = true
@@ -683,7 +692,7 @@ function onGroupPopVisible(visible) {
 }
 
 async function createGroupInline() {
-  if (creatingGroup.value) return
+  if (creatingGroup.value || !form.appId) return
   const name = newGroupName.value.trim()
   if (!name) {
     newGroupError.value = '请输入分组名称'
@@ -897,6 +906,12 @@ h4 { margin: 20px 0 10px; color: #303133; }
 .method-GET { color: #3BA776; }
 .method-PUT { color: #4A90D9; }
 .method-DELETE { color: #D9534F; }
+.upstream-text {
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: #606266;
+}
+.upstream-na { color: #C0C4CC; }
 
 .request-bar {
   display: flex;
@@ -917,6 +932,11 @@ h4 { margin: 20px 0 10px; color: #303133; }
   font-weight: 700;
   letter-spacing: 0.5px;
 }
+/* 方法颜色区分（与列表 method-* 色板一致） */
+.request-bar .method-select.method-POST :deep(.el-select__selected-item) { color: #FF6C37; }
+.request-bar .method-select.method-GET :deep(.el-select__selected-item) { color: #3BA776; }
+.request-bar .method-select.method-PUT :deep(.el-select__selected-item) { color: #4A90D9; }
+.request-bar .method-select.method-DELETE :deep(.el-select__selected-item) { color: #D9534F; }
 .request-bar .path-input,
 .request-bar .target-input { flex: 1; }
 .request-bar :deep(.el-input__wrapper) {
@@ -1074,6 +1094,11 @@ h4 { margin: 20px 0 10px; color: #303133; }
 }
 .group-new-action .plus {
   font-weight: 600;
+}
+.group-new-action:disabled {
+  cursor: not-allowed;
+  color: var(--el-text-color-placeholder);
+  background: none;
 }
 .group-new-form {
   border-top: 1px solid var(--el-border-color-light);
