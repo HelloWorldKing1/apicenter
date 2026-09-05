@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设计稿 · 分组下拉内联创建 — apicenter 管理面</title>
+<style>
+  /* ===== 令牌：对齐既有管理面（Element Plus 视觉体系） ===== */
+  :root {
+    --ep-primary: #409EFF;
+    --ep-primary-hover: #66b1ff;
+    --ep-text: #303133;
+    --ep-text-secondary: #606266;
+    --ep-text-placeholder: #a8abb2;
+    --ep-border: #DCDFE6;
+    --ep-border-light: #E4E7ED;
+    --ep-fill: #F5F7FA;
+    --ep-danger: #F56C6C;
+    --ep-success: #67C23A;
+    --ep-radius: 4px;
+    --ep-shadow: 0 4px 12px rgba(0,0,0,.12);
+    --font: "Helvetica Neue", Helvetica, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+    --mono: "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: var(--font);
+    color: var(--ep-text);
+    background: #f0f2f5;
+    padding: 40px 32px 80px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; animation: none !important; }
+  }
+
+  /* ===== 页眉 ===== */
+  .page-head { max-width: 1200px; margin: 0 auto 36px; }
+  .eyebrow {
+    font-size: 12px; letter-spacing: .18em; color: var(--ep-text-placeholder);
+    margin-bottom: 10px; font-weight: 600;
+  }
+  .page-head h1 { font-size: 24px; font-weight: 600; letter-spacing: .01em; }
+  .page-head p { margin-top: 8px; font-size: 14px; color: var(--ep-text-secondary); max-width: 760px; line-height: 1.7; }
+
+  .layout { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 1fr 360px; gap: 24px; align-items: start; }
+  @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
+
+  .panel { background: #fff; border-radius: 8px; border: 1px solid var(--ep-border-light); }
+
+  /* ===== Demo：新建接口弹窗片段 ===== */
+  .demo-panel { padding: 28px 28px 32px; }
+  .demo-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+  .demo-sub { font-size: 12px; color: var(--ep-text-placeholder); margin-bottom: 22px; }
+  .demo-tip {
+    margin-top: 24px; padding: 12px 14px; background: var(--ep-fill); border-radius: var(--ep-radius);
+    font-size: 13px; color: var(--ep-text-secondary); line-height: 1.8;
+  }
+  .demo-tip kbd {
+    font-family: var(--mono); font-size: 12px; background: #fff; border: 1px solid var(--ep-border);
+    border-bottom-width: 2px; border-radius: 3px; padding: 1px 5px; color: var(--ep-text);
+  }
+
+  .basic-item { margin-bottom: 18px; position: relative; }
+  .basic-label { display: block; font-size: 13px; color: var(--ep-text-secondary); margin-bottom: 6px; }
+  .basic-label b { color: var(--ep-danger); font-weight: 400; margin-right: 2px; }
+
+  /* ===== el-select 模拟 ===== */
+  .sel {
+    width: 100%; height: 32px; border: 1px solid var(--ep-border); border-radius: var(--ep-radius);
+    display: flex; align-items: center; padding: 0 8px 0 11px; font-size: 14px; cursor: pointer;
+    color: var(--ep-text); background: #fff; transition: border-color .15s, box-shadow .15s;
+    user-select: none; outline: none;
+  }
+  .sel:hover { border-color: var(--ep-text-placeholder); }
+  .sel.open { border-color: var(--ep-primary); box-shadow: 0 0 0 1px rgba(64,158,255,.15); }
+  .sel.disabled { background: var(--ep-fill); color: var(--ep-text-placeholder); cursor: not-allowed; }
+  .sel .sel-val { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sel .sel-val.placeholder { color: var(--ep-text-placeholder); }
+  .sel .caret { color: var(--ep-text-placeholder); font-size: 12px; transition: transform .2s; }
+  .sel.open .caret { transform: rotate(180deg); }
+
+  .popper {
+    position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 30;
+    background: #fff; border-radius: var(--ep-radius); box-shadow: var(--ep-shadow);
+    border: 1px solid var(--ep-border-light); padding: 6px 0; display: none;
+  }
+  .popper.show { display: block; animation: drop .16s ease-out; }
+  @keyframes drop { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+  .opt {
+    padding: 0 20px 0 12px; height: 34px; display: flex; align-items: center;
+    font-size: 14px; color: var(--ep-text-secondary); cursor: pointer; justify-content: space-between;
+  }
+  .opt:hover { background: var(--ep-fill); }
+  .opt .tick { color: var(--ep-primary); font-weight: 700; visibility: hidden; }
+  .opt.selected { color: var(--ep-primary); font-weight: 600; }
+  .opt.selected .tick { visibility: visible; }
+  .opt.is-new { animation: pop-in .3s; }
+  @keyframes pop-in { from { background: #ecf5ff; } to { background: transparent; } }
+
+  /* ===== 签名元素：下拉底部动作区（列表态 ⇄ 输入态原位变形） ===== */
+  .drop-foot { border-top: 1px solid var(--ep-border-light); margin-top: 6px; padding-top: 6px; }
+  .foot-action {
+    height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 12px;
+    font-size: 13px; color: var(--ep-text-secondary); cursor: pointer; border: none; background: none;
+    width: 100%; font-family: inherit; text-align: left;
+  }
+  .foot-action:hover { color: var(--ep-primary); background: var(--ep-fill); }
+  .foot-action .plus { font-size: 14px; font-weight: 600; }
+  .foot-action:focus-visible { outline: 2px solid var(--ep-primary); outline-offset: -2px; border-radius: var(--ep-radius); }
+
+  .foot-form { padding: 2px 12px 8px; display: none; }
+  .foot-form.show { display: block; animation: drop .16s ease-out; }
+  .foot-context {
+    display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ep-text-placeholder);
+    margin-bottom: 6px;
+  }
+  .foot-context .ctx-app { color: var(--ep-primary); font-weight: 600; }
+  .foot-context::before { content: ""; width: 2px; height: 12px; background: var(--ep-primary); border-radius: 1px; }
+  .foot-row { display: flex; gap: 6px; align-items: flex-start; }
+  .foot-input {
+    flex: 1; height: 28px; border: 1px solid var(--ep-primary); border-radius: var(--ep-radius);
+    padding: 0 8px; font-size: 13px; font-family: inherit; color: var(--ep-text); outline: none;
+    box-shadow: 0 0 0 1px rgba(64,158,255,.15);
+  }
+  .foot-input::placeholder { color: var(--ep-text-placeholder); }
+  .foot-input.error { border-color: var(--ep-danger); box-shadow: 0 0 0 1px rgba(245,108,108,.15); }
+  .btn-mini {
+    height: 28px; padding: 0 12px; border: none; border-radius: var(--ep-radius); font-size: 12px;
+    background: var(--ep-primary); color: #fff; cursor: pointer; font-family: inherit; white-space: nowrap;
+    transition: background .15s;
+  }
+  .btn-mini:hover { background: var(--ep-primary-hover); }
+  .btn-mini:disabled { background: #a0cfff; cursor: not-allowed; }
+  .btn-ghost {
+    height: 28px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--ep-radius);
+    font-size: 12px; background: none; color: var(--ep-text-secondary); cursor: pointer; font-family: inherit;
+  }
+  .btn-ghost:hover { color: var(--ep-text); }
+  .foot-err { font-size: 12px; color: var(--ep-danger); margin-top: 5px; display: flex; gap: 4px; align-items: center; }
+  .foot-keys { font-size: 11px; color: var(--ep-text-placeholder); margin-top: 6px; display: flex; gap: 10px; }
+  .foot-keys kbd {
+    font-family: var(--mono); font-size: 10px; background: var(--ep-fill);
+    border: 1px solid var(--ep-border); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px;
+  }
+
+  /* ===== toast ===== */
+  .toast {
+    position: fixed; top: 24px; left: 50%; transform: translateX(-50%) translateY(-8px);
+    background: #f0f9eb; border: 1px solid #e1f3d8; color: var(--ep-success);
+    padding: 9px 16px; border-radius: var(--ep-radius); font-size: 13px; display: flex; gap: 6px;
+    opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 99;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%); }
+
+  /* ===== 右侧设计说明 ===== */
+  .spec-panel { padding: 22px; }
+  .spec-panel + .spec-panel { margin-top: 20px; }
+  .spec-panel h2 { font-size: 14px; font-weight: 600; margin-bottom: 14px; }
+  .spec-panel h2 small { color: var(--ep-text-placeholder); font-weight: 400; margin-left: 6px; font-size: 12px; }
+
+  .flow { display: flex; flex-direction: column; gap: 0; }
+  .flow-step { display: flex; gap: 10px; position: relative; padding-bottom: 16px; }
+  .flow-step::before { content: ""; position: absolute; left: 5px; top: 16px; bottom: 0; width: 1px; background: var(--ep-border-light); }
+  .flow-step:last-child::before { display: none; }
+  .flow-dot { width: 11px; height: 11px; border-radius: 50%; background: #fff; border: 2px solid var(--ep-primary); margin-top: 3px; flex: none; }
+  .flow-step.err .flow-dot { border-color: var(--ep-danger); }
+  .flow-step.ok .flow-dot { border-color: var(--ep-success); background: var(--ep-success); }
+  .flow-step b { font-size: 13px; display: block; }
+  .flow-step span { font-size: 12px; color: var(--ep-text-secondary); line-height: 1.6; display: block; margin-top: 2px; }
+
+  table.spec { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.spec td { padding: 7px 6px; border-top: 1px solid var(--ep-border-light); vertical-align: top; line-height: 1.6; }
+  table.spec td:first-child { color: var(--ep-text-secondary); white-space: nowrap; width: 88px; }
+  table.spec td kbd {
+    font-family: var(--mono); font-size: 11px; background: var(--ep-fill);
+    border: 1px solid var(--ep-border); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px;
+  }
+  .code-ref { font-family: var(--mono); font-size: 11.5px; background: var(--ep-fill); border-radius: 3px; padding: 1px 5px; }
+
+  /* ===== 底部三态速览 ===== */
+  .states { max-width: 1200px; margin: 24px auto 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+  @media (max-width: 960px) { .states { grid-template-columns: 1fr; } }
+  .state-card { padding: 20px; }
+  .state-card h3 { font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+  .state-card .state-name { color: var(--ep-text-placeholder); font-weight: 400; font-size: 12px; margin-left: 4px; }
+  .state-card .popper { position: static; display: block; box-shadow: none; animation: none; }
+  .state-card .foot-form.show { display: block; }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <div class="eyebrow">APICENTER 管理面 · 交互设计稿</div>
+  <h1>分组下拉 · 内联创建</h1>
+  <p>新建接口时，在已选应用之下直接创建分组：分组下拉底部提供「＋ 新建分组」动作，点击后原位变形为迷你表单，
+     回车即创建并自动选中。全程不离开接口表单、不丢已填内容。以下 demo 可真实操作（前端模拟接口）。</p>
+</header>
+
+<div class="layout">
+  <!-- ============ 可交互 demo ============ -->
+  <section class="panel demo-panel">
+    <div class="demo-title">新建接口 · 基本信息</div>
+    <div class="demo-sub">Interfaces.vue 弹窗片段（应用 → 分组 两级下拉，现状实现 + 本次增强）</div>
+
+    <div class="basic-item">
+      <span class="basic-label"><b>*</b>应用</span>
+      <div class="sel" id="appSel" tabindex="0" role="button" aria-haspopup="listbox">
+        <span class="sel-val placeholder">选择应用</span>
+        <span class="caret">▾</span>
+      </div>
+      <div class="popper" id="appPop"></div>
+    </div>
+
+    <div class="basic-item" id="groupItem">
+      <span class="basic-label"><b>*</b>分组</span>
+      <div class="sel disabled" id="groupSel" tabindex="0" role="button" aria-haspopup="listbox">
+        <span class="sel-val placeholder">先选应用</span>
+        <span class="caret">▾</span>
+      </div>
+      <div class="popper" id="groupPop">
+        <div id="groupOpts"></div>
+        <div class="drop-foot">
+          <!-- 列表态 -->
+          <button class="foot-action" id="footAction" type="button">
+            <span class="plus">＋</span> 新建分组
+          </button>
+          <!-- 输入态（原位变形） -->
+          <div class="foot-form" id="footForm">
+            <div class="foot-context">创建到 <span class="ctx-app" id="ctxApp"></span> 之下</div>
+            <div class="foot-row">
+              <input class="foot-input" id="footInput" placeholder="输入分组名称，回车创建" maxlength="64">
+              <button class="btn-mini" id="footCreate" type="button">创建</button>
+              <button class="btn-ghost" id="footCancel" type="button">取消</button>
+            </div>
+            <div class="foot-err" id="footErr" style="display:none"></div>
+            <div class="foot-keys"><span><kbd>Enter</kbd> 创建</span><span><kbd>Esc</kbd> 取消</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="basic-item">
+      <span class="basic-label">描述</span>
+      <div class="sel" style="cursor: text; height: 32px; align-items: center;">
+        <span class="sel-val placeholder">可选</span>
+      </div>
+    </div>
+
+    <div class="demo-tip">
+      操作路径：选一个应用 → 打开「分组」下拉 → 点底部「＋ 新建分组」→ 输入名称回车。
+      试试输入已存在的名称（fastmoss 下为「订单分组」「物流分组」）观察错误态。
+    </div>
+  </section>
+
+  <!-- ============ 设计说明 ============ -->
+  <aside>
+    <div class="panel spec-panel">
+      <h2>状态流<small>签名：底部动作区原位变形</small></h2>
+      <div class="flow">
+        <div class="flow-step">
+          <span class="flow-dot"></span>
+          <div><b>列表态</b><span>选项列表 + 底部「＋ 新建分组」动作行，常驻可见（不藏在悬停后）</span></div>
+        </div>
+        <div class="flow-step">
+          <span class="flow-dot"></span>
+          <div><b>输入态</b><span>动作行原位变形为迷你表单：上下文行「创建到 应用名 之下」+ 输入框（自动聚焦）+ 创建/取消，下拉保持打开</span></div>
+        </div>
+        <div class="flow-step ok">
+          <span class="flow-dot"></span>
+          <div><b>成功</b><span>新选项插入列表并选中 → 下拉收起 → 轻提示「已创建分组「xx」」</span></div>
+        </div>
+        <div class="flow-step err">
+          <span class="flow-dot"></span>
+          <div><b>失败</b><span>空名称 / 应用内重名：输入框下方内联报错，红框，不关下拉不丢输入</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel spec-panel">
+      <h2>行为规格</h2>
+      <table class="spec">
+        <tr><td>确认</td><td><kbd>Enter</kbd> 或点「创建」；防重复提交（请求中按钮置 loading）</td></tr>
+        <tr><td>取消</td><td><kbd>Esc</kbd> 或「取消」或点击下拉外区域：静默放弃输入，回到列表态</td></tr>
+        <tr><td>排序</td><td>sortOrder 取默认 0（与分组页新建一致，可在分组页调整）</td></tr>
+        <tr><td>重名预检</td><td>先本地比对 groupOptions（即时反馈），后端唯一约束兜底</td></tr>
+        <tr><td>应用约束</td><td>未选应用时分组下拉禁用（现状），入口自然不可达；切换应用清空已选分组与输入态</td></tr>
+        <tr><td>可访问性</td><td>动作行可 Tab 聚焦；aria-label「新建分组」；reduced-motion 下关闭形变动画</td></tr>
+      </table>
+    </div>
+
+    <div class="panel spec-panel">
+      <h2>实现落点</h2>
+      <table class="spec">
+        <tr><td>组件</td><td><span class="code-ref">el-select</span> <span class="code-ref">#footer</span> 插槽（EP ≥ 2.4.3，本项目 2.8.0 ✓），无需 hack popper DOM</td></tr>
+        <tr><td>改动文件</td><td><span class="code-ref">Interfaces.vue</span> 仅基本信息区 + 少量 state（creating / name / error / loading）</td></tr>
+        <tr><td>接口</td><td>复用 <span class="code-ref">POST /api/admin/groups</span>（{appId, name, sortOrder: 0}），无后端改动；创建成功后刷新本应用的 groupOptions</td></tr>
+        <tr><td>文案</td><td>动作「＋ 新建分组」→ 上下文「创建到 xx 之下」→ 占位「输入分组名称，回车创建」→ 错误「该应用下已存在同名分组」→ 提示「已创建分组「xx」」，与分组页新建共用词汇</td></tr>
+      </table>
+    </div>
+  </aside>
+</div>
+
+<!-- ============ 三态速览 ============ -->
+<div class="states">
+  <div class="panel state-card">
+    <h3>① 列表态<span class="state-name">默认</span></h3>
+    <div class="popper">
+      <div class="opt">订单分组 <span class="tick">✓</span></div>
+      <div class="opt">物流分组 <span class="tick">✓</span></div>
+      <div class="drop-foot">
+        <button class="foot-action" type="button"><span class="plus">＋</span> 新建分组</button>
+      </div>
+    </div>
+  </div>
+  <div class="panel state-card">
+    <h3>② 输入态<span class="state-name">创建中</span></h3>
+    <div class="popper">
+      <div class="opt">订单分组</div>
+      <div class="opt">物流分组</div>
+      <div class="drop-foot">
+        <div class="foot-form show">
+          <div class="foot-context">创建到 <span class="ctx-app">fastmoss</span> 之下</div>
+          <div class="foot-row">
+            <input class="foot-input" value="售后分组">
+            <button class="btn-mini" type="button">创建</button>
+            <button class="btn-ghost" type="button">取消</button>
+          </div>
+          <div class="foot-keys"><span><kbd>Enter</kbd> 创建</span><span><kbd>Esc</kbd> 取消</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="panel state-card">
+    <h3>③ 错误态<span class="state-name">重名</span></h3>
+    <div class="popper">
+      <div class="opt">订单分组</div>
+      <div class="opt">物流分组</div>
+      <div class="drop-foot">
+        <div class="foot-form show">
+          <div class="foot-context">创建到 <span class="ctx-app">fastmoss</span> 之下</div>
+          <div class="foot-row">
+            <input class="foot-input error" value="订单分组">
+            <button class="btn-mini" type="button">创建</button>
+            <button class="btn-ghost" type="button">取消</button>
+          </div>
+          <div class="foot-err">⚠ 该应用下已存在同名分组</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ===== 模拟数据（对应 seed：fastmoss 黄金用例） ===== */
+const apps = [
+  { id: 'FM', name: 'fastmoss' },
+  { id: 'OP', name: '开放平台' },
+];
+const groups = {
+  FM: [{ id: 101, name: '订单分组' }, { id: 102, name: '物流分组' }],
+  OP: [{ id: 201, name: '基础接口' }],
+};
+let selApp = null, selGroup = null, nextId = 300;
+
+/* ===== 工具 ===== */
+const $ = id => document.getElementById(id);
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = '✓ ' + msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 2400);
+}
+function closeAllPoppers() {
+  document.querySelectorAll('.popper.show').forEach(p => p.classList.remove('show'));
+  document.querySelectorAll('.sel.open').forEach(s => s.classList.remove('open'));
+}
+
+/* ===== 应用下拉 ===== */
+function renderAppPop() {
+  $('appPop').innerHTML = apps.map(a =>
+    `<div class="opt ${selApp === a.id ? 'selected' : ''}" data-app="${a.id}">${a.name}（${a.id}）<span class="tick">✓</span></div>`
+  ).join('');
+}
+$('appSel').addEventListener('click', e => {
+  e.stopPropagation();
+  const pop = $('appPop'), wasOpen = pop.classList.contains('show');
+  closeAllPoppers();
+  if (!wasOpen) { renderAppPop(); $('appSel').classList.add('open'); pop.classList.add('show'); }
+});
+$('appPop').addEventListener('click', e => {
+  const opt = e.target.closest('[data-app]');
+  if (!opt) return;
+  selApp = opt.dataset.app;
+  selGroup = null; // 切换应用清空已选分组
+  $('appSel').querySelector('.sel-val').textContent = apps.find(a => a.id === selApp).name;
+  $('appSel').querySelector('.sel-val').classList.remove('placeholder');
+  renderGroupSel();
+  closeAllPoppers();
+});
+
+/* ===== 分组下拉 ===== */
+function renderGroupSel() {
+  const sel = $('groupSel');
+  if (!selApp) return;
+  sel.classList.remove('disabled');
+  const g = groups[selApp].find(g => g.id === selGroup);
+  const val = sel.querySelector('.sel-val');
+  if (g) { val.textContent = g.name; val.classList.remove('placeholder'); }
+  else { val.textContent = '选择分组'; val.classList.add('placeholder'); }
+}
+function renderGroupOpts() {
+  $('groupOpts').innerHTML = groups[selApp].map(g =>
+    `<div class="opt ${selGroup === g.id ? 'selected' : ''}" data-gid="${g.id}">${g.name}<span class="tick">✓</span></div>`
+  ).join('');
+}
+function openGroupPop() {
+  if (!selApp) return;
+  closeAllPoppers();
+  backToListState();
+  renderGroupOpts();
+  $('groupSel').classList.add('open');
+  $('groupPop').classList.add('show');
+}
+$('groupSel').addEventListener('click', e => {
+  e.stopPropagation();
+  if ($('groupPop').classList.contains('show')) closeAllPoppers();
+  else openGroupPop();
+});
+$('groupPop').addEventListener('click', e => {
+  const opt = e.target.closest('[data-gid]');
+  if (!opt) return;
+  selGroup = +opt.dataset.gid;
+  renderGroupSel();
+  closeAllPoppers();
+});
+
+/* ===== 签名交互：底部动作区原位变形 ===== */
+function backToListState() {
+  $('footForm').classList.remove('show');
+  $('footAction').style.display = 'flex';
+  $('footErr').style.display = 'none';
+  $('footInput').classList.remove('error');
+  $('footInput').value = '';
+}
+$('footAction').addEventListener('click', e => {
+  e.stopPropagation();
+  $('footAction').style.display = 'none';
+  $('footForm').classList.add('show');
+  $('ctxApp').textContent = `${apps.find(a => a.id === selApp).name}（${selApp}）`;
+  $('footInput').focus();
+});
+$('footInput').addEventListener('click', e => e.stopPropagation());
+$('footForm').addEventListener('click', e => e.stopPropagation());
+$('footInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); doCreate(); }
+  if (e.key === 'Escape') { e.stopPropagation(); backToListState(); $('footInput').blur(); }
+});
+$('footCancel').addEventListener('click', () => backToListState());
+$('footCreate').addEventListener('click', doCreate);
+
+async function doCreate() {
+  const name = $('footInput').value.trim();
+  const input = $('footInput'), err = $('footErr'), btn = $('footCreate');
+  if (!name) {
+    input.classList.add('error');
+    err.textContent = '⚠ 请输入分组名称';
+    err.style.display = 'flex';
+    return;
+  }
+  if (groups[selApp].some(g => g.name === name)) {
+    input.classList.add('error');
+    err.textContent = '⚠ 该应用下已存在同名分组';
+    err.style.display = 'flex';
+    return;
+  }
+  err.style.display = 'none';
+  input.classList.remove('error');
+  btn.disabled = true; btn.textContent = '创建中…';
+  await new Promise(r => setTimeout(r, 350)); // 模拟 POST /api/admin/groups
+  const g = { id: nextId++, name };
+  groups[selApp].push(g);
+  selGroup = g.id;
+  renderGroupOpts();
+  renderGroupSel();
+  btn.disabled = false; btn.textContent = '创建';
+  closeAllPoppers();
+  toast(`已创建分组「${name}」`);
+}
+
+/* ===== 全局：点击外部 = 取消并收起（与 EP 行为一致） ===== */
+document.addEventListener('click', () => { closeAllPoppers(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAllPoppers(); });
+</script>
+</body>
+</html>

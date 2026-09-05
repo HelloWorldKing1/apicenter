@@ -102,8 +102,26 @@
         </div>
         <div class="basic-item">
           <span class="basic-label">分组</span>
-          <el-select v-model="form.groupId" placeholder="先选应用" style="width: 100%">
+          <el-select v-model="form.groupId" placeholder="先选应用" style="width: 100%" ref="groupSelectRef"
+                     @visible-change="onGroupPopVisible">
             <el-option v-for="g in groupOptions" :key="g.id" :label="g.name" :value="g.id" />
+            <!-- 分组内联创建（设计稿：doc/设计稿-分组下拉内联创建.html）：底部动作行原位变形为迷你表单 -->
+            <template #footer>
+              <button v-if="!groupCreating" type="button" class="group-new-action" @click="openGroupCreate">
+                <span class="plus">＋</span> 新建分组
+              </button>
+              <div v-else class="group-new-form" :class="{ 'err-input': newGroupError }"
+                   @keydown.esc.prevent.stop="cancelGroupCreate">
+                <div class="group-new-context">创建到 <b>{{ selectedAppLabel }}</b> 之下</div>
+                <div class="group-new-row">
+                  <el-input ref="groupCreateInput" v-model="newGroupName" size="small" maxlength="64"
+                            placeholder="输入分组名称，回车创建" @keydown.enter.prevent="createGroupInline" />
+                  <el-button size="small" type="primary" :loading="creatingGroup" @click="createGroupInline">创建</el-button>
+                  <el-button size="small" text @click="cancelGroupCreate">取消</el-button>
+                </div>
+                <div v-if="newGroupError" class="group-new-err">{{ newGroupError }}</div>
+              </div>
+            </template>
           </el-select>
         </div>
         <div class="basic-item">
@@ -404,7 +422,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute } from 'vue-router'
 import http from '@/api/http'
@@ -628,6 +646,69 @@ function onTypeChange() {
 }
 function onAppChange() {
   form.groupId = null
+  cancelGroupCreate()
+}
+
+// ---------- 分组内联创建（设计稿：doc/设计稿-分组下拉内联创建.html） ----------
+const groupSelectRef = ref()
+const groupCreateInput = ref()
+const groupCreating = ref(false)    // 输入态开关：footer 动作行 ⇄ 迷你表单
+const creatingGroup = ref(false)    // 请求中（防重复提交）
+const newGroupName = ref('')
+const newGroupError = ref('')
+
+/** 上下文行：明示新分组挂在当前已选应用之下 */
+const selectedAppLabel = computed(() => {
+  const a = apps.value.find((x) => x.appId === form.appId)
+  return a ? `${a.name}（${a.appId}）` : ''
+})
+
+function openGroupCreate() {
+  newGroupName.value = ''
+  newGroupError.value = ''
+  groupCreating.value = true
+  nextTick(() => groupCreateInput.value?.focus())
+}
+
+function cancelGroupCreate() {
+  groupCreating.value = false
+  creatingGroup.value = false
+  newGroupName.value = ''
+  newGroupError.value = ''
+}
+
+/** 下拉收起时静默放弃输入，回到列表态（与「点外部 = 取消」一致） */
+function onGroupPopVisible(visible) {
+  if (!visible) cancelGroupCreate()
+}
+
+async function createGroupInline() {
+  if (creatingGroup.value) return
+  const name = newGroupName.value.trim()
+  if (!name) {
+    newGroupError.value = '请输入分组名称'
+    return
+  }
+  // 应用内重名本地预检（即时反馈）；后端唯一约束兜底
+  if (groupOptions.value.some((g) => g.name === name)) {
+    newGroupError.value = '该应用下已存在同名分组'
+    return
+  }
+  newGroupError.value = ''
+  creatingGroup.value = true
+  try {
+    // 复用分组页同一接口（POST /api/admin/groups，sortOrder 默认 0）；无返回 id，按名称回查
+    await http.post('/groups', { appId: form.appId, name, sortOrder: 0 })
+    groups.value = await http.get('/groups')
+    form.groupId = groups.value.find((g) => g.appId === form.appId && g.name === name)?.id
+    ElMessage.success(`已创建分组「${name}」`)
+    groupSelectRef.value?.blur() // 收起下拉（新分组已选中）；若未收起，状态也已被重置
+    cancelGroupCreate()
+  } catch (e) {
+    // 失败保留下拉与输入便于重试；错误提示由 http 拦截器统一弹出
+  } finally {
+    creatingGroup.value = false
+  }
 }
 
 function addMapping() {
@@ -966,5 +1047,74 @@ h4 { margin: 20px 0 10px; color: #303133; }
   font-size: 12px;
   color: #909399;
   margin-bottom: 4px;
+}
+
+/* ===== 分组下拉 · 内联创建（设计稿：doc/设计稿-分组下拉内联创建.html） ===== */
+.group-new-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 7px 20px 7px 11px;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+  font-family: inherit;
+  text-align: left;
+  border-top: 1px solid var(--el-border-color-light);
+  margin-top: 4px;
+}
+.group-new-action:hover,
+.group-new-action:focus-visible {
+  color: var(--el-color-primary);
+  background: var(--el-fill-color-light);
+  outline: none;
+}
+.group-new-action .plus {
+  font-weight: 600;
+}
+.group-new-form {
+  border-top: 1px solid var(--el-border-color-light);
+  margin-top: 4px;
+  padding: 8px 11px 6px;
+}
+.group-new-context {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
+  margin-bottom: 6px;
+}
+.group-new-context::before {
+  content: '';
+  width: 2px;
+  height: 12px;
+  background: var(--el-color-primary);
+  border-radius: 1px;
+}
+.group-new-context b {
+  color: var(--el-color-primary);
+  font-weight: 600;
+}
+.group-new-row {
+  display: flex;
+  gap: 6px;
+}
+.group-new-row .el-button + .el-button {
+  margin-left: 0;
+}
+.group-new-err {
+  font-size: 12px;
+  color: var(--el-color-danger);
+  margin-top: 5px;
+}
+.group-new-err::before {
+  content: '⚠ ';
+}
+.group-new-form.err-input :deep(.el-input__wrapper) {
+  box-shadow: 0 0 0 1px var(--el-color-danger) inset;
 }
 </style>
