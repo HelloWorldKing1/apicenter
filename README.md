@@ -8,16 +8,18 @@ API 三方接口统一调用平台组件 —— 只做 **连接 + 适配 + 可�
 
 ## 两条核心链路
 
-1. **Flow A 出站**（调用方 → 平台 → 供应商）：适配器链（入站鉴权 → 协议解码 → 报文适配 → 字段映射 → 协议编码 → 出站鉴权=供应商签名）→ 调供应商 → 反向适配回调用方。失败按状态机处理：5xx/429 指数退避短重试 → 补偿；4xx → 死信；超时 → UNKNOWN 对账。**✅ M2 已交付**。
-2. **Flow B 入站回调**（供应商回调 → 平台 → 调用方）：回调验签（凭证独立于出站签名）→ 适配器链 → 送达回调地址 → 收到即回 ack 回执（与送达解耦）→ 送达失败由补偿 worker 重送。**⏳ M3 交付**（配置模型已在 M1 落地，运行时链路待建）。
+1. **Flow A 出站**（调用方 → 平台 → 供应商）：适配器链（入站鉴权 → 协议解码 → 报文适配 → 字段映射 → 协议编码 → 出站鉴权=供应商签名）→ 调供应商 → 反向适配回调用方。失败按状态机处理：5xx/429 指数退避短重试 → 补偿；4xx → 死信（可重放）；超时 → UNKNOWN 对账（人工置位 + TTL 自动降级）。**✅ M2 已交付，容错底座 M4 已补齐**。
+2. **Flow B 入站回调**（供应商回调 → 平台 → 调用方）：回调验签（凭证独立于出站签名）→ 适配器链 → 送达回调地址 → 收到即回 ack 回执（与送达解耦）→ 送达失败由补偿 worker 重送。**✅ M3 已交付**。
 
-## 开发状态（2026-09-03）
+## 开发状态（2026-09-05）
 
-- **M0 完成**：三份契约（链引擎 / 映射语义 / 客户端对账）+ 凭证轮换方案 M0-04 全部评审通过；schema 16 张表。
+- **M0 完成**：三份契约（链引擎 / 映射语义 / 客户端对账）+ 凭证轮换方案 M0-04 全部评审通过。
 - **M1 完成**：管理面后端（应用 / 分组 / 接口 / 适配器 / 凭证）+ Vue3 前端（`frontend/`，6 页面）。
 - **M2 完成**：链引擎 + 映射引擎（Aviator 5）+ 通用客户端（RestClient 直调）+ 出站状态机 + 补偿 worker；fastmoss 黄金用例 G1-G4 在 WireMock 对端端到端跑通 = **首个可演示版本**。
-- **测试**：全库 45 个 @Test 全绿（M1 相关 22：M1IntegrationTest 14 + CryptoServiceTest 7 + 冒烟 1；M2 相关 23：MappingEngineTest 14 + M2IntegrationTest 6 + JsonProtocolAdapterTest 3）。
-- **待办**：真实 fastmoss 联调（待 token）；M3（XML 编解码 + 入站回调链路）；多鉴权并行线（HMAC / 云厂商签名 / 回调验签）。
+- **M3 完成**：XML 编解码（Woodstox StAX + XXE 防护）+ 入站回调链路（HMAC 回调验签 / PENDING 首落 / ack 解耦 / 快照重送）+ RESP 白名单与 ACK 渲染 + 四种转换场景端到端。
+- **M4 完成（编码与自动化测试）**：熔断器三态（闸门前置，OPEN 短路转补偿顺延不计数）+ UNKNOWN 人工对账与 TTL 自动降级（reconcile_audit 审计）+ 死信查看与重放 + QPS 限流 / 日配额 / IP 黑白名单 + call_log 双向落库（脱敏 + traceId 三方贯穿）+ Micrometer 指标 / OTel span / 告警规则；schema 增至 18 张表（reconcile_audit / alert_event）。
+- **测试**：全库 **164 个 @Test 全绿**（M1 相关 22 / M2 相关 23 / M3 相关 62 / M4 相关 57）。
+- **下一步**：M4 手动验收（方案已备，约 35 分钟）→ **M5 版本快照 / 灰度 / 压测**（计划已评审定稿）→ 联调验收；多鉴权并行线继续。
 
 ## 文档导航
 
@@ -26,14 +28,15 @@ API 三方接口统一调用平台组件 —— 只做 **连接 + 适配 + 可�
 | 设计总纲 | [API中心设计方案.md](src/main/resources/doc/API中心设计方案.md) | 5 模块；接口定义模型（出站中转 / 入站回调）；三类适配器（鉴权 / 协议 / 报文）+ 接口级字段映射；状态机 / 错误码 / 容错附录 |
 | 实现方案 | [技术架构和实现方案.md](src/main/resources/doc/技术架构和实现方案.md) | 分层架构、技术选型、适配器链引擎、出 / 入站执行引擎、M1–M5 路线图、ADR |
 | 可行性报告 | [可行性报告.md](src/main/resources/doc/可行性报告.md) | 技术可行性评估、工作量估算（约 81 人日）、风险与应对 |
-| 表结构设计 | [表结构设计.html](src/main/resources/doc/表结构设计.html) | 16 张表（配置 11 + 运行 5）+ 枚举汇总 + 原型数据模型映射对照 |
+| 表结构设计 | [表结构设计.html](src/main/resources/doc/表结构设计.html) | 18 张表（配置 11 + 运行 7，M4 增 reconcile_audit / alert_event）+ 枚举汇总 + 原型数据模型映射对照 |
 | 时序与流程 | [API中心时序图与流程图.md](src/main/resources/doc/API中心时序图与流程图.md) | 配置流程、Flow A / B 时序、请求处理 + 容错流程图 |
 | 交互原型 | [API中心原型.html](src/main/resources/doc/API中心原型.html) | 可交互管理面原型（数据模型与交互即事实来源） |
-| 建表脚本 | [schema.sql](src/main/resources/doc/schema.sql) | MySQL 5.7/8.0 双兼容，16 张表（与《表结构设计.html》一一对应） |
+| 建表脚本 | [schema.sql](src/main/resources/doc/schema.sql) | MySQL 5.7/8.0 双兼容，18 张表（与《表结构设计.html》一一对应） |
 | 开发计划 | [开发计划.md](src/main/resources/doc/开发计划.md) | M0–M5 里程碑 + 第一个可演示版本（fastmoss 黄金用例，断言 G1–G4） |
 | M0 契约（已评审通过） | [doc/开发文档/](src/main/resources/doc/开发文档/) | 链引擎契约 / 动态映射语义规范 / 通用客户端与对账协议 / 凭证轮换存储方案 |
-| M2 验收方案 | [M2手动验收测试方案.md](src/main/resources/doc/开发文档/M2手动验收测试方案.md) | httpbin/postman-echo 模拟上游的五个分支手动验收步骤 |
-| M2 代码评审 | [M2代码评审记录.md](src/main/resources/doc/开发文档/M2代码评审记录.md) | 四路评审问题清单与修复进度 |
+| 里程碑计划 | [doc/开发文档/](src/main/resources/doc/开发文档/) | M3 / M4 / M5 开发计划（D-M3-1~4、D-M4-1~6、D-M5-1~3 即编码依据；M3/M4 已实施，M5 已定稿待开工） |
+| 手动验收方案 | [doc/开发文档/](src/main/resources/doc/开发文档/) | M2 / M3 / M4 手动验收测试方案（本地 WireMock stub 随仓库 `src/test/resources/`） |
+| 代码评审记录 | [doc/开发文档/](src/main/resources/doc/开发文档/) | M2 / M3 四路评审问题清单与修复进度 |
 | 踩坑记录 | [技术踩坑记录.md](src/main/resources/doc/开发文档/技术踩坑记录.md) | Spring 7 / Jackson 3 / WireMock 3 API 差异与经验（写代码前先查） |
 
 ## 快速开始
@@ -53,6 +56,6 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 
 ## 事实来源
 
-- **现行设计**：`src/main/resources/doc/` 六份文档（设计方案为总纲，表结构 / 实现方案 / 排期配套）+ `doc/开发文档/` M0 契约与验收 / 评审 / 踩坑记录
-- **工程**：`src/main/resources/application.yaml`（基础设施参数，业务配置落库）；`pom.xml`（Spring Boot 4.1 / Java 21 / MapStruct 1.6.3 / Aviator 5.4.3 / WireMock 3.9.1 预留 / `jackson-dataformat-xml`）
+- **现行设计**：`src/main/resources/doc/` 六份文档（设计方案为总纲，表结构 / 实现方案 / 排期配套）+ `doc/开发文档/` M0 契约、里程碑计划（M3–M5）、验收 / 评审 / 踩坑记录
+- **工程**：`src/main/resources/application.yaml`（基础设施参数 + M4 熔断 / 告警参数，业务配置落库）；`pom.xml`（Spring Boot 4.1 / Java 21 / MapStruct 1.6.3 / Aviator 5.4.3 / WireMock 3.9.1 / `jackson-dataformat-xml`）；`src/main/resources/doc/schema.sql`（18 张表）
 - **旧版 demo**（已删除，git 历史 `ed95446` 及之前）：ERP 订单连接器实现参考（@HttpExchange / @Retryable / AOP / OTel 已验证经验）

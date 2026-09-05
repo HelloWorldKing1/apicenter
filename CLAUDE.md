@@ -11,16 +11,17 @@
 - **Flow A 出站**（调用方 → 组件 → 供应商）：入站鉴权 → 适配器链（协议解码 → 报文适配 → 字段映射 → 协议编码）→ 出站鉴权（供应商签名）→ 调供应商 → 反向适配回调用方。失败按状态机处理：5xx/429 指数退避重试 → 补偿；4xx → 死信；超时 → UNKNOWN 对账。
 - **Flow B 入站回调**（供应商回调 → 组件 → 调用方）：回调验签（凭证独立于出站签名）→ 适配器链 → 送达回调地址 → 收到即回 ack 回执（与送达解耦）→ 送达失败由补偿 worker 重送。
 
-## 当前开发状态（2026-09-03）
+## 当前开发状态（2026-09-05）
 
 | 项 | 状态 |
 |---|---|
-| 设计文档 | 已定稿：`src/main/resources/doc/` 6 份 + schema.sql（16 张表） |
+| 设计文档 | 已定稿：`src/main/resources/doc/` 6 份 + schema.sql（**18 张表**，M4 新增 reconcile_audit / alert_event） |
 | M0 契约设计 | **已评审通过 v1.0（2026-09-02）**：`doc/开发文档/` M0-01/02/03/04（确认点全部通过） |
 | 旧 demo 代码 | 已删除（commit `ad55cea`），git 历史可查 |
-| 数据库 | MySQL PolarDB 已按新 schema 建库（连接信息见 application.yaml） |
-| 工程代码 | **M1 + M2 + M3 已落地并测试通过（全库 103 个 @Test，2026-09-03）**：M3 = XmlProtocolAdapter（Woodstox StAX，D-M3-1 语义 + XXE 防护）、HmacCallbackVerifyAdapter + InboundEngine（PENDING 首落 / 同步送达 / ack 解耦 / 快照重放）、RESP 白名单过滤与类型矩阵、ACK 渲染、响应方向收敛（D-M3-4）、模拟回调端点、SSRF 校验与开关、报文大小限制（1MB）、seed 增量补齐 IF-FM-CB-001。M3 编码依据：`doc/开发文档/M3开发计划.md`（12 人日，七轮评审定稿）。测试归属：M1 相关 22 / M2 相关 23 / **M3 相关 58**（XmlProtocolAdapterTest 13 + HmacCallbackVerifyAdapterTest 10 + InboundEngineTest 9 + CallbackUrlValidatorTest 4 + RespFieldFilterTest 8 + AckRendererTest 3 + M3IntegrationTest 11） |
-| 未拍板决策 | 无（M0 全部评审通过，2026-09-02） |
+| 数据库 | MySQL PolarDB 已按新 schema 建库（连接信息见 application.yaml）；M4 DDL（两表 + idx_outreq_updated 索引）已于 2026-09-04 应用到开发库 |
+| 工程代码 | **M1 + M2 + M3 + M4 已落地并测试通过（全库 164 个 @Test，2026-09-05 surefire 全绿）**。M3 = XmlProtocolAdapter（Woodstox StAX，D-M3-1 语义 + XXE 防护）、HmacCallbackVerifyAdapter + InboundEngine（PENDING 首落 / 同步送达 / ack 解耦 / 快照重放）、RESP 白名单过滤与类型矩阵、ACK 渲染、响应方向收敛（D-M3-4）、模拟回调端点、SSRF 校验与开关、报文大小限制（1MB）、seed 增量补齐 IF-FM-CB-001。M4（编码依据 `doc/开发文档/M4开发计划.md` D-M4-1~6）= 熔断器三态（闸门前置 + OPEN 短路转 COMPENSATING 顺延不计数）、UNKNOWN 人工对账（MANUAL 置位）+ TTL 10 分钟自动降级（reconcile_audit 双来源审计）、死信查看与重放、QPS 限流 / 日配额 / IP 黑白名单（GatewayGuard，拒绝不污染状态机）、call_log 双向落库 + 脱敏 + traceId 三方贯穿（TraceIdFilter MDC）、Micrometer 指标 + OTel span、告警规则（5 分钟冷却）+ 验签连续失败内置告警。测试归属：M1 相关 22 / M2 相关 23 / M3 相关 62 / **M4 相关 57**（M4IntegrationTest 7 + CircuitBreakerTest 11 + MonitorServiceTest 11 + AlertServiceTest 9 + GatewayGuardTest 9 + SensitiveDataMaskerTest 10） |
+| 里程碑计划 | **M5 开发计划已评审定稿（2026-09-04）**：`doc/开发文档/M5开发计划.md`，D-M5-1~3 即编码依据（版本快照 / 灰度绑定 + 链缓存事件失效 / 压测调优），总盘 8.5 人日 |
+| 未拍板决策 | 无（M0 全部评审通过，2026-09-02；M4/M5 计划均已评审定稿） |
 
 ## 设计文档（现行）
 
@@ -31,7 +32,7 @@
 | `API中心设计方案.md` | 设计总纲：应用（供应商）/ 分组 / 接口 / 监控 / 适配器 5 模块；接口定义模型（出站中转 / 入站回调）；三类适配器（鉴权 / 协议 / 报文）+ 接口级字段映射；状态机 / 错误码 / 容错附录 |
 | `技术架构和实现方案.md` | 实现路径：分层架构、技术选型、适配器链引擎、出 / 入站执行引擎、M1–M5 路线图、ADR |
 | `可行性报告.md` | 技术可行性评估、工作量估算（约 81 人日）、风险与应对 |
-| `表结构设计.html` | 16 张表（配置 11 + 运行 5）+ 枚举汇总 + 原型数据模型映射对照 |
+| `表结构设计.html` | 18 张表（配置 11 + 运行 7，M4 增 reconcile_audit / alert_event）+ 枚举汇总 + 原型数据模型映射对照 |
 | `API中心时序图与流程图.md` | 配置流程、Flow A / B 时序、请求处理 + 容错流程图 |
 | `API中心原型.html` | 可交互管理面原型（数据模型与交互即事实来源） |
 
@@ -44,6 +45,9 @@
 | `M0-03通用客户端与对账协议.md` | 通用 ExchangeClient（动态 URI / 凭证组装）、异常→状态机映射表、UNKNOWN 对账三分支（M2 人工 / M4 降级 / v1.1 自动查询） |
 | `M0-04凭证轮换存储方案.md` | 已评审通过：app_credential 凭证表（第 16 张）+ ACTIVE/ROTATING/RETIRED 状态机 + 验签并存 / 签名激活 + AES-256-GCM 加密约定 |
 | `M3开发计划.md` | **M3 编码依据（2026-09-03 定稿，七轮评审）**：D-M3-1 XML 语义 / D-M3-2 入站引擎与 HMAC 回调验签 / D-M3-3 RESP·ACK 语义 / D-M3-4 响应收敛；任务拆解 12 人日、自动化测试点 B1-B6·X1-X3、手动验收方案（本地 WireMock stub 随仓库 `src/test/resources/m3-manual-stubs/`） |
+| `M4开发计划.md` | **M4 编码依据（2026-09-04 评审定稿）**：D-M4-1 熔断 / D-M4-2 UNKNOWN 对账（人工 + TTL）/ D-M4-3 死信重放 / D-M4-4 call_log 双向与脱敏 / D-M4-5 指标与告警 / D-M4-6 接入层防护；总盘 12 人日（含 M2 缺口承接 2 人日） |
+| `M5开发计划.md` | **M5 编码依据（2026-09-04 评审定稿，未开工）**：D-M5-1 接口版本快照与回滚 / D-M5-2 适配器灰度绑定 + 链缓存事件失效 + 停用即回退 / D-M5-3 压测调优与生产加固；总盘 8.5 人日；前置 = M4 出口 |
+| `M4手动验收测试方案.md` | M4 手动端到端验收（约 35 分钟，按实施后实际行为校准）：三阶段 = 可观测 / 熔断与对账 / 死信·告警·限流，stub 随仓库 `src/test/resources/m4-manual-stubs/`；M2/M3 同名方案同目录 |
 
 关键设计要点（改动前先读设计方案对应章节）：
 
@@ -85,20 +89,20 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 
 | 包 | 职责 | 落地里程碑 |
 |---|---|---|
-| `controller/` | 管理面 REST（应用 / 分组 / 接口 / 监控 / 适配器 5 模块）+ 接入层路由 | M1 / M2 |
-| `service/` | 业务编排：配置校验、状态机流转 | M1 |
-| `repository/` | JdbcTemplate 数据访问（16 张表） | M1 |
-| `engine/` | 适配器链引擎 + 出站 / 入站执行引擎（M0-01 契约） | M2 / M3 |
+| `controller/` | 管理面 REST（应用 / 分组 / 接口 / 监控 / 适配器 5 模块）+ 接入层路由 | M1 / M2 / M4（监控 + 死信重放 + 对账端点） |
+| `service/` | 业务编排：配置校验、状态机流转、接入层防护（GatewayGuard） | M1 / M4 |
+| `repository/` | JdbcTemplate 数据访问（18 张表） | M1 / M4（reconcile_audit / alert_event） |
+| `engine/` | 适配器链引擎 + 出站 / 入站执行引擎 + 熔断器（CircuitBreakerRegistry） | M2 / M3 / M4 |
 | `adapter/` | 鉴权 / 协议 / 报文三类适配器实现 | M2 |
 | `mapping/` | 动态字段映射引擎（M0-02 规范，6 操作运行时解释器） | M2 |
 | `client/` | 通用声明式 HTTP 客户端（M0-03 契约，动态 URI / 凭证组装） | M2 |
-| `worker/` | 补偿 / 对账 worker（按 (status, next_retry_at) 扫描） | M2 / M3（入站重送）/ M4（对账） |
-| `aspect/` | AOP 调用日志、traceId、脱敏 | M4 |
+| `worker/` | 补偿 / 对账 / 告警 worker（按 (status, next_retry_at) 扫描）+ call_log 异步写 | M2 / M3（入站重送）/ M4（TTL 降级 + 告警） |
+| `aspect/` | AOP 调用日志、traceId、脱敏（SensitiveDataMasker） | M4（已落地） |
 | `config/` | 配置与 Bean 装配 | M1 |
 
 入口：`ApicenterApplication.java`（`@SpringBootApplication` + `@EnableScheduling` + `@EnableResilientMethods`，后者启用 Spring 7 `@Retryable`）。
 
-前端 `frontend/`（Vue3 + Vite + Element Plus，M1 设计 §4）：`src/views/` 六页面（Dashboard / Apps / Groups / Interfaces / Adapters / Monitor）+ `components/ParamTable` 参数编辑 + `api/http.js` 统一信封解包；原型交互平移自 `doc/API中心原型.html`。管理面 REST 前缀 `/api/admin`（controller/admin 五个 Controller），统一信封 `{code, msg, data}`。
+前端 `frontend/`（Vue3 + Vite + Element Plus，M1 设计 §4）：`src/views/` 六页面（Dashboard / Apps / Groups / Interfaces / Adapters / Monitor）+ `components/ParamTable` 参数编辑 + `api/http.js` 统一信封解包；原型交互平移自 `doc/API中心原型.html`。管理面 REST 前缀 `/api/admin`（controller/admin 六个 Controller：应用 / 分组 / 接口 / 适配器 / 凭证 / 监控），统一信封 `{code, msg, data}`。Monitor 页 M4 已接真数据（统计卡 / 调用日志 / 对账 UNKNOWN / 死信 / 告警五区块）。
 
 ## 核心状态机与容错（设计 §6）
 
@@ -108,13 +112,14 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
   - 读超时 / 连接异常 → UNKNOWN → 对账（M2 人工 / M4 超时自动降级，见 M0-03 §3）
   - **`@Retryable` 必须放在独立 Invoker 类**——Spring AOP 自调用不触发代理
 - **入站送达状态**（载体 `inbound_delivery.delivery_status`）：`RECEIVED → ACKED / PENDING → ACKED / DEAD_LETTER`；送达失败仍回 ack（供应商不重发），补偿 worker 重送（按 `callback_url_snapshot`）。
-- **熔断（M4）**：三态 CLOSED/OPEN/HALF_OPEN，闸门置于 @Retryable Invoker 调用前，粒度「接口 + 供应商」。
-- **链失败不污染状态机**（M0-01 D7）：解码 / 映射 / 编码 / 验签失败直接错误响应 + call_log，不落运行表。
+- **熔断（M4 已落地）**：三态 CLOSED/OPEN/HALF_OPEN，闸门置于 @Retryable Invoker 调用前，粒度「接口 + 供应商」；计数口径 = 每请求一次（@Retryable 内部重试不逐次计数）；OPEN 短路转 COMPENSATING 顺延（不 incrementAttempt），恢复后由补偿 worker 补做。
+- **UNKNOWN 对账（M4 已落地）**：人工置位（SUCCESS / COMPENSATING，写 reconcile_audit，source=MANUAL）+ TTL 10 分钟自动降级（source=TTL）两来源审计；对账自动查询 v1.1（M0-03 C3）。
+- **链失败 / 防护拒绝均不污染状态机**（M0-01 D7 / D-M4-6）：解码 / 映射 / 编码 / 验签失败直接错误响应 + call_log，不落运行表；QPS / 日配额 / IP 名单在 GatewayGuard 防护层拒绝（42901 / 42902 / 40103），同样不落运行表。
 
 ## 配置与数据模型
 
 - 配置集中在 `src/main/resources/application.yaml`：仅基础设施参数（datasource、`retry-worker-fixed-delay-ms: 3000`、`unknown-ttl-minutes: 10`）；业务配置（应用 / 接口 / 适配器 / 字段映射）全部落库。
-- `src/main/resources/doc/schema.sql`：16 张表（配置 11 + 运行 5），无数据库外键（引用完整性应用层保证，引用列建索引），与《表结构设计.html》逐表一致。
+- `src/main/resources/doc/schema.sql`：18 张表（配置 11 + 运行 7，M4 新增 reconcile_audit / alert_event + idx_outreq_updated），无数据库外键（引用完整性应用层保证，引用列建索引），与《表结构设计.html》逐表一致。
 
 ## 约定与注意事项（Gotchas）
 
@@ -127,6 +132,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 - **WireMock 3**：verify 用 `postRequestedFor(urlEqualTo(...))` + `equalTo(...)`；请求计数跨测试累积，`@BeforeEach` 需 `resetAll()`。
 - **`mvn test` 不清旧产物**：删源文件后旧 class 残留在 target/classes 会被 Spring 扫描装配——结构变更务必 `mvn clean test`。
 - **列表接口不带子表**：断言/校验接口子表（params/mappings 等）必须走 `detail()`，`list()` 的子表恒空。
+- **熔断 / 限流 / 日配额为单实例内存口径**：多实例部署各实例独立（v1.1 分布式，日配额重启清零）；QPS 为固定秒级窗口（交界突刺最坏 2×limit）；WireMock 占 18080 与集成测试同端口，手动验收期间勿同时跑 `mvn test`。语义详见《M4开发计划.md》。
 - **更多 Spring 7 / Jackson 3 / WireMock 3 踩坑**：见 `doc/开发文档/技术踩坑记录.md`（写代码前先查）。
 - 旧 demo 实现仅供参考（git 历史 `ed95446` 及之前），不照搬渠道特化逻辑（PARTNER_A/B、订单字段、高水位同步均不适用于新设计）。
 
@@ -134,5 +140,6 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 
 - **现行设计**（`src/main/resources/doc/`）：`API中心设计方案.md`（总纲）→ `技术架构和实现方案.md` / `可行性报告.md` / `表结构设计.html` + `schema.sql`（实现四件套）→ `API中心时序图与流程图.md` / `API中心原型.html`（流程与交互）→ `开发计划.md`（M0–M5 里程碑 + fastmoss 黄金用例，执行入口）
 - **M0 契约**（`src/main/resources/doc/开发文档/`）：链引擎 / 映射语义 / 客户端对账三份 + 凭证轮换存储方案 M0-04（全部已评审通过，M1/M2 编码依据）
+- **里程碑计划**（`src/main/resources/doc/开发文档/`）：`M3开发计划.md` / `M4开发计划.md`（均已实施）/ `M5开发计划.md`（已评审定稿，下一步）/ 各里程碑手动验收方案 + 代码评审记录
 - **踩坑记录**（`src/main/resources/doc/开发文档/技术踩坑记录.md`）：Spring 7 / Jackson 3 / WireMock 3 API 差异与经验（写代码前先查）
 - `README.md` — 项目索引
