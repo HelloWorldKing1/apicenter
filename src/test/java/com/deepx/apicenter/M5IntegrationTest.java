@@ -32,6 +32,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.ObjectMapper;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
@@ -174,16 +175,16 @@ class M5IntegrationTest {
     void s1_创建与更新生成快照_版本号只增_changeNote可追溯() throws Exception {
         // 创建 → v1 快照
         assertSnapshotCount(verIfaceId, 1);
-        assertSnapshotVersionExists(verIfaceId, 1);
-        int v1 = versionOf(verIfaceId);
-        assertThat(v1).isEqualTo(1);
+        assertSnapshotVersionExists(verIfaceId, new BigDecimal("1.0"));
+        BigDecimal v1 = versionOf(verIfaceId);
+        assertThat(v1).isEqualByComparingTo(new BigDecimal("1.0"));
 
         // PUT 全量更新（映射 rename → enumMap）+ X-Change-Note → v2 快照
         stubUpstream("/up-m5");
-        updateMapping(verIfaceId, 1, List.of(
+        updateMapping(verIfaceId, new BigDecimal("1.0"), List.of(
                 new MappingDto("state", "enumMap", "order_state", "PAID→已支付", "KEEP", 1)));
         assertSnapshotCount(verIfaceId, 2);
-        String v2Json = configJsonOf(verIfaceId, 2);
+        String v2Json = configJsonOf(verIfaceId, new BigDecimal("1.1"));
         assertThat(v2Json).contains("enumMap").contains("已支付").doesNotContain("\"rename\"");
 
         // 更新后立即调用 → 新映射生效（S1 行为断言；INTERFACE 事件已失效链缓存）
@@ -196,26 +197,26 @@ class M5IntegrationTest {
     void s2_回滚行为等价_版本只增_status不变_目标缺失与乐观锁冲突拒绝() throws Exception {
         stubUpstream("/up-m5");
         // 基线：v1 rename → v2 enumMap（先调一次确认 v2 语义）
-        int v1 = versionOf(verIfaceId);
+        BigDecimal v1 = versionOf(verIfaceId);
         updateMapping(verIfaceId, v1, List.of(
                 new MappingDto("state", "enumMap", "order_state", "PAID→已支付", "KEEP", 1)));
         call("/m5/ver", "{\"state\":\"PAID\"}");
         wireMock.verify(postRequestedFor(urlEqualTo("/up-m5"))
                 .withRequestBody(equalToJson("{\"order_state\":\"已支付\"}")));
-        int v2 = versionOf(verIfaceId);
-        assertThat(v2).isEqualTo(2);
+        BigDecimal v2 = versionOf(verIfaceId);
+        assertThat(v2).isEqualByComparingTo(new BigDecimal("1.1"));
 
-        // 回滚 v1（HTTP rollback：operator/reason 拼入 change_note；乐观锁 currentVersion=2）
+        // 回滚 v1.0（HTTP rollback：operator/reason 拼入 change_note；乐观锁 currentVersion=1.1）
         ResponseEntity<byte[]> rb = postAdmin("/api/admin/interfaces/" + verIfaceId + "/rollback",
-                "{\"targetVersion\":1,\"operator\":\"m5-tester\",\"reason\":\"回归验收\",\"currentVersion\":2}");
+                "{\"targetVersion\":1.0,\"operator\":\"m5-tester\",\"reason\":\"回归验收\",\"currentVersion\":1.1}");
         assertThat(rb.getStatusCode().value()).isEqualTo(200);
 
-        int v3 = versionOf(verIfaceId);
-        assertThat(v3).isEqualTo(3); // 版本号历史只增（2 + 1，不回退号码）
+        BigDecimal v3 = versionOf(verIfaceId);
+        assertThat(v3).isEqualByComparingTo(new BigDecimal("1.2")); // 每次变更 / 回滚 +0.1，不回退
         assertThat(statusOf(verIfaceId)).isEqualTo("PUBLISHED"); // status 保持不变（快照不含 status）
         assertSnapshotCount(verIfaceId, 3);
         String note = latestChangeNote(verIfaceId);
-        assertThat(note).contains("回滚至 v1").contains("operator=m5-tester").contains("reason=回归验收");
+        assertThat(note).contains("回滚至 v1.0").contains("operator=m5-tester").contains("reason=回归验收");
 
         // 回滚后立即调用（S6：回滚发布 INTERFACE 事件）→ rename 语义恢复（不再枚举映射）
         // 先清 WireMock 请求计数（上面的 enumMap 调用记录清掉，verify(0) 才具鉴别力）
@@ -231,19 +232,19 @@ class M5IntegrationTest {
         // 版本列表 / 详情端点
         String listBody = body(get("/api/admin/interfaces/" + verIfaceId + "/versions?page=1&pageSize=10"));
         assertThat(listBody).contains("\"total\":3");
-        String detailBody = body(get("/api/admin/interfaces/" + verIfaceId + "/versions/1"));
-        assertThat(detailBody).contains("\"version\":1").contains("\"configJson\"")
+        String detailBody = body(get("/api/admin/interfaces/" + verIfaceId + "/versions/1.0"));
+        assertThat(detailBody).contains("\"version\":1.0").contains("\"configJson\"")
                 .contains("order_state").contains("rename"); // configJson 为 JSON 字符串（引号转义），查子串即可
 
         // 目标版本不存在 → 40403 语义信封
         ResponseEntity<byte[]> missing = postAdmin("/api/admin/interfaces/" + verIfaceId + "/rollback",
-                "{\"targetVersion\":99,\"operator\":\"x\",\"currentVersion\":3}");
+                "{\"targetVersion\":99.9,\"operator\":\"x\",\"currentVersion\":1.2}");
         assertThat(missing.getStatusCode().value()).isEqualTo(404);
         assertThat(body(missing)).contains("40403");
 
         // 乐观锁冲突：currentVersion 过期（提交旧版本）→ 40001
         ResponseEntity<byte[]> stale = postAdmin("/api/admin/interfaces/" + verIfaceId + "/rollback",
-                "{\"targetVersion\":1,\"operator\":\"x\",\"currentVersion\":1}");
+                "{\"targetVersion\":1.0,\"operator\":\"x\",\"currentVersion\":1.0}");
         assertThat(stale.getStatusCode().value()).isEqualTo(400);
         assertThat(body(stale)).contains("40001").contains("已被他人修改");
     }
@@ -380,7 +381,7 @@ class M5IntegrationTest {
     }
 
     /** 全量更新映射（版本号取当前——乐观锁） */
-    private void updateMapping(long id, int currentVersion, List<MappingDto> mappings) {
+    private void updateMapping(long id, BigDecimal currentVersion, List<MappingDto> mappings) {
         InterfaceRow row = interfaceRepository.findById(id).orElseThrow();
         interfaceService.update(id, new InterfaceRequest(
                 row.code(), row.name(), row.ifType(), row.method(), row.path(),
@@ -445,7 +446,7 @@ class M5IntegrationTest {
         return resp.getBody() == null ? "" : new String(resp.getBody(), StandardCharsets.UTF_8);
     }
 
-    private int versionOf(long id) {
+    private BigDecimal versionOf(long id) {
         return interfaceRepository.findById(id).orElseThrow().version();
     }
 
@@ -459,14 +460,14 @@ class M5IntegrationTest {
         assertThat(n).isEqualTo((long) expected);
     }
 
-    private void assertSnapshotVersionExists(long id, int version) {
+    private void assertSnapshotVersionExists(long id, BigDecimal version) {
         Long n = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM interface_snapshot WHERE interface_id = ? AND version = ?",
                 Long.class, id, version);
         assertThat(n).isEqualTo(1L);
     }
 
-    private String configJsonOf(long id, int version) {
+    private String configJsonOf(long id, BigDecimal version) {
         return jdbcTemplate.queryForObject(
                 "SELECT config_json FROM interface_snapshot WHERE interface_id = ? AND version = ?",
                 String.class, id, version);

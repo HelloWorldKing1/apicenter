@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -24,13 +25,13 @@ class SnapshotSerializerTest {
         // 空子表往返
         InterfaceRow empty = row("IF-X", 2);
         String jsonEmpty = serializer.toJson(empty, List.of(), List.of(), List.of(), List.of(), List.of());
-        InterfaceRequest reqEmpty = serializer.toRequest(jsonEmpty, 5);
+        InterfaceRequest reqEmpty = serializer.toRequest(jsonEmpty, BigDecimal.valueOf(5));
         assertThat(reqEmpty.params()).isEmpty();
         assertThat(reqEmpty.bindings()).isEmpty();
         assertThat(reqEmpty.mappings()).isEmpty();
         assertThat(reqEmpty.fieldDefs()).isEmpty();
         assertThat(reqEmpty.appId()).isEqualTo("M5-APP");
-        assertThat(reqEmpty.version()).isEqualTo(5); // 乐观锁版本由调用方传入
+        assertThat(reqEmpty.version()).isEqualByComparingTo(BigDecimal.valueOf(5)); // 乐观锁版本由调用方传入
         assertThat(reqEmpty.status()).isNull(); // 快照不含 status（回滚保留当前生命周期）
 
         // 全量六段往返：序列化 → 反序列化 → 再按请求重建行 → 再序列化，语义相等
@@ -44,7 +45,7 @@ class SnapshotSerializerTest {
                 List.of(new InterfaceRow.FieldDefRow(0, "RESP", "total", "number", "总数", 1)),
                 List.of(new InterfaceRow.BindingRow(0, "MESSAGE", "ADP-X", "9.1")));
 
-        InterfaceRequest parsed = serializer.toRequest(json1, 7);
+        InterfaceRequest parsed = serializer.toRequest(json1, BigDecimal.valueOf(7));
         // 重建行必须由 parsed（main 快照）构造：校验含 appId / callbackUrl——换过应用的接口回滚不恢复错归属
         assertThat(parsed.appId()).isEqualTo("M5-APP");
         assertThat(parsed.groupId()).isEqualTo(11L);
@@ -88,7 +89,7 @@ class SnapshotSerializerTest {
                           "protocolIn":"JSON","protocolOut":"XML","upstreamPath":"/up","appId":"M5-APP",
                           "groupId":3,"timeoutMs":2000,"maxRetries":2},"future":"ignored"}
                 """;
-        InterfaceRequest req = serializer.toRequest(json, 2);
+        InterfaceRequest req = serializer.toRequest(json, BigDecimal.valueOf(2));
         assertThat(req.code()).isEqualTo("IF-A");
         assertThat(req.protocolOut()).isEqualTo("XML");
         assertThat(req.groupId()).isEqualTo(3L);
@@ -104,7 +105,7 @@ class SnapshotSerializerTest {
                 {"main":{"code":"IF-B","name":"n","ifType":"INBOUND","method":"POST","path":"/b",
                           "appId":"M5-APP","groupId":1,"callbackUrl":"http://localhost:18080/cb"}}
                 """;
-        InterfaceRequest req = serializer.toRequest(json, 1);
+        InterfaceRequest req = serializer.toRequest(json, BigDecimal.valueOf(1));
         assertThat(req.protocolIn()).isEqualTo(""); // 显式存了空串；入库时服务层归一化为 JSON
         assertThat(req.timeoutMs()).isEqualTo(3000);
         assertThat(req.maxRetries()).isEqualTo(4);
@@ -114,7 +115,7 @@ class SnapshotSerializerTest {
     private InterfaceRow row(String code, int version) {
         return new InterfaceRow(9, code, "演示", "OUTBOUND", "POST", "/m5/" + code,
                 "JSON", "JSON", "M5-APP", 11,
-                "/upstream", null, "PUBLISHED", version,
+                "/upstream", null, "PUBLISHED", BigDecimal.valueOf(version),
                 3000, 4, "M5 演示", null, null, null, null);
     }
 

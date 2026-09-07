@@ -44,7 +44,7 @@ public class BizException extends RuntimeException {
     }
 
     /** M5 回滚目标快照不存在 */
-    public static BizException snapshotNotFound(long id, int version) {
+    public static BizException snapshotNotFound(long id, java.math.BigDecimal version) {
         return new BizException(SNAPSHOT_NOT_FOUND, "接口快照不存在：接口 " + id + " v" + version);
     }
 

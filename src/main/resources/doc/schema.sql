@@ -61,7 +61,7 @@ CREATE TABLE interface (
     upstream_path VARCHAR(255) COMMENT '出站上游路径（相对路径，拼 app.base_url；仅 OUTBOUND）',
     callback_url  VARCHAR(255) COMMENT '入站回调地址（送达目标 URL；仅 INBOUND，必填）',
     status        VARCHAR(16)  NOT NULL DEFAULT 'DRAFT' COMMENT 'DRAFT/PUBLISHED/OFFLINE；下线后停止路由',
-    version       INT          NOT NULL DEFAULT 1 COMMENT '配置版本（变更生成新版本，见 interface_snapshot）',
+    version       DECIMAL(10,1) NOT NULL DEFAULT 1.0 COMMENT '配置版本（v1.0 起每次配置变更 / 回滚 +0.1，见 interface_snapshot）',
     timeout_ms    INT          NOT NULL DEFAULT 3000 COMMENT '读超时（出站=调上游；入站=回调地址调用）',
     max_retries   INT          NOT NULL DEFAULT 4 COMMENT '短重试最大次数（补偿上限见 outbound_request.max_attempts）',
     `desc`        VARCHAR(500) COMMENT '描述',
@@ -78,7 +78,7 @@ CREATE TABLE interface (
 CREATE TABLE interface_snapshot (
     id           BIGINT       AUTO_INCREMENT PRIMARY KEY,
     interface_id BIGINT       NOT NULL COMMENT '所属接口',
-    version      INT          NOT NULL COMMENT '版本号',
+    version      DECIMAL(10,1) NOT NULL COMMENT '版本号（与 interface.version 同步 +0.1 步进）',
     config_json  LONGTEXT     NOT NULL COMMENT '整接口定义快照（参数/Body/字段映射/响应·ack/适配器绑定）',
     change_note  VARCHAR(255) COMMENT '变更说明',
     created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '快照时间',

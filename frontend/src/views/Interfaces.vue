@@ -480,7 +480,7 @@
     <el-dialog v-model="vh.rollbackVisible" title="回滚确认" width="460px">
       <p style="margin: 0 0 12px; color: #606266">
         将回滚至 <b>v{{ vh.targetVersion }}</b>（当前 v{{ vh.iface?.version }}）——
-        以该版本快照全量替换当前配置并生成新版本（v{{ (vh.iface?.version || 0) + 1 }}），生命周期状态保持不变。
+        以该版本快照全量替换当前配置并生成新版本（v{{ ((vh.iface?.version || 0) + 0.1).toFixed(1) }}），生命周期状态保持不变。
       </p>
       <el-form label-width="72px">
         <el-form-item label="操作人" required>
@@ -853,6 +853,11 @@ async function save() {
   }
   ElMessage.success('保存成功')
   dialog.visible = false
+  // 编辑保存会生成新版本：若详情抽屉正开着且是同一接口，同步刷新其 version，
+  // 避免后续「版本历史」误用旧版本判断当前版本（act/doRollback 同款做法）
+  if (dialog.isEdit && detail.visible && Number(dialog.editId) === detail.row?.id) {
+    detail.row = await http.get(`/interfaces/${dialog.editId}`)
+  }
   load()
 }
 
@@ -927,12 +932,17 @@ const vh = reactive({ visible: false, iface: null, list: [], detail: null,
   rollbackVisible: false, targetVersion: 0, operator: '', reason: '' })
 
 async function openVersionHistory(row) {
-  vh.iface = row
   vh.list = []
   vh.detail = null
   vh.rollbackVisible = false
   vh.visible = true
-  const data = await http.get(`/interfaces/${row.id}/versions`, { params: { page: 1, pageSize: 50 } })
+  // 当前版本必须以最新详情为准：编辑保存后传入的 row（detail.row）可能仍是保存前旧版本，
+  // 直接用作判断会把「最新版本行回滚按钮」误亮（回滚路径因 doRollback 会重拉才正常）
+  const [fresh, data] = await Promise.all([
+    http.get(`/interfaces/${row.id}`),
+    http.get(`/interfaces/${row.id}/versions`, { params: { page: 1, pageSize: 50 } })
+  ])
+  vh.iface = fresh
   vh.list = data.list || []
 }
 
@@ -957,7 +967,7 @@ async function doRollback() {
     targetVersion: vh.targetVersion, operator: vh.operator.trim(), reason: vh.reason.trim() || null,
     currentVersion: vh.iface.version
   })
-  ElMessage.success(`已回滚至 v${vh.targetVersion}（新版本 v${vh.iface.version + 1}）`)
+  ElMessage.success(`已回滚至 v${vh.targetVersion}（新版本 v${(Number(vh.iface.version) + 0.1).toFixed(1)}）`)
   vh.rollbackVisible = false
   vh.visible = false
   // 刷新详情（版本号 / 配置已变）与列表

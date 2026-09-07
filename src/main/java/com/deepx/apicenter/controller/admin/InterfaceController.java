@@ -36,6 +36,7 @@ import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.nio.charset.StandardCharsets;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -237,7 +238,7 @@ public class InterfaceController {
 
     /** 快照详情（config_json 完整可重建） */
     @GetMapping("/{id}/versions/{version}")
-    public ApiResult<InterfaceService.VersionDetail> versionDetail(@PathVariable long id, @PathVariable int version) {
+    public ApiResult<InterfaceService.VersionDetail> versionDetail(@PathVariable long id, @PathVariable BigDecimal version) {
         return ApiResult.ok(interfaceService.versionDetail(id, version));
     }
 

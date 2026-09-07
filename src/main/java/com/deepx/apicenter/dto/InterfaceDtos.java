@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -42,10 +43,10 @@ public final class InterfaceDtos {
      * H2 修复：operator / reason 限长（change_note 列 VARCHAR(255)，拼接后仍须 < 250，防超长直插 500）。
      */
     public record RollbackRequest(
-            @NotNull(message = "目标版本不能为空") Integer targetVersion,
+            @NotNull(message = "目标版本不能为空") BigDecimal targetVersion,
             @Size(max = 100, message = "操作人最多 100 字") String operator,
             @Size(max = 100, message = "回滚依据最多 100 字") String reason,
-            @NotNull(message = "当前版本不能为空（乐观锁）") Integer currentVersion
+            @NotNull(message = "当前版本不能为空（乐观锁）") BigDecimal currentVersion
     ) {
     }
 
@@ -65,19 +66,31 @@ public final class InterfaceDtos {
             Integer timeoutMs,
             Integer maxRetries,
             String desc,
-            @NotNull(message = "版本号不能为空(乐观锁)") Integer version,
+            @NotNull(message = "版本号不能为空(乐观锁)") BigDecimal version,
             List<ParamDto> params,
             List<BodyDto> bodies,
             List<MappingDto> mappings,
             List<FieldDefDto> fieldDefs,
             List<BindingDto> bindings
     ) {
+        /** 兼容构造：历史/测试以整值传版本（如 1）时自动转 BigDecimal */
+        public InterfaceRequest(
+                String code, String name, String ifType, String method, String path,
+                String protocolIn, String protocolOut, String appId, Long groupId,
+                String upstreamPath, String callbackUrl, String status,
+                Integer timeoutMs, Integer maxRetries, String desc, int version,
+                List<ParamDto> params, List<BodyDto> bodies, List<MappingDto> mappings,
+                List<FieldDefDto> fieldDefs, List<BindingDto> bindings) {
+            this(code, name, ifType, method, path, protocolIn, protocolOut, appId, groupId,
+                    upstreamPath, callbackUrl, status, timeoutMs, maxRetries, desc,
+                    BigDecimal.valueOf(version), params, bodies, mappings, fieldDefs, bindings);
+        }
     }
 
     public record InterfaceResponse(
             long id, String code, String name, String ifType, String method, String path,
             String protocolIn, String protocolOut, String appId, Long groupId,
-            String upstreamPath, String callbackUrl, String status, int version,
+            String upstreamPath, String callbackUrl, String status, BigDecimal version,
             int timeoutMs, int maxRetries, String desc,
             LocalDateTime createdAt, LocalDateTime updatedAt,
             String appName, String groupName,

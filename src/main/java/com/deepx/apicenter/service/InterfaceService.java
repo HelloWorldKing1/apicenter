@@ -17,6 +17,7 @@ import com.deepx.apicenter.repository.InboundDeliveryRepository;
 import com.deepx.apicenter.repository.InterfaceRepository;
 import com.deepx.apicenter.repository.OutboundRequestRepository;
 import com.deepx.apicenter.repository.SnapshotRepository;
+import java.math.BigDecimal;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,10 @@ import java.util.Set;
  */
 @Service
 public class InterfaceService {
+
+    /** 接口配置版本步进（v1.0 起，每次配置变更 / 回滚 +0.1） */
+    private static final BigDecimal VERSION_STEP = new BigDecimal("0.1");
+    private static final BigDecimal BASE_VERSION = new BigDecimal("1.0");
 
     private static final Set<String> IF_TYPES = Set.of("OUTBOUND", "INBOUND");
     private static final Set<String> METHODS = Set.of("POST", "GET", "PUT", "DELETE");
@@ -110,9 +115,9 @@ public class InterfaceService {
             throw BizException.fieldInvalid("平台侧路径已存在：" + req.path());
         }
         validateBelong(req);
-        long id = interfaceRepository.insertAndGetId(toRow(req, "DRAFT", 1, 0));
+        long id = interfaceRepository.insertAndGetId(toRow(req, "DRAFT", BASE_VERSION, 0));
         insertChildren(id, req);
-        writeSnapshot(id, null); // M5 D-M5-1：创建 → v1 首快照
+        writeSnapshot(id, null); // M5 D-M5-1：创建 → v1.0 首快照
         return id;
     }
 
@@ -181,20 +186,20 @@ public class InterfaceService {
     }
 
     /** 快照详情（版本历史「查看快照 JSON」） */
-    public VersionDetail versionDetail(long id, int version) {
+    public VersionDetail versionDetail(long id, BigDecimal version) {
         interfaceRepository.findById(id).orElseThrow(() -> BizException.ifaceNotFound(id));
         SnapshotRepository.SnapshotDetail snap = snapshotRepository.find(id, version)
                 .orElseThrow(() -> BizException.snapshotNotFound(id, version));
         return new VersionDetail(snap.version(), snap.changeNote(), snap.createdAt(), snap.configJson());
     }
 
-    public record VersionItem(int version, String changeNote, LocalDateTime createdAt) {
+    public record VersionItem(BigDecimal version, String changeNote, LocalDateTime createdAt) {
     }
 
     public record VersionPage(List<VersionItem> list, long total, int page, int pageSize) {
     }
 
-    public record VersionDetail(int version, String changeNote, LocalDateTime createdAt, String configJson) {
+    public record VersionDetail(BigDecimal version, String changeNote, LocalDateTime createdAt, String configJson) {
     }
 
     @Transactional
@@ -382,7 +387,7 @@ public class InterfaceService {
                 .toList());
     }
 
-    private InterfaceRow toRow(InterfaceRequest req, String status, int version, long id) {
+    private InterfaceRow toRow(InterfaceRequest req, String status, BigDecimal version, long id) {
         String pin = req.protocolIn() == null || req.protocolIn().isBlank() ? "JSON" : req.protocolIn();
         String pout = req.protocolOut() == null || req.protocolOut().isBlank() ? "JSON" : req.protocolOut();
         return new InterfaceRow(

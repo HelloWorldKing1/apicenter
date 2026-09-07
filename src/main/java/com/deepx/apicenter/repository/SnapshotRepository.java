@@ -4,6 +4,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -23,29 +24,29 @@ public class SnapshotRepository {
     }
 
     /** 版本列表行（倒序分页展示，不含 config_json——详情单独查） */
-    public record SnapshotItem(long id, long interfaceId, int version, String changeNote, LocalDateTime createdAt) {
+    public record SnapshotItem(long id, long interfaceId, BigDecimal version, String changeNote, LocalDateTime createdAt) {
         public static final RowMapper<SnapshotItem> MAPPER = (rs, i) -> new SnapshotItem(
-                rs.getLong("id"), rs.getLong("interface_id"), rs.getInt("version"),
+                rs.getLong("id"), rs.getLong("interface_id"), rs.getBigDecimal("version"),
                 rs.getString("change_note"), rs.getTimestamp("created_at").toLocalDateTime());
     }
 
     /** 快照详情（回滚来源：含 config_json） */
-    public record SnapshotDetail(long id, long interfaceId, int version,
+    public record SnapshotDetail(long id, long interfaceId, BigDecimal version,
                                  String configJson, String changeNote, LocalDateTime createdAt) {
         public static final RowMapper<SnapshotDetail> MAPPER = (rs, i) -> new SnapshotDetail(
-                rs.getLong("id"), rs.getLong("interface_id"), rs.getInt("version"),
+                rs.getLong("id"), rs.getLong("interface_id"), rs.getBigDecimal("version"),
                 rs.getString("config_json"), rs.getString("change_note"),
                 rs.getTimestamp("created_at").toLocalDateTime());
     }
 
-    public void insert(long interfaceId, int version, String configJson, String changeNote) {
+    public void insert(long interfaceId, BigDecimal version, String configJson, String changeNote) {
         jdbc.update("""
                 INSERT INTO interface_snapshot (interface_id, version, config_json, change_note)
                 VALUES (?, ?, ?, ?)
                 """, interfaceId, version, configJson, changeNote);
     }
 
-    public Optional<SnapshotDetail> find(long interfaceId, int version) {
+    public Optional<SnapshotDetail> find(long interfaceId, BigDecimal version) {
         return jdbc.query("SELECT * FROM interface_snapshot WHERE interface_id = ? AND version = ?",
                 SnapshotDetail.MAPPER, interfaceId, version).stream().findFirst();
     }
@@ -63,9 +64,9 @@ public class SnapshotRepository {
         return n == null ? 0 : n;
     }
 
-    public Optional<Integer> maxVersion(long interfaceId) {
+    public Optional<BigDecimal> maxVersion(long interfaceId) {
         return jdbc.query("SELECT MAX(version) FROM interface_snapshot WHERE interface_id = ?",
-                        (rs, i) -> rs.getInt(1), interfaceId)
+                        (rs, i) -> rs.getBigDecimal(1), interfaceId)
                 .stream().findFirst();
     }
 }

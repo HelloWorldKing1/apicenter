@@ -133,7 +133,7 @@ public class InterfaceRepository {
         return jdbc.update("""
                 UPDATE interface SET code = ?, name = ?, if_type = ?, method = ?, path = ?,
                        protocol_in = ?, protocol_out = ?, app_id = ?, group_id = ?,
-                       upstream_path = ?, callback_url = ?, status = ?, version = version + 1,
+                       upstream_path = ?, callback_url = ?, status = ?, version = version + 0.1,
                        timeout_ms = ?, max_retries = ?, `desc` = ?
                 WHERE id = ? AND version = ?
                 """,

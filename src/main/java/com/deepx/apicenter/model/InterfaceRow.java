@@ -2,6 +2,7 @@ package com.deepx.apicenter.model;
 
 import org.springframework.jdbc.core.RowMapper;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -11,11 +12,24 @@ import java.time.LocalDateTime;
 public record InterfaceRow(
         long id, String code, String name, String ifType, String method, String path,
         String protocolIn, String protocolOut, String appId, long groupId,
-        String upstreamPath, String callbackUrl, String status, int version,
+        String upstreamPath, String callbackUrl, String status, BigDecimal version,
         int timeoutMs, int maxRetries, String desc,
         LocalDateTime createdAt, LocalDateTime updatedAt,
         String appName, String groupName
 ) {
+
+    /** 便捷构造：整值版本（历史/测试直构）转 BigDecimal（v{n}.0） */
+    public InterfaceRow(
+            long id, String code, String name, String ifType, String method, String path,
+            String protocolIn, String protocolOut, String appId, Long groupId,
+            String upstreamPath, String callbackUrl, String status, int version,
+            int timeoutMs, int maxRetries, String desc,
+            LocalDateTime createdAt, LocalDateTime updatedAt,
+            String appName, String groupName) {
+        this(id, code, name, ifType, method, path, protocolIn, protocolOut, appId, groupId,
+                upstreamPath, callbackUrl, status, BigDecimal.valueOf(version),
+                timeoutMs, maxRetries, desc, createdAt, updatedAt, appName, groupName);
+    }
 
     public static final RowMapper<InterfaceRow> MAPPER = (rs, i) -> new InterfaceRow(
             rs.getLong("id"),
@@ -31,7 +45,7 @@ public record InterfaceRow(
             rs.getString("upstream_path"),
             rs.getString("callback_url"),
             rs.getString("status"),
-            rs.getInt("version"),
+            rs.getBigDecimal("version"),
             rs.getInt("timeout_ms"),
             rs.getInt("max_retries"),
             rs.getString("desc"),

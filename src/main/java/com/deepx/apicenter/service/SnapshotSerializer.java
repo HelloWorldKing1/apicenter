@@ -13,6 +13,7 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -107,7 +108,7 @@ public class SnapshotSerializer {
     // ---------- 反序列化：config_json → InterfaceRequest（回滚走既有全量替换路径） ----------
 
     /** 回滚专用：version 由调用方（乐观锁 currentVersion）传入；status 快照不含，由 update 保留当前值 */
-    public InterfaceRequest toRequest(String configJson, Integer version) {
+    public InterfaceRequest toRequest(String configJson, BigDecimal version) {
         JsonNode root;
         try {
             root = objectMapper.readTree(configJson);
