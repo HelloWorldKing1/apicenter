@@ -12,17 +12,14 @@ import com.deepx.apicenter.repository.CallLogRepository;
 import com.deepx.apicenter.repository.DeadLetterRepository;
 import com.deepx.apicenter.repository.OutboundRequestRepository;
 import com.deepx.apicenter.service.MonitorService;
+import com.deepx.apicenter.service.MonitorService.OutboundDetail;
+import com.deepx.apicenter.service.MonitorService.TopInterface;
+import com.deepx.apicenter.service.MonitorService.Trend;
 import jakarta.validation.Valid;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
@@ -70,13 +67,77 @@ public class MonitorController {
     public ApiResult<PagedResponse<CallLogRepository.CallLogView>> callLogs(
             @RequestParam(required = false) String traceId,
             @RequestParam(required = false) Long interfaceId,
+            @RequestParam(required = false) String direction,
+            @RequestParam(required = false) String appId,
+            @RequestParam(required = false) String statusGroup,
+            @RequestParam(required = false) Integer statusCode,
+            @RequestParam(required = false) String timeFrom,
+            @RequestParam(required = false) String timeTo,
+            @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize) {
         int size = clampSize(pageSize);
         int offset = offset(page, size);
+        // HTTP 码区间：statusCode 精确优先，否则 statusGroup（2xx/4xx/5xx）
+        Integer min = null, max = null;
+        if (statusCode != null) {
+            min = statusCode;
+            max = statusCode + 1;
+        } else if (statusGroup != null && !statusGroup.isBlank()) {
+            switch (statusGroup) {
+                case "2xx" -> { min = 200; max = 300; }
+                case "4xx" -> { min = 400; max = 500; }
+                case "5xx" -> { min = 500; max = 600; }
+                default -> throw com.deepx.apicenter.exception.BizException.fieldInvalid(
+                        "statusGroup 仅支持 2xx/4xx/5xx");
+            }
+        }
         return ApiResult.ok(PagedResponse.of(
-                callLogRepository.findPaged(traceId, interfaceId, offset, size),
-                callLogRepository.count(traceId, interfaceId), page, size));
+                callLogRepository.findPaged(traceId, interfaceId, direction, appId, min, max,
+                        parseTime(timeFrom), parseTime(timeTo), keyword, offset, size),
+                callLogRepository.count(traceId, interfaceId, direction, appId, min, max,
+                        parseTime(timeFrom), parseTime(timeTo), keyword),
+                page, size));
+    }
+
+    /** 时间参数解析：ISO 本地时间（yyyy-MM-ddTHH:mm:ss）或带空格的日期时间 */
+    private static LocalDateTime parseTime(String s) {
+        if (s == null || s.isBlank()) {
+            return null;
+        }
+        String v = s.trim();
+        try {
+            return LocalDateTime.parse(v);
+        } catch (Exception e) {
+            try {
+                return LocalDateTime.parse(v, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            } catch (Exception e2) {
+                throw com.deepx.apicenter.exception.BizException.fieldInvalid("时间参数格式非法：" + v);
+            }
+        }
+    }
+
+    // ---------- 统计增强（仪表盘 / 监控 v0.2） ----------
+
+    /** 趋势（1h/24h/7d 分桶；仪表盘与监控总览共用，60s 缓存） */
+    @GetMapping("/stats/trend")
+    public ApiResult<Trend> trend(@RequestParam(defaultValue = "24h") String range,
+                                  @RequestParam(required = false) String appId) {
+        return ApiResult.ok(monitorService.trend(range, appId));
+    }
+
+    /** TOP 接口（窗口内调用量降序截取；列含终态成败与延迟分位） */
+    @GetMapping("/stats/top-interfaces")
+    public ApiResult<List<TopInterface>> topInterfaces(
+            @RequestParam(defaultValue = "24h") String range,
+            @RequestParam(defaultValue = "8") int limit) {
+        return ApiResult.ok(monitorService.topInterfaces(range, limit));
+    }
+
+    /** 出站记录详情（状态机 Tab：payload 预览 + 对账审计时间线） */
+    @GetMapping("/outbound-requests/{id}")
+    public ApiResult<OutboundDetail> outboundDetail(@PathVariable long id) {
+        return ApiResult.ok(monitorService.outboundDetail(id));
     }
 
     // ---------- UNKNOWN 对账（D-M4-2） ----------
@@ -109,7 +170,6 @@ public class MonitorController {
     }
 
     // ---------- 死信（D-M4-3） ----------
-
     @GetMapping("/dead-letters")
     public ApiResult<PagedResponse<DeadLetterRepository.DeadLetterView>> deadLetters(
             @RequestParam(required = false) String bizType,

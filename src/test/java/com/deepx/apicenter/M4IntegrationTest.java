@@ -558,7 +558,7 @@ class M4IntegrationTest {
     /** 轮询异步 call_log（批量写 1s flush；上限 8s） */
     private List<CallLogRepository.CallLogView> awaitCallLogs(String traceId, int expected) {
         long deadline = System.currentTimeMillis() + 8000;
-        List<CallLogRepository.CallLogView> entries = callLogRepository.findPaged(traceId, null, 0, 50);
+        List<CallLogRepository.CallLogView> entries = callLogRepository.findPaged(traceId, null, null, null, null, null, null, null, null, 0, 50);
         while (entries.size() < expected && System.currentTimeMillis() < deadline) {
             try {
                 Thread.sleep(300);
@@ -566,7 +566,7 @@ class M4IntegrationTest {
                 Thread.currentThread().interrupt();
                 break;
             }
-            entries = callLogRepository.findPaged(traceId, null, 0, 50);
+            entries = callLogRepository.findPaged(traceId, null, null, null, null, null, null, null, null, 0, 50);
         }
         return entries;
     }

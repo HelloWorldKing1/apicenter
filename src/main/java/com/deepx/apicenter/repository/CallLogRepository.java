@@ -4,9 +4,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.sql.PreparedStatement;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * call_log 数据访问（第 14 张表，M4 落地运行时语义）：异步批量写入 + 监控页查询 + 统计。
@@ -70,27 +74,33 @@ public class CallLogRepository {
         });
     }
 
-    /** 分页过滤（监控页调用日志，traceId / interfaceId 可空；倒序） */
-    public List<CallLogView> findPaged(String traceId, Long interfaceId, int offset, int limit) {
+    /** 分页过滤（监控页调用日志，全部条件可空；id 倒序）。Monitor 升级（v0.2）：direction / appId / HTTP 码区间 / 时间窗 / url 子串 */
+    public List<CallLogView> findPaged(String traceId, Long interfaceId, String direction, String appId,
+                                       Integer statusMin, Integer statusMax,
+                                       LocalDateTime timeFrom, LocalDateTime timeTo, String keyword,
+                                       int offset, int limit) {
         StringBuilder sql = new StringBuilder("SELECT * FROM call_log WHERE 1=1");
         List<Object> args = new ArrayList<>();
-        if (traceId != null && !traceId.isBlank()) {
-            sql.append(" AND trace_id = ?");
-            args.add(traceId);
-        }
-        if (interfaceId != null && interfaceId > 0) {
-            sql.append(" AND interface_id = ?");
-            args.add(interfaceId);
-        }
+        appendFilters(sql, args, traceId, interfaceId, direction, appId, statusMin, statusMax, timeFrom, timeTo, keyword);
         sql.append(" ORDER BY id DESC LIMIT ").append(Math.max(1, limit))
                 .append(" OFFSET ").append(Math.max(0, offset));
         return jdbc.queryForList(sql.toString(), args.toArray()).stream()
                 .map(CallLogRepository::toView).toList();
     }
 
-    public long count(String traceId, Long interfaceId) {
+    public long count(String traceId, Long interfaceId, String direction, String appId,
+                      Integer statusMin, Integer statusMax,
+                      LocalDateTime timeFrom, LocalDateTime timeTo, String keyword) {
         StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM call_log WHERE 1=1");
         List<Object> args = new ArrayList<>();
+        appendFilters(sql, args, traceId, interfaceId, direction, appId, statusMin, statusMax, timeFrom, timeTo, keyword);
+        Long n = jdbc.queryForObject(sql.toString(), Long.class, args.toArray());
+        return n == null ? 0 : n;
+    }
+
+    private static void appendFilters(StringBuilder sql, List<Object> args, String traceId, Long interfaceId,
+                                      String direction, String appId, Integer statusMin, Integer statusMax,
+                                      LocalDateTime timeFrom, LocalDateTime timeTo, String keyword) {
         if (traceId != null && !traceId.isBlank()) {
             sql.append(" AND trace_id = ?");
             args.add(traceId);
@@ -99,8 +109,101 @@ public class CallLogRepository {
             sql.append(" AND interface_id = ?");
             args.add(interfaceId);
         }
-        Long n = jdbc.queryForObject(sql.toString(), Long.class, args.toArray());
-        return n == null ? 0 : n;
+        if (direction != null && !direction.isBlank()) {
+            sql.append(" AND direction = ?");
+            args.add(direction);
+        }
+        if (appId != null && !appId.isBlank()) {
+            sql.append(" AND app_id = ?");
+            args.add(appId);
+        }
+        if (statusMin != null) {
+            sql.append(" AND status_code >= ?");
+            args.add(statusMin);
+        }
+        if (statusMax != null) {
+            sql.append(" AND status_code < ?");
+            args.add(statusMax);
+        }
+        if (timeFrom != null) {
+            sql.append(" AND created_at >= ?");
+            args.add(Timestamp.valueOf(timeFrom));
+        }
+        if (timeTo != null) {
+            sql.append(" AND created_at < ?");
+            args.add(Timestamp.valueOf(timeTo));
+        }
+        if (keyword != null && !keyword.isBlank()) {
+            sql.append(" AND url LIKE ?");
+            args.add("%" + keyword.trim() + "%");
+        }
+    }
+
+    /** 某方向在时间窗内按「真实分钟桶」计数（仪表盘趋势：IN/OUT 调用量；空窗返回空 Map） */
+    public Map<Long, Long> countByMinute(String direction, String appId,
+                                         LocalDateTime from, LocalDateTime to) {
+        StringBuilder sql = new StringBuilder("""
+                SELECT UNIX_TIMESTAMP(created_at) DIV 60 AS b, COUNT(*) AS c
+                FROM call_log WHERE direction = ? AND created_at >= ? AND created_at < ?""");
+        List<Object> args = new ArrayList<>(List.of(direction, Timestamp.valueOf(from), Timestamp.valueOf(to)));
+        if (appId != null && !appId.isBlank()) {
+            sql.append(" AND app_id = ?");
+            args.add(appId);
+        }
+        sql.append(" GROUP BY b");
+        return jdbc.queryForList(sql.toString(), args.toArray()).stream().collect(Collectors.toMap(
+                r -> ((Number) r.get("b")).longValue(),
+                r -> ((Number) r.get("c")).longValue(),
+                (a, b) -> a, LinkedHashMap::new));
+    }
+
+    /** 出站调用延迟行（OUT，按窗口内最新 N 条近似；供延迟趋势与 TOP 接口 P50/P99） */
+    public List<OutLatencyRow> outLatencies(LocalDateTime from, LocalDateTime to, int limit) {
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+                SELECT interface_id, UNIX_TIMESTAMP(created_at) DIV 60 AS b, latency_ms
+                FROM call_log
+                WHERE direction = 'OUT' AND latency_ms IS NOT NULL
+                  AND created_at >= ? AND created_at < ?
+                ORDER BY id DESC LIMIT ?
+                """, Timestamp.valueOf(from), Timestamp.valueOf(to), Math.max(1, limit));
+        List<OutLatencyRow> out = new ArrayList<>(rows.size());
+        for (Map<String, Object> r : rows) {
+            out.add(new OutLatencyRow(
+                    r.get("interface_id") == null ? null : ((Number) r.get("interface_id")).longValue(),
+                    ((Number) r.get("b")).longValue(),
+                    ((Number) r.get("latency_ms")).longValue()));
+        }
+        return out;
+    }
+
+    /** 出站（方向 OUT）调用量按接口在窗口内计数（TOP 接口） */
+    public Map<Long, Long> countOutByInterface(LocalDateTime from, LocalDateTime to) {
+        return jdbc.queryForList("""
+                SELECT interface_id, COUNT(*) AS c FROM call_log
+                WHERE direction = 'OUT' AND interface_id IS NOT NULL
+                  AND created_at >= ? AND created_at < ?
+                GROUP BY interface_id
+                """, Timestamp.valueOf(from), Timestamp.valueOf(to)).stream().collect(Collectors.toMap(
+                r -> ((Number) r.get("interface_id")).longValue(),
+                r -> ((Number) r.get("c")).longValue(),
+                (a, b) -> a, LinkedHashMap::new));
+    }
+
+    /** 网关入口（IN）调用量按接口在窗口内计数（TOP 接口） */
+    public Map<Long, Long> countInByInterface(LocalDateTime from, LocalDateTime to) {
+        return jdbc.queryForList("""
+                SELECT interface_id, COUNT(*) AS c FROM call_log
+                WHERE direction = 'IN' AND interface_id IS NOT NULL
+                  AND created_at >= ? AND created_at < ?
+                GROUP BY interface_id
+                """, Timestamp.valueOf(from), Timestamp.valueOf(to)).stream().collect(Collectors.toMap(
+                r -> ((Number) r.get("interface_id")).longValue(),
+                r -> ((Number) r.get("c")).longValue(),
+                (a, b) -> a, LinkedHashMap::new));
+    }
+
+    /** 出站延迟行（接口 + 真实分钟桶 + 延迟，延迟趋势/TOP 共用） */
+    public record OutLatencyRow(Long interfaceId, long bucketMinute, long latencyMs) {
     }
 
     /** 今日网关入口流量（监控统计卡「今日调用量」，direction=IN） */

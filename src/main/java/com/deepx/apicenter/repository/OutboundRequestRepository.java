@@ -8,9 +8,13 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.PreparedStatement;
 import java.sql.Statement;
+import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * outbound_request 运行表数据访问（Flow A 状态机载体）+ 死信写入（dead_letter 表）。
@@ -203,6 +207,44 @@ public class OutboundRequestRepository {
         }
         long success = result.get("successCount") == null ? 0 : ((Number) result.get("successCount")).longValue();
         return (double) success * 100 / total;
+    }
+
+    /** 出站终态按分钟桶计数（仪表盘趋势 FAIL/成功：SUCCESS / DEAD_LETTER / UNKNOWN，走 idx_outreq_updated） */
+    public Map<Long, Map<String, Long>> terminalCountsByMinute(LocalDateTime from, LocalDateTime to) {
+        return jdbc.queryForList("""
+                SELECT UNIX_TIMESTAMP(updated_at) DIV 60 AS b, status, COUNT(*) AS c
+                FROM outbound_request
+                WHERE status IN ('SUCCESS', 'DEAD_LETTER', 'UNKNOWN')
+                  AND updated_at >= ? AND updated_at < ?
+                GROUP BY b, status
+                """, Timestamp.valueOf(from), Timestamp.valueOf(to)).stream().collect(Collectors.toMap(
+                r -> ((Number) r.get("b")).longValue(),
+                r -> Map.of((String) r.get("status"), ((Number) r.get("c")).longValue()),
+                (m1, m2) -> {
+                    LinkedHashMap<String, Long> merged = new LinkedHashMap<>(m1);
+                    m2.forEach((k, v) -> merged.merge(k, v, Long::sum));
+                    return merged;
+                },
+                LinkedHashMap::new));
+    }
+
+    /** 出站终态按接口计数（TOP 接口成功率/失败数，同口径） */
+    public Map<Long, Map<String, Long>> terminalCountsByInterface(LocalDateTime from, LocalDateTime to) {
+        return jdbc.queryForList("""
+                SELECT interface_id, status, COUNT(*) AS c
+                FROM outbound_request
+                WHERE status IN ('SUCCESS', 'DEAD_LETTER', 'UNKNOWN')
+                  AND updated_at >= ? AND updated_at < ?
+                GROUP BY interface_id, status
+                """, Timestamp.valueOf(from), Timestamp.valueOf(to)).stream().collect(Collectors.toMap(
+                r -> ((Number) r.get("interface_id")).longValue(),
+                r -> Map.of((String) r.get("status"), ((Number) r.get("c")).longValue()),
+                (m1, m2) -> {
+                    LinkedHashMap<String, Long> merged = new LinkedHashMap<>(m1);
+                    m2.forEach((k, v) -> merged.merge(k, v, Long::sum));
+                    return merged;
+                },
+                LinkedHashMap::new));
     }
 
     /** 清空 error_code（对账收敛 SUCCESS 时显式清空——updateState 的 COALESCE(null) 不覆盖旧值） */

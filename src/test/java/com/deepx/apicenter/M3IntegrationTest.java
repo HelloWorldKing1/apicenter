@@ -59,7 +59,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * M3 集成测试（M3 计划 §4）：入站回调 B1-B6 + 四场景出站 X1-X3 + 模拟回调端点，WireMock 扮演供应商与回调地址。
  * 经真实网关 HTTP 路径（RANDOM_PORT）——验签失败 401、裸 ack 出口、统一信封等接入层行为一并覆盖。
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
+        "app.api-center.retry-worker-fixed-delay-ms=3600000",
+        "app.api-center.alert-worker-fixed-delay-ms=3600000"
+})
 class M3IntegrationTest {
 
     private static final String TEST_APP = "M3-TEST-APP";

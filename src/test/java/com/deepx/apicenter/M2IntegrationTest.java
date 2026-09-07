@@ -53,7 +53,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * WireMock 模拟上游供应商；真实 fastmoss 联调在 M2 后按开发计划「联调验收」执行。
  * 覆盖：链执行（Bearer 鉴权 + JSON 解码 + 信封适配）+ 出站状态机全分支。
  */
-@SpringBootTest
+@SpringBootTest(properties = {
+        "app.api-center.retry-worker-fixed-delay-ms=3600000",
+        "app.api-center.alert-worker-fixed-delay-ms=3600000"
+})
 class M2IntegrationTest {
 
     private static final String TEST_APP = "M2-TEST-APP";

@@ -6,6 +6,7 @@ import com.deepx.apicenter.repository.AlertEventRepository;
 import com.deepx.apicenter.repository.CallLogRepository;
 import com.deepx.apicenter.repository.DeadLetterRepository;
 import com.deepx.apicenter.repository.InboundDeliveryRepository;
+import com.deepx.apicenter.repository.InterfaceRepository;
 import com.deepx.apicenter.repository.OutboundRequestRepository;
 import com.deepx.apicenter.repository.ReconcileAuditRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,10 +40,11 @@ class MonitorServiceTest {
     private final DeadLetterRepository deadLetterRepository = mock(DeadLetterRepository.class);
     private final AlertEventRepository alertEventRepository = mock(AlertEventRepository.class);
     private final CallLogRepository callLogRepository = mock(CallLogRepository.class);
+    private final InterfaceRepository interfaceRepository = mock(InterfaceRepository.class);
 
     private final MonitorService service = new MonitorService(outboundRequestRepository,
             inboundDeliveryRepository, reconcileAuditRepository, deadLetterRepository,
-            alertEventRepository, callLogRepository);
+            alertEventRepository, callLogRepository, interfaceRepository);
 
     private OutboundRequestRow unknownRow(long id) {
         return new OutboundRequestRow(id, 7L, "APP", "BIZ-1", "{}", null, null,

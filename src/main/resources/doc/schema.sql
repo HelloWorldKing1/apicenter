@@ -317,3 +317,9 @@ ALTER TABLE outbound_request ADD KEY idx_outreq_updated (updated_at);
 -- ALTER TABLE app_credential ADD UNIQUE KEY uk_credential_live
 --   ((app_id), (kind), (IF(status IN ('ACTIVE','ROTATING'), status, NULL)));
 -- ============================================================
+
+-- ============================================================
+-- M5 后观测增强（2026-09-07，仪表盘/监控 v0.2）：仪表盘趋势与监控日志过滤
+-- 按 (app_id, created_at) 组合过滤 / 分组聚合；已应用到开发库（PolarDB 8.0 兼容）。
+-- ALTER TABLE call_log ADD KEY idx_call_app_time (app_id, created_at);
+-- ============================================================

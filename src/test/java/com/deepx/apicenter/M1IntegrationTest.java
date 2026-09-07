@@ -42,7 +42,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * 生命周期状态机、类型互斥、凭证加密/遮显/轮换、分组归属与删除规则。
  * 注意：@SpringBootTest 启动会触发 SeedDataInitializer（幂等，库中无 fastmoss 时导入）。
  */
-@SpringBootTest
+@SpringBootTest(properties = {
+        "app.api-center.retry-worker-fixed-delay-ms=3600000",
+        "app.api-center.alert-worker-fixed-delay-ms=3600000"
+})
 class M1IntegrationTest {
 
     private static final String TEST_APP = "TEST-M1-APP";
