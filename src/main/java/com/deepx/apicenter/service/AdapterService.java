@@ -1,5 +1,6 @@
 package com.deepx.apicenter.service;
 
+import com.deepx.apicenter.config.ConfigChangedEvent;
 import com.deepx.apicenter.dto.AdapterDtos.AdapterRequest;
 import com.deepx.apicenter.dto.AdapterDtos.AdapterResponse;
 import com.deepx.apicenter.dto.AdapterDtos.ImplField;
@@ -11,6 +12,7 @@ import com.deepx.apicenter.repository.AppRepository;
 import com.deepx.apicenter.repository.InterfaceRepository;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,7 +20,8 @@ import java.util.List;
 
 /**
  * 适配器管理（M1 注册表骨架）：CRUD + params 按 impl 元数据 schema 校验。
- * 约束（M0-01 D6）：同一 impl 至多 1 条 enabled=1；凭证类参数不落 params（统一走应用凭证管理）。
+ * 约束（M0-01 D6，M5 灰度放宽）：同 (impl, version) 至多 1 条 enabled=1——同 impl 多版本灰度共存；
+ * 凭证类参数不落 params（统一走应用凭证管理）。变更发布 ADAPTER 事件 → 链缓存全清（D-M5-2）。
  * 删除策略（schema.sql）：app 三列与 binding.adapter_id 引用置 NULL（回退「无鉴权 / 平台默认」）。
  */
 @Service
@@ -29,17 +32,20 @@ public class AdapterService {
     private final InterfaceRepository interfaceRepository;
     private final AdapterImplCatalog catalog;
     private final ObjectMapper objectMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     public AdapterService(AdapterRepository adapterRepository,
                           AppRepository appRepository,
                           InterfaceRepository interfaceRepository,
                           AdapterImplCatalog catalog,
-                          ObjectMapper objectMapper) {
+                          ObjectMapper objectMapper,
+                          ApplicationEventPublisher eventPublisher) {
         this.adapterRepository = adapterRepository;
         this.appRepository = appRepository;
         this.interfaceRepository = interfaceRepository;
         this.catalog = catalog;
         this.objectMapper = objectMapper;
+        this.eventPublisher = eventPublisher;
     }
 
     public List<AdapterResponse> list(String type) {
@@ -61,6 +67,7 @@ public class AdapterService {
         }
         validate(req, null);
         adapterRepository.insert(toRow(req));
+        eventPublisher.publishEvent(ConfigChangedEvent.adapterChanged());
     }
 
     @Transactional
@@ -68,15 +75,17 @@ public class AdapterService {
         adapterRepository.findById(id).orElseThrow(() -> BizException.fieldInvalid("适配器不存在：" + id));
         validate(req, id);
         adapterRepository.update(toRow(req));
+        eventPublisher.publishEvent(ConfigChangedEvent.adapterChanged());
     }
 
     @Transactional
     public void enable(String id, boolean enabled) {
         AdapterRow row = adapterRepository.findById(id).orElseThrow(() -> BizException.fieldInvalid("适配器不存在：" + id));
-        if (enabled && adapterRepository.countEnabledByImpl(row.impl(), id) > 0) {
-            throw BizException.fieldInvalid("同一实现类至多 1 条启用记录（M0-01 D6），请先停用同 impl 的其他适配器");
+        if (enabled && adapterRepository.countEnabledByImplVersion(row.impl(), row.version(), id) > 0) {
+            throw BizException.fieldInvalid("同 (impl, version) 至多 1 条启用记录（M0-01 D6，M5 灰度放宽为版本维度），请先停用同版本的其他适配器");
         }
         adapterRepository.updateEnabled(id, enabled);
+        eventPublisher.publishEvent(ConfigChangedEvent.adapterChanged());
     }
 
     @Transactional
@@ -86,6 +95,7 @@ public class AdapterService {
         appRepository.clearAdapterRefs(id);
         interfaceRepository.clearBindingRefs(id);
         adapterRepository.delete(id);
+        eventPublisher.publishEvent(ConfigChangedEvent.adapterChanged());
     }
 
     // ---------- 私有 ----------
@@ -97,10 +107,11 @@ public class AdapterService {
             throw BizException.fieldInvalid("适配器类型不匹配：" + req.impl() + " 属于 " + meta.type());
         }
         // D6「同 impl 至多 1 条 enabled」双路径校验：enabled 为空按默认 true（toRow 同语义），
-        // create 与 update（排除自身）均须校验（中危 #4 修复）
+        // create 与 update（排除自身）均须校验（中危 #4 修复）；D6 按 (impl, version) 维度（M5 灰度放宽）
         boolean enabled = req.enabled() == null || req.enabled();
-        if (enabled && adapterRepository.countEnabledByImpl(req.impl(), excludeId == null ? "" : excludeId) > 0) {
-            throw BizException.fieldInvalid("同一实现类至多 1 条启用记录（M0-01 D6），请先停用同 impl 的其他适配器");
+        String version = req.version() == null || req.version().isBlank() ? "1.0" : req.version();
+        if (enabled && adapterRepository.countEnabledByImplVersion(req.impl(), version, excludeId == null ? "" : excludeId) > 0) {
+            throw BizException.fieldInvalid("同 (impl, version) 至多 1 条启用记录（M0-01 D6，M5 灰度放宽为版本维度），请先停用同版本的其他适配器");
         }
         // params 按 impl schema 校验并归一化
         JsonNode node;

@@ -36,6 +36,15 @@ public final class InterfaceDtos {
     public record BindingDto(String role, String adapterId, String version) {
     }
 
+    /** 回滚请求（M5 D-M5-1）：targetVersion 目标快照、currentVersion 乐观锁、operator / reason 审计拼入 change_note */
+    public record RollbackRequest(
+            @NotNull(message = "目标版本不能为空") Integer targetVersion,
+            String operator,
+            String reason,
+            @NotNull(message = "当前版本不能为空（乐观锁）") Integer currentVersion
+    ) {
+    }
+
     public record InterfaceRequest(
             @NotBlank(message = "接口标识不能为空") String code,
             @NotBlank(message = "接口名称不能为空") String name,

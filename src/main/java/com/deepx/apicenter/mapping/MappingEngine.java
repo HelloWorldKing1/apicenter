@@ -40,6 +40,13 @@ public class MappingEngine {
         return ctx;
     }
 
+    /** 链上固定步骤（MAPPING 阶段，M5 烘焙版）：规则由调用方（链装配时）一次载入，不再每请求查库 */
+    public AdapterContext apply(AdapterContext ctx, List<InterfaceRow.MappingRow> rules) {
+        UnifiedModel result = apply(ctx.payload(), rules);
+        ctx.payload().root(result.root());
+        return ctx;
+    }
+
     /** 核心执行：入站模型 + 规则 → 出站模型（空规则 = 透传，非空 = 白名单） */
     public UnifiedModel apply(UnifiedModel inbound, List<InterfaceRow.MappingRow> rules) {
         if (rules == null || rules.isEmpty()) {

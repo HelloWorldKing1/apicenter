@@ -306,3 +306,14 @@ ALTER TABLE outbound_request ADD KEY idx_outreq_updated (updated_at);
 --   · 删接口       → call_log.interface_id 置 NULL（日志保留，可观测数据不丢）
 --   · dead_letter.ref_id 为多态引用（指向 outbound_request.id 或 inbound_delivery.id），不约束
 -- ============================================================
+
+-- ============================================================
+-- M5 生产加固（D-M5-3，无新表 / 无新列）：
+--   凭证库级唯一约束「同 (app_id, kind) 至多一条 ACTIVE + 一条 ROTATING」
+--   （RETIRED 可多行，应用层 synchronized 兜底已存在，见 M2 评审 N2）
+--   实现：MySQL 8.0.13+ / PolarDB MySQL 8.0 函数唯一索引。
+--   ⚠ 实施前先验证 PolarDB 兼容性：不兼容则跳过并保持应用层保证 + 文档明示
+--   （M5 手动验收阶段三含验证步骤）；MySQL 5.7 无函数索引不支持。
+-- ALTER TABLE app_credential ADD UNIQUE KEY uk_credential_live
+--   ((app_id), (kind), (IF(status IN ('ACTIVE','ROTATING'), status, NULL)));
+-- ============================================================

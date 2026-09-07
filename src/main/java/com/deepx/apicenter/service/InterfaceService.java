@@ -1,5 +1,6 @@
 package com.deepx.apicenter.service;
 
+import com.deepx.apicenter.config.ConfigChangedEvent;
 import com.deepx.apicenter.dto.InterfaceDtos.BodyDto;
 import com.deepx.apicenter.dto.InterfaceDtos.BindingDto;
 import com.deepx.apicenter.dto.InterfaceDtos.FieldDefDto;
@@ -7,6 +8,7 @@ import com.deepx.apicenter.dto.InterfaceDtos.InterfaceRequest;
 import com.deepx.apicenter.dto.InterfaceDtos.InterfaceResponse;
 import com.deepx.apicenter.dto.InterfaceDtos.MappingDto;
 import com.deepx.apicenter.dto.InterfaceDtos.ParamDto;
+import com.deepx.apicenter.dto.InterfaceDtos.RollbackRequest;
 import com.deepx.apicenter.exception.BizException;
 import com.deepx.apicenter.model.InterfaceRow;
 import com.deepx.apicenter.repository.AppRepository;
@@ -14,16 +16,22 @@ import com.deepx.apicenter.repository.GroupRepository;
 import com.deepx.apicenter.repository.InboundDeliveryRepository;
 import com.deepx.apicenter.repository.InterfaceRepository;
 import com.deepx.apicenter.repository.OutboundRequestRepository;
+import com.deepx.apicenter.repository.SnapshotRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 
 /**
  * 接口管理：完整定义模型落库（主表 + 5 子表，单事务）。
  * 类型互斥校验矩阵（M1 设计 §2.5）+ 全量替换更新 + version 乐观锁（M1 评审确认点 5）。
+ * M5 D-M5-1：版本快照——创建写 v1；每次成功配置更新 version+1 并写快照（change_note 取请求头）；
+ * status 流转（发布 / 下线）不生成版本；回滚复用既有全量替换路径（版本号只增）。
+ * M5 D-M5-2：配置变更发布 ConfigChangedEvent（INTERFACE）→ 链缓存事件失效。
  */
 @Service
 public class InterfaceService {
@@ -41,6 +49,9 @@ public class InterfaceService {
     private final OutboundRequestRepository outboundRequestRepository;
     private final InboundDeliveryRepository inboundDeliveryRepository;
     private final CallbackUrlValidator callbackUrlValidator;
+    private final SnapshotRepository snapshotRepository;
+    private final SnapshotSerializer snapshotSerializer;
+    private final ApplicationEventPublisher eventPublisher;
     private final JdbcTemplate jdbcTemplate;
 
     public InterfaceService(InterfaceRepository interfaceRepository,
@@ -49,6 +60,9 @@ public class InterfaceService {
                             OutboundRequestRepository outboundRequestRepository,
                             InboundDeliveryRepository inboundDeliveryRepository,
                             CallbackUrlValidator callbackUrlValidator,
+                            SnapshotRepository snapshotRepository,
+                            SnapshotSerializer snapshotSerializer,
+                            ApplicationEventPublisher eventPublisher,
                             JdbcTemplate jdbcTemplate) {
         this.interfaceRepository = interfaceRepository;
         this.appRepository = appRepository;
@@ -56,6 +70,9 @@ public class InterfaceService {
         this.outboundRequestRepository = outboundRequestRepository;
         this.inboundDeliveryRepository = inboundDeliveryRepository;
         this.callbackUrlValidator = callbackUrlValidator;
+        this.snapshotRepository = snapshotRepository;
+        this.snapshotSerializer = snapshotSerializer;
+        this.eventPublisher = eventPublisher;
         this.jdbcTemplate = jdbcTemplate;
     }
 
@@ -95,11 +112,18 @@ public class InterfaceService {
         validateBelong(req);
         long id = interfaceRepository.insertAndGetId(toRow(req, "DRAFT", 1, 0));
         insertChildren(id, req);
+        writeSnapshot(id, null); // M5 D-M5-1：创建 → v1 首快照
         return id;
     }
 
     @Transactional
     public void update(long id, InterfaceRequest req) {
+        update(id, req, null);
+    }
+
+    /** 全量替换 + 版本化（M5）：成功更新后 version+1（updateWithVersion 自增）并写新快照（change_note 可为空） */
+    @Transactional
+    public void update(long id, InterfaceRequest req, String changeNote) {
         InterfaceRow current = interfaceRepository.findById(id).orElseThrow(() -> BizException.ifaceNotFound(id));
         validate(req);
         validateBelong(req);
@@ -117,6 +141,55 @@ public class InterfaceService {
         }
         interfaceRepository.deleteChildren(id);
         insertChildren(id, req);
+        writeSnapshot(id, changeNote); // 新版本 = req.version + 1（乐观锁自增后回读）
+        eventPublisher.publishEvent(ConfigChangedEvent.interfaceChanged(id));
+    }
+
+    /**
+     * 回滚到指定版本（M5 D-M5-1）：以快照内容走既有全量替换路径（不旁路校验），
+     * currentVersion 乐观锁（并发更新冲突 → 40001）；版本号历史只增（update 内 version+1）；
+     * status 保持当前生命周期状态（快照不含 status）；回滚即配置变更 → 发布 INTERFACE 事件。
+     */
+    @Transactional
+    public void rollback(long id, RollbackRequest req) {
+        interfaceRepository.findById(id).orElseThrow(() -> BizException.ifaceNotFound(id));
+        SnapshotRepository.SnapshotDetail snap = snapshotRepository.find(id, req.targetVersion())
+                .orElseThrow(() -> BizException.snapshotNotFound(id, req.targetVersion()));
+        InterfaceRequest request = snapshotSerializer.toRequest(snap.configJson(), req.currentVersion());
+        String note = "回滚至 v" + req.targetVersion()
+                + "（operator=" + (req.operator() == null ? "" : req.operator())
+                + ", reason=" + (req.reason() == null ? "" : req.reason()) + "）";
+        update(id, request, note);
+    }
+
+    // ---------- 版本查询（M5 D-M5-1） ----------
+
+    /** 版本列表（倒序分页；不含 config_json——详情单独查） */
+    public VersionPage versions(long id, int page, int pageSize) {
+        interfaceRepository.findById(id).orElseThrow(() -> BizException.ifaceNotFound(id));
+        long total = snapshotRepository.count(id);
+        int offset = Math.max(0, (page - 1) * pageSize);
+        List<VersionItem> items = snapshotRepository.listPage(id, offset, pageSize).stream()
+                .map(s -> new VersionItem(s.version(), s.changeNote(), s.createdAt()))
+                .toList();
+        return new VersionPage(items, total, page, pageSize);
+    }
+
+    /** 快照详情（版本历史「查看快照 JSON」） */
+    public VersionDetail versionDetail(long id, int version) {
+        interfaceRepository.findById(id).orElseThrow(() -> BizException.ifaceNotFound(id));
+        SnapshotRepository.SnapshotDetail snap = snapshotRepository.find(id, version)
+                .orElseThrow(() -> BizException.snapshotNotFound(id, version));
+        return new VersionDetail(snap.version(), snap.changeNote(), snap.createdAt(), snap.configJson());
+    }
+
+    public record VersionItem(int version, String changeNote, LocalDateTime createdAt) {
+    }
+
+    public record VersionPage(List<VersionItem> list, long total, int page, int pageSize) {
+    }
+
+    public record VersionDetail(int version, String changeNote, LocalDateTime createdAt, String configJson) {
     }
 
     @Transactional
@@ -126,6 +199,7 @@ public class InterfaceService {
             throw BizException.fieldInvalid("仅草稿/下线状态可发布，当前状态：" + row.status());
         }
         interfaceRepository.updateStatus(id, "PUBLISHED");
+        eventPublisher.publishEvent(ConfigChangedEvent.interfaceChanged(id));
     }
 
     @Transactional
@@ -135,6 +209,7 @@ public class InterfaceService {
             throw BizException.fieldInvalid("仅已发布状态可下线，当前状态：" + row.status());
         }
         interfaceRepository.updateStatus(id, "OFFLINE");
+        eventPublisher.publishEvent(ConfigChangedEvent.interfaceChanged(id));
     }
 
     @Transactional
@@ -150,6 +225,23 @@ public class InterfaceService {
         // 调用日志保留、引用置 NULL（schema.sql 约定：可观测数据不丢）
         jdbcTemplate.update("UPDATE call_log SET interface_id = NULL WHERE interface_id = ?", id);
         interfaceRepository.deleteCascade(id);
+        eventPublisher.publishEvent(ConfigChangedEvent.interfaceChanged(id));
+    }
+
+    // ---------- 私有 ----------
+
+    /** 写快照：回读当前状态（版本已自增、子表已重建）序列化为 config_json（含 appId，换应用回滚不恢复错归属） */
+    private void writeSnapshot(long interfaceId, String changeNote) {
+        InterfaceRow row = interfaceRepository.findById(interfaceId)
+                .orElseThrow(() -> BizException.ifaceNotFound(interfaceId));
+        snapshotRepository.insert(interfaceId, row.version(),
+                snapshotSerializer.toJson(row,
+                        interfaceRepository.findParams(interfaceId),
+                        interfaceRepository.findBodies(interfaceId),
+                        interfaceRepository.findMappings(interfaceId),
+                        interfaceRepository.findFieldDefs(interfaceId),
+                        interfaceRepository.findBindings(interfaceId)),
+                changeNote);
     }
 
     // ---------- 校验（M1 设计 §2.5 类型互斥矩阵） ----------

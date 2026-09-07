@@ -1,5 +1,6 @@
 package com.deepx.apicenter.service;
 
+import com.deepx.apicenter.config.ConfigChangedEvent;
 import com.deepx.apicenter.dto.AppDtos.AppRequest;
 import com.deepx.apicenter.dto.AppDtos.AppResponse;
 import com.deepx.apicenter.exception.BizException;
@@ -21,13 +22,16 @@ public class AppService {
     private final AppRepository appRepository;
     private final AdapterRepository adapterRepository;
     private final CredentialService credentialService;
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     public AppService(AppRepository appRepository,
                       AdapterRepository adapterRepository,
-                      CredentialService credentialService) {
+                      CredentialService credentialService,
+                      org.springframework.context.ApplicationEventPublisher eventPublisher) {
         this.appRepository = appRepository;
         this.adapterRepository = adapterRepository;
         this.credentialService = credentialService;
+        this.eventPublisher = eventPublisher;
     }
 
     public List<AppResponse> list(String keyword) {
@@ -74,6 +78,8 @@ public class AppService {
                 req.baseUrl(), req.ipWhitelist(), req.ipBlacklist(),
                 req.qpsLimit(), req.dailyQuota(), current.status(), req.desc(),
                 null, null, 0, 0));
+        // M5 D-M5-2：默认三绑定 / baseUrl 变更 → APP 事件全清链缓存（含并发在途链的原子性由乐观锁保证）
+        eventPublisher.publishEvent(ConfigChangedEvent.appChanged());
     }
 
     // ---------- 生命周期状态机（设计 §1.1） ----------
@@ -85,6 +91,7 @@ public class AppService {
             throw BizException.fieldInvalid("仅草稿/停用状态可启用，当前状态：" + row.status());
         }
         appRepository.updateStatus(appId, "ENABLED");
+        eventPublisher.publishEvent(ConfigChangedEvent.appChanged());
     }
 
     @Transactional
@@ -94,6 +101,7 @@ public class AppService {
             throw BizException.fieldInvalid("仅启用状态可停用，当前状态：" + row.status());
         }
         appRepository.updateStatus(appId, "DISABLED");
+        eventPublisher.publishEvent(ConfigChangedEvent.appChanged());
     }
 
     @Transactional
@@ -103,6 +111,7 @@ public class AppService {
             throw BizException.fieldInvalid("仅停用状态可注销，当前状态：" + row.status());
         }
         appRepository.updateStatus(appId, "CANCELLED");
+        eventPublisher.publishEvent(ConfigChangedEvent.appChanged());
     }
 
     /** 停用即拒请求（M2 接入层钩子；M1 单测覆盖状态语义） */
@@ -117,6 +126,7 @@ public class AppService {
             throw BizException.fieldInvalid("应用下存在接口，禁止删除（可先将接口下线或移除）");
         }
         appRepository.deleteCascade(appId);
+        eventPublisher.publishEvent(ConfigChangedEvent.appChanged());
     }
 
     // ---------- 私有 ----------

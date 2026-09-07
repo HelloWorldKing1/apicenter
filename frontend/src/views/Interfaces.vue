@@ -321,14 +321,27 @@
             </div>
             <div class="adv-item">
               <span class="basic-label">报文适配器</span>
-              <el-select v-model="form.messageAdapterId" clearable placeholder="继承应用默认" style="width: 100%">
+              <el-select v-model="form.messageAdapterId" clearable placeholder="继承应用默认" style="width: 100%"
+                         @change="onAdapterChange('message')">
                 <el-option v-for="a in messageAdapters" :key="a.id" :label="`${a.name}（${a.impl}）`" :value="a.id" />
+              </el-select>
+              <!-- M5 D-M5-2：同 impl 多版本灰度——选中适配器后可选指定版本（空 = 跟随当前版本） -->
+              <el-select v-if="form.messageAdapterId" v-model="form.messageVersion" clearable
+                         placeholder="跟随当前版本（空）" style="width: 100%; margin-top: 6px" size="small">
+                <el-option v-for="v in implVersionOptions(form.messageAdapterId)" :key="v.version"
+                           :label="`v${v.version} · ${v.name}`" :value="v.version" />
               </el-select>
             </div>
             <div class="adv-item">
               <span class="basic-label">{{ form.ifType === 'OUTBOUND' ? '供应商签名' : '回调验签' }}</span>
-              <el-select v-model="form.authAdapterId" clearable placeholder="继承应用默认" style="width: 100%">
+              <el-select v-model="form.authAdapterId" clearable placeholder="继承应用默认" style="width: 100%"
+                         @change="onAdapterChange('auth')">
                 <el-option v-for="a in authAdapters" :key="a.id" :label="`${a.name}（${a.impl}）`" :value="a.id" />
+              </el-select>
+              <el-select v-if="form.authAdapterId" v-model="form.authVersion" clearable
+                         placeholder="跟随当前版本（空）" style="width: 100%; margin-top: 6px" size="small">
+                <el-option v-for="v in implVersionOptions(form.authAdapterId)" :key="v.version"
+                           :label="`v${v.version} · ${v.name}`" :value="v.version" />
               </el-select>
             </div>
           </div>
@@ -336,6 +349,11 @@
       </el-tabs>
 
       <template #footer>
+        <div style="flex: 1; display: flex; align-items: center; gap: 8px; padding-right: 12px">
+          <span class="basic-label" style="white-space: nowrap">变更说明（可选）</span>
+          <el-input v-model="form.changeNote" :disabled="!dialog.isEdit" size="small"
+                    placeholder="本次配置变更说明（随保存生成新版本快照）" clearable />
+        </div>
         <el-button @click="dialog.visible = false">取消</el-button>
         <el-button type="primary" @click="save">保存</el-button>
       </template>
@@ -415,6 +433,7 @@
 
       <div class="detail-actions">
         <el-button type="primary" @click="openEdit(detail.row)">编辑</el-button>
+        <el-button type="primary" plain @click="openVersionHistory(detail.row)">版本历史</el-button>
         <!-- M3：测试接口仅 OUTBOUND；INBOUND 用「模拟回调」（否则入站接口会错误地走出站链路） -->
         <el-button v-if="detail.row.ifType === 'OUTBOUND'" type="warning"
                    @click="openTest(detail.row)">测试接口</el-button>
@@ -426,6 +445,56 @@
         <el-button type="danger" @click="remove(detail.row)">删除</el-button>
       </div>
     </el-drawer>
+
+    <!-- ============ 版本历史（M5 D-M5-1：列表 / 快照 JSON / 回滚，二次确认） ============ -->
+    <el-dialog v-model="vh.visible" :title="`版本历史 · ${vh.iface ? vh.iface.code : ''}`" width="720px" top="6vh">
+      <el-table :data="vh.list" size="small" max-height="320">
+        <el-table-column prop="version" label="版本" width="70">
+          <template #default="{ row }"><b>v{{ row.version }}</b></template>
+        </el-table-column>
+        <el-table-column prop="changeNote" label="变更说明" show-overflow-tooltip />
+        <el-table-column prop="createdAt" label="时间" width="165">
+          <template #default="{ row }">{{ (row.createdAt || '').replace('T', ' ').slice(0, 19) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="200">
+          <template #default="{ row }">
+            <el-button size="small" @click="viewSnapshot(row.version)">快照</el-button>
+            <el-button size="small" type="warning" plain
+                       :disabled="row.version === (vh.iface?.version || 0)"
+                       @click="confirmRollback(row.version)">回滚到此版本</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div v-if="vh.detail" style="margin-top: 10px">
+        <div class="side-desc" style="margin-bottom: 6px">
+          v{{ vh.detail.version }} 快照 JSON（完整可重建，不含 status）
+        </div>
+        <pre class="snapshot-json">{{ formatJson(vh.detail.configJson) }}</pre>
+      </div>
+      <template #footer>
+        <el-button @click="vh.visible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- ============ 回滚确认（operator / reason 必填，二次确认） ============ -->
+    <el-dialog v-model="vh.rollbackVisible" title="回滚确认" width="460px">
+      <p style="margin: 0 0 12px; color: #606266">
+        将回滚至 <b>v{{ vh.targetVersion }}</b>（当前 v{{ vh.iface?.version }}）——
+        以该版本快照全量替换当前配置并生成新版本（v{{ (vh.iface?.version || 0) + 1 }}），生命周期状态保持不变。
+      </p>
+      <el-form label-width="72px">
+        <el-form-item label="操作人" required>
+          <el-input v-model="vh.operator" placeholder="如 admin" />
+        </el-form-item>
+        <el-form-item label="依据说明">
+          <el-input v-model="vh.reason" placeholder="如：线上问题回滚" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="vh.rollbackVisible = false">取消</el-button>
+        <el-button type="danger" @click="doRollback">确认回滚</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -526,8 +595,23 @@ function emptyForm() {
     inParams: [], outParams: [],
     inBodyType: 'none', inBodyRaw: '', inFormRows: [],
     outBodyType: 'none', outBodyRaw: '', outFormRows: [],
-    mappings: [], fieldDefs: [], messageAdapterId: null, authAdapterId: null
+    mappings: [], fieldDefs: [], messageAdapterId: null, messageVersion: null,
+    authAdapterId: null, authVersion: null, changeNote: ''
   }
+}
+
+/** 同 impl 多版本灰度（D-M5-2）：选中适配器后可指定的启用版本清单（含自身，供并行验证 / 切换） */
+function implVersionOptions(adapterId) {
+  const sel = adapters.value.find((a) => a.id === adapterId)
+  if (!sel) return []
+  return adapters.value.filter((a) => a.type === sel.type && a.impl === sel.impl && a.enabled)
+    .map((a) => ({ version: a.version, name: a.name }))
+}
+
+/** 切换适配器实例 → 重置其版本选择（防残留旧实例的同 impl 版本号误绑定） */
+function onAdapterChange(kind) {
+  if (kind === 'message') form.messageVersion = null
+  else form.authVersion = null
 }
 
 const groupOptions = computed(() => groups.value.filter((g) => g.appId === form.appId))
@@ -608,7 +692,10 @@ async function openEdit(row) {
     mappings: d.mappings.map((m) => ({ source: m.source, op: m.op, target: m.target, param: m.param, nullStrategy: m.nullStrategy, sortOrder: m.sortOrder })),
     fieldDefs: d.fieldDefs.map((f) => ({ kind: f.kind, name: f.name, type: f.type, desc: f.desc, sortOrder: f.sortOrder })),
     messageAdapterId: d.bindings?.find((b) => b.role === 'MESSAGE')?.adapterId || null,
-    authAdapterId: (d.bindings?.find((b) => b.role === 'AUTH') || d.bindings?.find((b) => b.role === 'CALLBACK_AUTH'))?.adapterId || null
+    messageVersion: d.bindings?.find((b) => b.role === 'MESSAGE')?.version || null,
+    authAdapterId: (d.bindings?.find((b) => b.role === 'AUTH') || d.bindings?.find((b) => b.role === 'CALLBACK_AUTH'))?.adapterId || null,
+    authVersion: (d.bindings?.find((b) => b.role === 'AUTH') || d.bindings?.find((b) => b.role === 'CALLBACK_AUTH'))?.version || null,
+    changeNote: ''
   })
   reqTab.IN = 'params'
   reqTab.OUT = 'params'
@@ -646,6 +733,8 @@ function onTypeChange() {
   form.callbackUrl = ''
   form.fieldDefs = []
   form.authAdapterId = null
+  form.authVersion = null
+  form.messageVersion = null
   form.mappings = []
   form.outParams = []
   form.outFormRows = []
@@ -734,10 +823,10 @@ async function save() {
     { side: 'OUT', bodyType: form.outBodyType, raw: form.outBodyRaw, form: toFormJson(form.outFormRows) }
   ]
   const bindings = [
-    { role: 'MESSAGE', adapterId: form.messageAdapterId, version: null },
+    { role: 'MESSAGE', adapterId: form.messageAdapterId, version: form.messageVersion || null },
     form.ifType === 'OUTBOUND'
-      ? { role: 'AUTH', adapterId: form.authAdapterId, version: null }
-      : { role: 'CALLBACK_AUTH', adapterId: form.authAdapterId, version: null }
+      ? { role: 'AUTH', adapterId: form.authAdapterId, version: form.authVersion || null }
+      : { role: 'CALLBACK_AUTH', adapterId: form.authAdapterId, version: form.authVersion || null }
   ]
   // 透传模式（仅出站接口）：提交空映射规则、清空出站侧参数（后端零映射直通）
   const passthrough = form.ifType === 'OUTBOUND' && form.passthrough
@@ -755,7 +844,10 @@ async function save() {
     fieldDefs: form.fieldDefs, bindings
   }
   if (dialog.isEdit) {
-    await http.put(`/interfaces/${dialog.editId}`, payload)
+    // M5 D-M5-1：变更说明经 X-Change-Note 随保存生成新版本快照（不扩展请求体 DTO，头透传）
+    await http.put(`/interfaces/${dialog.editId}`, payload, {
+      headers: { 'X-Change-Note': form.changeNote || '' }
+    })
   } else {
     await http.post('/interfaces', payload)
   }
@@ -827,6 +919,58 @@ async function sendTest() {
       : (e.message || '请求失败')
   } finally {
     test.sending = false
+  }
+}
+
+// ---------- 版本历史（M5 D-M5-1） ----------
+const vh = reactive({ visible: false, iface: null, list: [], detail: null,
+  rollbackVisible: false, targetVersion: 0, operator: '', reason: '' })
+
+async function openVersionHistory(row) {
+  vh.iface = row
+  vh.list = []
+  vh.detail = null
+  vh.rollbackVisible = false
+  vh.visible = true
+  const data = await http.get(`/interfaces/${row.id}/versions`, { params: { page: 1, pageSize: 50 } })
+  vh.list = data.list || []
+}
+
+async function viewSnapshot(version) {
+  const d = await http.get(`/interfaces/${vh.iface.id}/versions/${version}`)
+  vh.detail = d
+}
+
+function confirmRollback(version) {
+  vh.targetVersion = version
+  vh.operator = ''
+  vh.reason = ''
+  vh.rollbackVisible = true
+}
+
+async function doRollback() {
+  if (!vh.operator.trim()) {
+    ElMessage.warning('请填写操作人')
+    return
+  }
+  await http.post(`/interfaces/${vh.iface.id}/rollback`, {
+    targetVersion: vh.targetVersion, operator: vh.operator.trim(), reason: vh.reason.trim() || null,
+    currentVersion: vh.iface.version
+  })
+  ElMessage.success(`已回滚至 v${vh.targetVersion}（新版本 v${vh.iface.version + 1}）`)
+  vh.rollbackVisible = false
+  vh.visible = false
+  // 刷新详情（版本号 / 配置已变）与列表
+  detail.row = await http.get(`/interfaces/${vh.iface.id}`)
+  await load()
+}
+
+function formatJson(text) {
+  if (!text) return ''
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2)
+  } catch {
+    return text
   }
 }
 
@@ -912,6 +1056,19 @@ h4 { margin: 20px 0 10px; color: #303133; }
   color: #606266;
 }
 .upstream-na { color: #C0C4CC; }
+.snapshot-json {
+  background: #F7F8FA;
+  border: 1px solid #EBEEF5;
+  border-radius: 6px;
+  padding: 10px;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #303133;
+}
 
 .request-bar {
   display: flex;

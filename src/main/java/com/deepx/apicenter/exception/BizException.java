@@ -15,6 +15,8 @@ public class BizException extends RuntimeException {
     public static final int IFACE_NOT_FOUND = 40401;
     /** 40402 应用不存在 */
     public static final int APP_NOT_FOUND = 40402;
+    /** 40403 接口配置快照不存在（M5 D-M5-1 回滚目标校验） */
+    public static final int SNAPSHOT_NOT_FOUND = 40403;
     /** 50000 平台内部错误 */
     public static final int INTERNAL = 50000;
 
@@ -39,6 +41,11 @@ public class BizException extends RuntimeException {
 
     public static BizException ifaceNotFound(long id) {
         return new BizException(IFACE_NOT_FOUND, "接口不存在：" + id);
+    }
+
+    /** M5 回滚目标快照不存在 */
+    public static BizException snapshotNotFound(long id, int version) {
+        return new BizException(SNAPSHOT_NOT_FOUND, "接口快照不存在：接口 " + id + " v" + version);
     }
 
     public static BizException appDisabled(String appId) {

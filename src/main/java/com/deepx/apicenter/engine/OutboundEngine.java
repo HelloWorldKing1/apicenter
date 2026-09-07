@@ -8,7 +8,6 @@ import com.deepx.apicenter.exception.BizException;
 import com.deepx.apicenter.model.AppRow;
 import com.deepx.apicenter.model.InterfaceRow;
 import com.deepx.apicenter.model.OutboundRequestRow;
-import com.deepx.apicenter.repository.AdapterRepository;
 import com.deepx.apicenter.repository.AppRepository;
 import com.deepx.apicenter.repository.InterfaceRepository;
 import com.deepx.apicenter.repository.OutboundRequestRepository;
@@ -43,7 +42,6 @@ public class OutboundEngine {
 
     private final InterfaceRepository interfaceRepository;
     private final AppRepository appRepository;
-    private final AdapterRepository adapterRepository;
     private final OutboundRequestRepository outboundRequestRepository;
     private final ChainEngine chainEngine;
     private final UpstreamInvoker upstreamInvoker;
@@ -54,7 +52,6 @@ public class OutboundEngine {
 
     public OutboundEngine(InterfaceRepository interfaceRepository,
                           AppRepository appRepository,
-                          AdapterRepository adapterRepository,
                           OutboundRequestRepository outboundRequestRepository,
                           ChainEngine chainEngine,
                           UpstreamInvoker upstreamInvoker,
@@ -64,7 +61,6 @@ public class OutboundEngine {
                           CircuitBreakerRegistry circuitBreakerRegistry) {
         this.interfaceRepository = interfaceRepository;
         this.appRepository = appRepository;
-        this.adapterRepository = adapterRepository;
         this.outboundRequestRepository = outboundRequestRepository;
         this.chainEngine = chainEngine;
         this.upstreamInvoker = upstreamInvoker;
@@ -308,23 +304,17 @@ public class OutboundEngine {
     }
 
     /**
-     * MESSAGE 绑定解析（接口覆盖 → 应用默认）：
+     * MESSAGE 绑定解析（接口覆盖 → 应用默认 → 平台默认，D-M5-2 矩阵）：
+     * 取链装配烘焙的 MESSAGE 实例（与请求方向实际执行同源，响应信封适配用同一 params）；
      * 命中 EnvelopeMessageAdapter → 返回其 params 用于响应信封适配；
      * 未命中（Noop 直通 / 无绑定）→ 返回 null，业务成败 = HTTP 状态。
      */
     private JsonNode envelopeParamsOf(InterfaceRow iface) {
-        String adapterId = interfaceRepository.findBindings(iface.id()).stream()
-                .filter(b -> "MESSAGE".equals(b.role()) && b.adapterId() != null)
-                .map(InterfaceRow.BindingRow::adapterId)
-                .findFirst()
-                .orElseGet(() -> appOf(iface).defaultMessageAdapterId());
-        if (adapterId == null || adapterId.isBlank()) {
-            return null;
+        AdapterInstance inst = chainEngine.boundInstance(iface.id(), "MESSAGE");
+        if (inst != null && "EnvelopeMessageAdapter".equals(inst.impl())) {
+            return inst.params();
         }
-        return adapterRepository.findById(adapterId)
-                .filter(def -> "EnvelopeMessageAdapter".equals(def.impl()))
-                .map(def -> parseLenient(def.params()))
-                .orElse(null);
+        return null;
     }
 
     private long deadLetterId(long recordId) {

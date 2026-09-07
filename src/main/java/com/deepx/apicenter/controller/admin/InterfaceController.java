@@ -4,6 +4,8 @@ import com.deepx.apicenter.adapter.auth.HmacSigner;
 import com.deepx.apicenter.dto.ApiResult;
 import com.deepx.apicenter.dto.InterfaceDtos.InterfaceRequest;
 import com.deepx.apicenter.dto.InterfaceDtos.InterfaceResponse;
+import com.deepx.apicenter.dto.InterfaceDtos.RollbackRequest;
+import com.deepx.apicenter.engine.ChainEngine;
 import com.deepx.apicenter.engine.OutboundEngine;
 import com.deepx.apicenter.exception.BizException;
 import com.deepx.apicenter.model.CredentialRow;
@@ -23,10 +25,15 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClient;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -35,6 +42,7 @@ import java.util.UUID;
 /**
  * 接口管理：完整定义模型（主表 + 参数 / Body / 字段映射 / 响应·ack / 绑定子表）；
  * 更新为全量替换 + version 乐观锁；生命周期 草稿 → 发布 → 下线；
+ * M5：版本快照与回滚（D-M5-1）+ 灰度路由 chainTrace（D-M5-2，test 端点强制实时解析）；
  * 另提供「测试接口」（出站链路调试）与「模拟回调」（入站链路调试，M3）。
  */
 @RestController
@@ -44,6 +52,8 @@ public class InterfaceController {
     private final InterfaceService interfaceService;
     private final InterfaceRepository interfaceRepository;
     private final OutboundEngine outboundEngine;
+    private final ChainEngine chainEngine;
+    private final ObjectMapper objectMapper;
     private final CredentialRepository credentialRepository;
     private final InboundDeliveryRepository inboundDeliveryRepository;
     private final CryptoService cryptoService;
@@ -52,6 +62,8 @@ public class InterfaceController {
     public InterfaceController(InterfaceService interfaceService,
                                InterfaceRepository interfaceRepository,
                                OutboundEngine outboundEngine,
+                               ChainEngine chainEngine,
+                               ObjectMapper objectMapper,
                                CredentialRepository credentialRepository,
                                InboundDeliveryRepository inboundDeliveryRepository,
                                CryptoService cryptoService,
@@ -59,6 +71,8 @@ public class InterfaceController {
         this.interfaceService = interfaceService;
         this.interfaceRepository = interfaceRepository;
         this.outboundEngine = outboundEngine;
+        this.chainEngine = chainEngine;
+        this.objectMapper = objectMapper;
         this.credentialRepository = credentialRepository;
         this.inboundDeliveryRepository = inboundDeliveryRepository;
         this.cryptoService = cryptoService;
@@ -86,8 +100,11 @@ public class InterfaceController {
     }
 
     @PutMapping("/{id}")
-    public ApiResult<Void> update(@PathVariable long id, @Valid @RequestBody InterfaceRequest req) {
-        interfaceService.update(id, req);
+    public ApiResult<Void> update(@PathVariable long id,
+                                  @Valid @RequestBody InterfaceRequest req,
+                                  @RequestHeader(value = "X-Change-Note", required = false) String changeNote) {
+        // M5 D-M5-1：change_note 取请求头（前端「变更说明」输入，可空）→ 随新版本写快照
+        interfaceService.update(id, req, changeNote);
         return ApiResult.ok();
     }
 
@@ -95,6 +112,8 @@ public class InterfaceController {
      * 测试接口（管理面调试）：以给定请求体真实走一遍出站链路（链执行 + 状态机），
      * 与接入层路由的区别：不做 PUBLISHED / 方法校验（草稿态也可测）、不要求经平台路径。
      * 失败分支（死信 / 补偿 / UNKNOWN）由全局异常处理返回对应错误信封（msg 含死信编号等诊断信息）。
+     * M5：响应 data 附 chainTrace（D-M5-2 留痕通道 3）——test 端点强制实时解析（不走缓存），
+     * 永远反映「当前配置下会装配出的链」；生产调用走缓存链，两者一致性由事件失效保证。
      */
     @PostMapping("/{id}/test")
     public ApiResult<?> test(@PathVariable long id, @RequestBody(required = false) byte[] body) {
@@ -110,13 +129,30 @@ public class InterfaceController {
                 ? "{}".getBytes(StandardCharsets.UTF_8)
                 : body;
         try {
-            return outboundEngine.execute(iface, raw,
+            ApiResult<?> result = outboundEngine.execute(iface, raw,
                     "TEST-" + UUID.randomUUID().toString().substring(0, 8), null);
+            return traced(id, result);
         } finally {
             // 调试端点直调引擎不经网关：按 CallLogContext 清理契约自行清理
             // （有意不落 IN 条 call_log——避免调试流量污染成功率口径；OUT 条经 Invoker 切面照常落库）
             com.deepx.apicenter.aspect.CallLogContext.clear();
         }
+    }
+
+    /** M5：出站测试结果包一层 {chainTrace, result}（保留原 code/msg——业务失败信封语义不变） */
+    private ApiResult<?> traced(long interfaceId, ApiResult<?> result) {
+        ArrayNode traceArr = objectMapper.createArrayNode();
+        for (ChainEngine.ChainTraceItem t : chainEngine.traceOf(interfaceId)) {
+            ObjectNode n = traceArr.addObject();
+            n.put("role", t.role());
+            n.put("adapterId", t.adapterId());
+            n.put("impl", t.impl());
+            n.put("version", t.version());
+        }
+        ObjectNode data = objectMapper.createObjectNode();
+        data.set("chainTrace", traceArr);
+        data.set("result", result.data() instanceof JsonNode jn ? jn : objectMapper.nullNode());
+        return new ApiResult<>(result.code(), result.msg(), data);
     }
 
     /**
@@ -186,6 +222,29 @@ public class InterfaceController {
     @DeleteMapping("/{id}")
     public ApiResult<Void> delete(@PathVariable long id) {
         interfaceService.delete(id);
+        return ApiResult.ok();
+    }
+
+    // ---------- M5 版本快照与回滚（D-M5-1） ----------
+
+    /** 版本列表（倒序分页） */
+    @GetMapping("/{id}/versions")
+    public ApiResult<InterfaceService.VersionPage> versions(@PathVariable long id,
+                                                            @RequestParam(defaultValue = "1") int page,
+                                                            @RequestParam(defaultValue = "10") int pageSize) {
+        return ApiResult.ok(interfaceService.versions(id, page, pageSize));
+    }
+
+    /** 快照详情（config_json 完整可重建） */
+    @GetMapping("/{id}/versions/{version}")
+    public ApiResult<InterfaceService.VersionDetail> versionDetail(@PathVariable long id, @PathVariable int version) {
+        return ApiResult.ok(interfaceService.versionDetail(id, version));
+    }
+
+    /** 回滚：目标快照 + 乐观锁 currentVersion + operator / reason（拼入新版本 change_note） */
+    @PostMapping("/{id}/rollback")
+    public ApiResult<Void> rollback(@PathVariable long id, @Valid @RequestBody RollbackRequest req) {
+        interfaceService.rollback(id, req);
         return ApiResult.ok();
     }
 }
