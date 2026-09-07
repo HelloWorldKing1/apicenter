@@ -19,7 +19,7 @@
 | M0 契约设计 | **已评审通过 v1.0（2026-09-02）**：`doc/开发文档/` M0-01/02/03/04（确认点全部通过） |
 | 旧 demo 代码 | 已删除（commit `ad55cea`），git 历史可查 |
 | 数据库 | MySQL PolarDB 已按新 schema 建库（连接信息见 application.yaml）；M4 DDL（两表 + idx_outreq_updated 索引）已于 2026-09-04 应用到开发库 |
-| 工程代码 | **M1 + M2 + M3 + M4 已落地并测试通过（全库 164 个 @Test）；M5.1/M5.2 已落地（全库 174 个 @Test，2026-09-07 surefire 全绿）**。M4 = 熔断器三态 + UNKNOWN 人工对账 + TTL 降级 + 死信重放 + GatewayGuard 防护 + call_log 脱敏与 traceId 贯穿 + 指标告警。M5.1 = 接口版本快照与回滚（config_json 序列化 / 回滚复用全量替换 + 乐观锁 / 版本查询端点）；M5.2 = 绑定 version 灰度矩阵 + 解析时机上移（绑定/映射/参数烘焙进缓存链，凭证保持实时）+ ConfigChangedEvent 事件失效 + test 端点 chainTrace + D6 放宽（同 impl 多版本启用）+ 前端版本历史/变更说明/绑定版本下拉。测试归属：M1 22 / M2 23 / M3 62 / M4 57 / **M5 10**（M5IntegrationTest 7 + SnapshotSerializerTest 3） |
+| 工程代码 | **M1 + M2 + M3 + M4 已落地并测试通过（全库 164 个 @Test）；M5.1/M5.2 已落地（全库 174 个 @Test，2026-09-07 surefire 全绿）**。M4 = 熔断器三态 + UNKNOWN 人工对账 + TTL 降级 + 死信重放 + GatewayGuard 防护 + call_log 脱敏与 traceId 贯穿 + 指标告警。M5.1 = 接口版本快照与回滚（config_json 序列化 / 回滚复用全量替换 + 乐观锁；版本 v1.0 起每次配置变更 / 回滚 +0.1 步进、历史只增不回退 / 版本查询端点）；M5.2 = 绑定 version 灰度矩阵 + 解析时机上移（绑定/映射/参数烘焙进缓存链，凭证保持实时）+ ConfigChangedEvent 事件失效 + test 端点 chainTrace + D6 放宽（同 impl 多版本启用）+ 前端版本历史/变更说明/绑定版本下拉。测试归属：M1 22 / M2 23 / M3 62 / M4 57 / **M5 10**（M5IntegrationTest 7 + SnapshotSerializerTest 3） |
 | 里程碑计划 | **M4 手动验收（方案已细化，2026-09-05）待完成；M5.3 压测执行 + M5 手动验收待排期**——M5 开发计划已评审定稿（2026-09-04 一轮 + 09-07 二轮），D-M5-1~3 即编码依据，总盘 9 人日 |
 | 未拍板决策 | 无（M0 全部评审通过；M4/M5 计划均已评审定稿） |
 

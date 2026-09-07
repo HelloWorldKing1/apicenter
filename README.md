@@ -18,7 +18,7 @@ API 三方接口统一调用平台组件 —— 只做 **连接 + 适配 + 可�
 - **M2 完成**：链引擎 + 映射引擎（Aviator 5）+ 通用客户端（RestClient 直调）+ 出站状态机 + 补偿 worker；fastmoss 黄金用例 G1-G4 在 WireMock 对端端到端跑通 = **首个可演示版本**。
 - **M3 完成**：XML 编解码（Woodstox StAX + XXE 防护）+ 入站回调链路（HMAC 回调验签 / PENDING 首落 / ack 解耦 / 快照重送）+ RESP 白名单与 ACK 渲染 + 四种转换场景端到端。
 - **M4 完成（编码与自动化测试）**：熔断器三态（闸门前置，OPEN 短路转补偿顺延不计数）+ UNKNOWN 人工对账与 TTL 自动降级（reconcile_audit 审计）+ 死信查看与重放 + QPS 限流 / 日配额 / IP 黑白名单 + call_log 双向落库（脱敏 + traceId 三方贯穿）+ Micrometer 指标 / OTel span / 告警规则；schema 增至 18 张表（reconcile_audit / alert_event）。
-- **M5 部分完成（版本快照 / 灰度，自动化测试通过）**：接口版本快照与回滚（config_json 序列化 / 版本历史端点 / 回滚复用全量替换 + 乐观锁，版本号只增、status 不变）；适配器灰度（绑定 version 矩阵 #1-#4 + 同 impl 多版本启用 D6 放宽 + 解析时机上移烘焙缓存链 + `ConfigChangedEvent` 事件失效 + test 端点 chainTrace）；管理面版本历史弹窗 / 变更说明 / 绑定版本下拉。压测调优（M5.3）与压测报告待执行（脚本已随仓库 `src/test/resources/m5-load/`）。
+- **M5 部分完成（版本快照 / 灰度，自动化测试通过）**：接口版本快照与回滚（config_json 序列化 / 版本历史端点 / 回滚复用全量替换 + 乐观锁，版本号每次变更/回滚 +0.1（只增不回退）、status 不变）；适配器灰度（绑定 version 矩阵 #1-#4 + 同 impl 多版本启用 D6 放宽 + 解析时机上移烘焙缓存链 + `ConfigChangedEvent` 事件失效 + test 端点 chainTrace）；管理面版本历史弹窗 / 变更说明 / 绑定版本下拉。压测调优（M5.3）与压测报告待执行（脚本已随仓库 `src/test/resources/m5-load/`）。
 - **测试**：全库 **174 个 @Test 全绿**（M1 相关 22 / M2 相关 23 / M3 相关 62 / M4 相关 57 / **M5 相关 10**）。
 - **下一步**：M4 手动验收（方案已备）→ M5.3 压测执行与 M5 手动验收 → 联调验收；多鉴权并行线继续。
 
