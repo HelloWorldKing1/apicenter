@@ -57,7 +57,7 @@
 - 协议（入站 / 出站各一，JSON/XML）：入站协议 = 来源→平台的报文格式，出站协议 = 平台→目标的报文格式，二者可不同；组合即 json-json / json-xml / xml-xml / xml-json 四种场景，协议适配器按协议自动推导，默认「出入站一致」。
 - 请求参数：分「入站侧（来源→平台）」与「出站侧（平台→目标）」两侧；每侧 Params（参数名 / 类型 / 必填 / 示例值）与 Body（none / form-data / x-www-form-urlencoded / json / xml）两个 tab（入站回调的「出站侧」= 送达报文，必填）。
 - 字段映射（入站 → 出站）：每条 = 入站字段(source) + 操作 + 出站字段(target) + 空值策略，source/target 从两侧参数下拉选择。
-- 响应 / ack：出站 = 出站响应字段（出站方返回的字段列表）；入站 = ack 字段（平台回供应商的回执结构，固定 code/message，收到即回、与送达结果解耦，不回传调用方 ack）；平台侧响应为统一信封 `{code, msg, data}`，不逐接口配置。
+- 响应 / ack：出站 = 出站响应字段（RESP 白名单——仅声明字段随 data 返回并按 type 解析；声明为空不过滤）；入站 = ack 回执（接口声明 ACK 字段按 sort_order 取前 2 个，字段名可配置、值固定：第 1 = 回执码 0、第 2 = 消息 success；无声明兑底平台统一信封 `{code:0, msg:"ok", data:null}`；渲染格式随入站协议 JSON/XML，XML 根元素取约定名 response）；ack 收到即回、与送达结果解耦，不回传调用方 ack。平台侧对外响应为统一信封 `{code, msg, data}`，不逐接口配置。
 
 ### 3.2 接口归属与适配器链
 - 接口归属唯一应用（经分组），父子关系，不再多对多授权。
@@ -69,7 +69,7 @@
 
 ### 3.4 接口生命周期（草稿 / 发布 / 下线 / 版本）
 - 草稿 → 发布 → 下线。
-- 版本化：接口配置变更生成新版本，支持回滚、灰度。
+- 版本化（M5 已落地）：接口配置变更自动生成新版本快照（含变更说明 change_note），支持版本历史查询、快照回滚与适配器灰度；发布 / 下线等生命周期流转不生成版本；回滚以历史快照全量重建接口配置——版本号只增、生命周期状态不受影响；适配器灰度经接口绑定指定 version 路由（见 5.7）。
 - 下线后停止路由。
 
 ### 3.5 接口调用链路（出站 Flow A / 入站 Flow B）
@@ -131,7 +131,7 @@
   - 鉴权结果（appId、是否通过）。
   - 错误 / 告警收集（各适配器可追加）。
   - 作用：解耦上下游，新增适配器只读写上下文。
-- 鉴权基适配器（AuthAdapter）：双向契约——`AuthResult authenticate(RequestContext req)`（入站：验证来源——调用方或供应商回调，输入原始请求 Header / 参数 / 时间戳 / 报文摘要，输出通过 / 拒绝 + appId）+ `void applyCredential(OutboundRequest out)`（出站：作为调用方向对端附加凭证，如签名 / token / 证书）。具体实现：ApiKeyAuthAdapter、HmacAuthAdapter、CloudSignatureAdapter、CloudCallbackSignatureAdapter、OAuth2ClientCredentialsAdapter、OAuth2AuthorizationCodeAdapter、BearerTokenAuthAdapter、BasicAuthAdapter、MtlsAuthAdapter、NoopAuthAdapter。
+- 鉴权基适配器（AuthAdapter）：契约含两个方向——入站 authenticate（验证来源：调用方或供应商回调，输出通过 / 拒绝 + appId）与出站 applyCredential（向对端附加凭证）；编码落地（M0-01 定稿）以统一契约 `Adapter.process(ctx)` + `ctx.phase()` 分流实现（INBOUND_AUTH 执行验签、OUTBOUND_AUTH 执行签名），不做同一实例双方向回调。首期已落地实现：NoopAuthAdapter、ApiKeyAuthAdapter、HmacAuthAdapter、HmacCallbackVerifyAdapter（回调验签，M3）、BearerTokenAuthAdapter、CloudSignatureAdapter、CloudCallbackSignatureAdapter；OAuth2 Client Credentials / OAuth2 授权码 / Basic Auth / mTLS 为规划实现（未排期，5.8 参数结构预留）。
 - 协议基适配器（ProtocolAdapter）：契约（双向）`UnifiedModel decode(bytes, format)` / `bytes encode(UnifiedModel, format)`，是「格式」的唯一责任方。具体实现：JsonProtocolAdapter、XmlProtocolAdapter。
 - 报文基适配器（MessageAdapter）：契约 `UnifiedModel adapt(UnifiedModel)`，做报文结构转换（信封/包裹、报文头、请求/响应结构）。具体实现按应用定制（EnvelopeMessageAdapter、HeaderMappingAdapter 等）。
 - 字段映射（接口级配置，链上固定步骤）：做字段级转换，格式无关，规则在接口级配置（见 5.6 / 3.1），不作为全局适配器实例；json-json / json-xml / xml-xml / xml-json 四种组合由「协议适配器 + 字段映射」协作完成。
@@ -160,7 +160,7 @@
 
 ### 5.4 协议适配器（JSON / XML 编解码）
 - 接口声明协议（JSON/XML）→ 协议适配器实现对应编解码。
-- 每应用独立 ObjectMapper / XmlMapper，避免互相污染。
+- 协议适配器为**无状态全局单例**，编解码参数（命名策略 / 日期格式 / 根元素等）经适配器配置实例逐调用注入 ctx 生效——实现共享编解码器并按请求参数覆盖，不做每应用独立 ObjectMapper / XmlMapper（M0-01 D5 口径，实例隔离由配置参数保证）。
 - JSON 编解码：命名策略、日期格式、忽略未知字段、空值策略、数字精度。
 - XML 编解码：根元素、命名空间、属性 vs 元素映射。
 - 解析失败容错：明确错误码 + 落日志，不污染状态机。
@@ -183,7 +183,7 @@
 - 链顺序：入站鉴权 → 协议解码 → 报文适配 → 字段映射 → 协议编码 → 出站鉴权。
 - 鉴权 / 报文适配器绑定到接口 / 应用，可插拔、可覆盖，未绑定继承默认；协议适配器按协议自动推导。
 - 元数据驱动，新增适配器不影响既有链路。
-- 适配器可配置化、版本化、灰度切换。
+- 适配器可配置化、版本化、灰度切换（M5 已落地绑定 version 矩阵：接口绑定行可指定同 impl 的适配器版本灰度路由，version 空 = 绑定行当前实例；指定版本缺失 / 实例停用 → 逐层回退应用默认 → 平台默认 Noop，并告警留痕）。
 
 ### 5.8 适配器配置元数据（字段结构）
 
@@ -245,7 +245,7 @@ stateDiagram-v2
 - 补偿超过最大次数 → DEAD_LETTER（死信 + 告警）。
 - 4xx（非 429）→ DEAD_LETTER，不重试。
 - 超时 / 连接异常 → UNKNOWN（结果不确定），对账收敛为 SUCCESS 或 COMPENSATING。
-- SENDING 前经熔断器闸门：OPEN 时直接转 COMPENSATING / DEAD_LETTER，不触发重试（详见 6.4）。
+- 熔断器闸门前置：OPEN 时短路径失败（50202，不 incrementAttempt、不触发短重试）——已入队记录顺延 COMPENSATING（冷却后由补偿 worker 重放），**不转死信**（详见 6.4）。
 
 入站送达状态机（Flow B）：
 
@@ -278,27 +278,27 @@ stateDiagram-v2
 | code 段 | 含义 | 示例 |
 |---|---|---|
 | 0 | 成功 | — |
-| 401xx | 鉴权失败 | 40100 验签失败、40101 时间戳过期、40102 应用未启用 |
-| 400xx | 参数 / 请求错误 | 40001 字段缺失、40002 报文格式非法 |
-| 404xx | 资源不存在 | 40401 接口不存在、40402 应用不存在 |
+| 401xx | 鉴权失败 | 40100 验签失败（签名不匹配 / 缺头 / 防重放重复）、40101 时间戳超容差、40102 应用未启用、40103 来源 IP 被拒（黑名单命中 / 白名单未命中） |
+| 400xx | 参数 / 请求错误 | 40001 参数非法 / 乐观锁冲突、40002 报文错误（格式非法 / 超 1MB / XML 嵌套深度超限） |
+| 404xx | 资源不存在 | 40401 接口不存在、40402 应用不存在、40403 接口版本快照不存在（M5 回滚目标校验） |
 | 429xx | 限流 / 配额 | 42901 QPS 限流、42902 日配额超限、42903 上游限流（透传上游 429） |
-| 502xx | 上游错误 | 50201 上游 5xx |
+| 502xx | 上游错误 | 50201 上游 5xx / 429 重试耗尽转补偿、50202 熔断短路 |
 | 504xx | 上游超时 | 50401 上游读超时 |
 | 500xx | 平台内部错误 | 50000 未知异常 |
 
-> 说明：上游返回 429 属限流语义，归入 429xx（42903）；502xx 仅表示上游 5xx（网关错误）。
+> 说明：上游返回 429 属限流语义，归入 429xx（42903 透传），重试耗尽则落 50201 转补偿；50202 为平台侧熔断短路（非上游错误）；504xx 与 502xx 的 HTTP 映射遵循「业务码 / 100 = HTTP 状态」约定。
 
 ### 6.3 对账 / 补偿机制
 
-- 对账（UNKNOWN 处理）：UNKNOWN = 结果不确定（可能已达上游），不可盲目重试；通过查询接口查上游真实状态，已成功 → 收敛 SUCCESS，未到达 → 触发补偿 COMPENSATING。
+- 对账（UNKNOWN 处理）：UNKNOWN = 结果不确定（可能已达上游），不可盲目重试；已成功 → 收敛 SUCCESS，未到达 → 触发补偿 COMPENSATING。M4 现状：人工置位（source=MANUAL）与 TTL 超时自动降级（默认 10 分钟，source=TTL）双来源，均落 reconcile_audit 审计；按上游查询接口自动对账（v1.1）排期未做。
 - 补偿：补偿 worker 定时扫描出站 COMPENSATING 记录与入站 PENDING 记录，按固定间隔（如 3s）重试；超过最大次数（如 5 次）转死信 + 告警；补偿重放不重复生效依赖**上游对业务键幂等**（请求携带稳定 biz_id 由上游去重）。
 
 ### 6.4 熔断机制
 
 - 目标：上游持续不可用时快速失败，避免反复重试压垮上游、占用线程与连接资源。
 - 三态：`CLOSED（正常放行） → OPEN（快速失败） → HALF_OPEN（半开放行探测） → CLOSED / OPEN`。
-- 参数：失败率阈值（如 50%）、滑动窗口 + 最小请求数（如 10s / 10 次）、熔断时长（如 30s）、半开探测请求数（如 1~2 次）。
-- OPEN：直接快速失败，不触发 `@Retryable` 短重试，转 COMPENSATING / DEAD_LETTER。
+- 参数：失败率阈值（默认 50%）、滑动窗口 + 最小请求数（默认 10s / 10 次）、熔断时长（默认 30s）、半开探测请求数（默认 2 次）；计数口径 = 每请求一次（@Retryable 内部重试不逐次计数）。
+- OPEN：直接快速失败（50202），不触发 `@Retryable` 短重试；入站请求/已入队记录转 COMPENSATING 顺延（不 incrementAttempt，防熔断期空转消耗重试预算），恢复后由补偿 worker 补做；不写死信。
 - HALF_OPEN：放行少量探测请求；探测成功恢复 CLOSED，失败回到 OPEN 重新计时。
 - 与重试 / 补偿的衔接：熔断先于短重试判断；熔断触发的失败同样落调用日志与告警，冷却结束后自动半开探测。
 - 粒度：按「接口 + 供应商」为熔断维度，避免一个坏供应商拖垮所有接口。
