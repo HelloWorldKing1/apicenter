@@ -17,8 +17,8 @@ import com.deepx.apicenter.repository.CredentialRepository;
 import com.deepx.apicenter.repository.InterfaceRepository;
 import com.deepx.apicenter.service.CryptoService;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionalEventListener;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -416,7 +416,13 @@ public class ChainEngine {
 
     // ---------- 链缓存事件失效（M5 D-M5-2，M2 评审 #17 闭环） ----------
 
-    @EventListener
+    /**
+     * 链缓存失效（M5 D-M5-2；2026-09-07 代码评审 H1 修复）：以 {@link TransactionalEventListener} 监听，
+     * 事件在事务**提交后**才执行失效——消除「提交前 clear → 并发请求从旧配置重新装配入缓存 →
+     * 提交后无二次事件、陈旧链残至 TTL」的竞态窗口（原 @EventListener 同步清缓存早于 commit）。
+     * fallbackExecution=true：无事务上下文发布的事件立即执行（兼容非事务发布点）。
+     */
+    @TransactionalEventListener(fallbackExecution = true)
     public void onConfigChanged(ConfigChangedEvent evt) {
         switch (evt.scope()) {
             case INTERFACE -> {

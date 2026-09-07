@@ -3,6 +3,7 @@ package com.deepx.apicenter.dto;
 import com.deepx.apicenter.model.InterfaceRow;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -36,11 +37,14 @@ public final class InterfaceDtos {
     public record BindingDto(String role, String adapterId, String version) {
     }
 
-    /** 回滚请求（M5 D-M5-1）：targetVersion 目标快照、currentVersion 乐观锁、operator / reason 审计拼入 change_note */
+    /**
+     * 回滚请求（M5 D-M5-1）：targetVersion 目标快照、currentVersion 乐观锁、operator / reason 审计拼入 change_note。
+     * H2 修复：operator / reason 限长（change_note 列 VARCHAR(255)，拼接后仍须 < 250，防超长直插 500）。
+     */
     public record RollbackRequest(
             @NotNull(message = "目标版本不能为空") Integer targetVersion,
-            String operator,
-            String reason,
+            @Size(max = 100, message = "操作人最多 100 字") String operator,
+            @Size(max = 100, message = "回滚依据最多 100 字") String reason,
             @NotNull(message = "当前版本不能为空（乐观锁）") Integer currentVersion
     ) {
     }

@@ -351,7 +351,7 @@
       <template #footer>
         <div style="flex: 1; display: flex; align-items: center; gap: 8px; padding-right: 12px">
           <span class="basic-label" style="white-space: nowrap">变更说明（可选）</span>
-          <el-input v-model="form.changeNote" :disabled="!dialog.isEdit" size="small"
+          <el-input v-model="form.changeNote" :disabled="!dialog.isEdit" size="small" maxlength="250" show-word-limit
                     placeholder="本次配置变更说明（随保存生成新版本快照）" clearable />
         </div>
         <el-button @click="dialog.visible = false">取消</el-button>
@@ -484,10 +484,10 @@
       </p>
       <el-form label-width="72px">
         <el-form-item label="操作人" required>
-          <el-input v-model="vh.operator" placeholder="如 admin" />
+          <el-input v-model="vh.operator" maxlength="100" placeholder="如 admin" />
         </el-form-item>
         <el-form-item label="依据说明">
-          <el-input v-model="vh.reason" placeholder="如：线上问题回滚" />
+          <el-input v-model="vh.reason" maxlength="100" placeholder="如：线上问题回滚" />
         </el-form-item>
       </el-form>
       <template #footer>

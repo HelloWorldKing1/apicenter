@@ -124,6 +124,11 @@ public class InterfaceService {
     /** 全量替换 + 版本化（M5）：成功更新后 version+1（updateWithVersion 自增）并写新快照（change_note 可为空） */
     @Transactional
     public void update(long id, InterfaceRequest req, String changeNote) {
+        // H2 修复：change_note 列 VARCHAR(255)，超长直插会抛 DataIntegrityViolation（500）——
+        // 在唯一入口统一限长兜底（覆盖 X-Change-Note 头与 rollback 拼装两类来源，DTO @Size 之外的最后一道闸）
+        if (changeNote != null && changeNote.length() > 250) {
+            throw BizException.fieldInvalid("变更说明超长（最多 250 字）");
+        }
         InterfaceRow current = interfaceRepository.findById(id).orElseThrow(() -> BizException.ifaceNotFound(id));
         validate(req);
         validateBelong(req);

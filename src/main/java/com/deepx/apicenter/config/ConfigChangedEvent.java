@@ -9,6 +9,8 @@ package com.deepx.apicenter.config;
  * AdapterService（增改 / 启停 / 删）→ ADAPTER
  * AppService（默认三绑定变更 / 启停 / 删）→ APP
  * CredentialService 不进清单：出站凭证每请求实时读（findActive），轮换天然即时生效（二轮核实写明）。
+ * 监听端时序（代码评审 H1 修复）：ChainEngine 以 @TransactionalEventListener(AFTER_COMMIT) 监听——
+ * 事件仍可在事务内任意点发布，实际失效发生在事务**提交后**（无事务发布则立即，fallbackExecution=true）。
  */
 public record ConfigChangedEvent(Scope scope, Long interfaceId) {
 
