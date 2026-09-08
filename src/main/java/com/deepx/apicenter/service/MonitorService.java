@@ -3,6 +3,7 @@ package com.deepx.apicenter.service;
 import com.deepx.apicenter.dto.ApiResult;
 import com.deepx.apicenter.exception.BizException;
 import com.deepx.apicenter.model.OutboundRequestRow;
+import com.deepx.apicenter.model.OutboundRequestStateLogRow;
 import com.deepx.apicenter.model.ReconcileAuditRow;
 import com.deepx.apicenter.repository.AlertEventRepository;
 import com.deepx.apicenter.repository.CallLogRepository;
@@ -90,11 +91,16 @@ public class MonitorService {
         if ("SUCCESS".equals(target)) {
             // 已到达：收敛成功；error_code 清空（updateState COALESCE 语义——null 不覆盖，需显式清空列）
             outboundRequestRepository.clearErrorCode(outboundRequestId);
-            outboundRequestRepository.updateState(outboundRequestId, "SUCCESS", null, null, null, null);
+            // 状态链：UNKNOWN → SUCCESS（RECONCILE_MANUAL，detail 带操作人 / 依据）
+            outboundRequestRepository.transition(outboundRequestId, "SUCCESS", null, null, null, null,
+                    OutboundRequestRepository.TRIGGER_RECONCILE_MANUAL,
+                    "人工对账置为已到达（operator=" + operator + (reason == null || reason.isBlank() ? "" : "，依据=" + reason) + "）");
         } else {
             // 未到达：转补偿立即入队（重放携带同一 biz_id，去重依赖上游幂等，ADR 5）；
             // attempt 清零——首送预算已随 UNKNOWN 挂起消耗，不清零会被 worker 直接判死信（C3 缺陷修复）
-            outboundRequestRepository.degradeUnknownToCompensating(outboundRequestId, LocalDateTime.now());
+            outboundRequestRepository.degradeUnknownToCompensating(outboundRequestId, LocalDateTime.now(),
+                    OutboundRequestRepository.TRIGGER_RECONCILE_MANUAL,
+                    "人工对账置为未到达（operator=" + operator + (reason == null || reason.isBlank() ? "" : "，依据=" + reason) + "）");
         }
         reconcileAuditRepository.insert(outboundRequestId, row.status(), target, "MANUAL", operator, reason);
         log.info("人工对账 outbound_request {}：UNKNOWN → {}（operator={}）", outboundRequestId, target, operator);
@@ -111,7 +117,9 @@ public class MonitorService {
         for (OutboundRequestRow row : expired) {
             // attempt 清零（同 reconcile COMPENSATING 分支：降级记录需新预算才有机会重放）
             outboundRequestRepository.degradeUnknownToCompensating(row.id(),
-                    LocalDateTime.now().plusSeconds(TTL_RETRY_INTERVAL_SECONDS));
+                    LocalDateTime.now().plusSeconds(TTL_RETRY_INTERVAL_SECONDS),
+                    OutboundRequestRepository.TRIGGER_TTL_DOWNGRADE,
+                    "UNKNOWN 超过 " + unknownTtlMinutes + " 分钟自动降级（重放依赖上游幂等，ADR 5）");
             reconcileAuditRepository.insert(row.id(), "UNKNOWN", "COMPENSATING", "TTL",
                     "TTL-WORKER", "UNKNOWN 超过 " + unknownTtlMinutes + " 分钟自动降级（重放依赖上游幂等，ADR 5）");
             log.info("UNKNOWN 超时降级 outbound_request {}（updated_at 超 {} 分钟）→ COMPENSATING", row.id(), unknownTtlMinutes);
@@ -346,7 +354,7 @@ public class MonitorService {
         return out.size() <= cap ? out : out.subList(0, cap);
     }
 
-    /** 出站记录详情（状态机 Tab：行信息 + payload 预览 + 对账审计时间线） */
+    /** 出站记录详情（状态机 Tab：行信息 + payload 预览 + 状态链 + 对账审计时间线） */
     public OutboundDetail outboundDetail(long id) {
         OutboundRequestRow row = outboundRequestRepository.findById(id)
                 .orElseThrow(() -> BizException.fieldInvalid("出站记录不存在：" + id));
@@ -354,7 +362,12 @@ public class MonitorService {
                 row.attemptCount(), row.maxAttempts(), row.errorCode(), row.traceId(),
                 preview(row.inPayload()), preview(row.outPayload()), preview(row.respPayload()),
                 str(row.nextRetryAt()), str(row.createdAt()), str(row.updatedAt()),
-                audits(id));
+                stateChain(id), audits(id));
+    }
+
+    /** 状态链（M5 后状态链，设计 §4.6）：按 seq 升序返回完整流转历史 */
+    public List<OutboundRequestStateLogRow> stateChain(long outboundRequestId) {
+        return outboundRequestRepository.stateChain(outboundRequestId);
     }
 
     private static String str(LocalDateTime t) {
@@ -386,6 +399,7 @@ public class MonitorService {
                                  int attemptCount, int maxAttempts, String errorCode, String traceId,
                                  String inPayloadPreview, String outPayloadPreview, String respPayloadPreview,
                                  String nextRetryAt, String createdAt, String updatedAt,
+                                 List<OutboundRequestStateLogRow> stateChain,
                                  List<ReconcileAuditRow> audits) {
     }
 }

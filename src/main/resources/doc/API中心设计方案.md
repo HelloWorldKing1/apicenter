@@ -108,6 +108,32 @@
 - 失败请求快速定位（按 traceId / orderId）。
 - 死信查看与重放。
 
+### 4.6 状态链（状态流转历史）
+
+出站请求 `outbound_request.status` 只存当前值、被原地覆盖，无法回溯「这条请求一路怎么走过来的」。状态链以**事件溯源**方式追加记录每次状态真正变化，按时间顺序还原完整流转过程，供监控页可视化与故障定位。
+
+- **数据模型（第 19 张表 `outbound_request_state_log`，append-only）**：每行 = 一次状态转移 `from_status → to_status` + 触发来源 `trigger` + 补充说明 `detail` + 变更时 `attempt / error_code / trace_id`。当前状态仍由 `outbound_request.status` 承载（worker 扫描 / 统计 / 告警全部不动），状态链只是其历史镜像。
+- **埋点口径（折中方案）**：只在 `status` **真正变化**时记录（`from == to` 的顺延——如熔断期 `COMPENSATING → COMPENSATING` 只改 next_retry_at——不产生节点）；`trigger` 枚举区分同一 `from→to` 的多成因（如 `UNKNOWN→COMPENSATING` 有人工/TTL 两种）：`FIRST_SEND / COMPENSATE / CIRCUIT_OPEN / RECONCILE_MANUAL / TTL_DOWNGRADE / REPLAY / EXHAUSTED`。
+  - **实现分层（WAN 性能决策）**：主请求路径（首送 / 补偿重放，高频）的节点经请求内攒批，在 `execute`/`replay` 出口 `flushStateChain` **一次批量 INSERT**（每请求 1 次批量 + 1 次 max(seq) 查询）；低频运维路径（人工对账 / TTL / 死信重放 / 补偿耗尽）即时 `transition`（逐节点同步写，低频无感）。背景：逐节点「SELECT from + UPDATE + INSERT」在远程库（~百 ms/往返）下每请求增多次往返，会拖慢主链路并破坏熔断窗口等时序敏感测试（实测 M4 熔断用例因此失败，批量后恢复）。
+- **状态列与链解耦**：状态列 `outbound_request.status` 由各路径即时 `updateState`（worker 扫描 / 熔断 / 对账依赖实时状态，不动）；状态链只是其历史镜像，允许入口 flush 失败丢链（只影响可观测，不影响主链路结果，见坑 3）。
+- **SENDING / RETRYING 不产生节点（折中方案取舍）**：短重试发生在 `@Retryable`（UpstreamInvoker）内部、不写库。状态链只呈现**真实落库的转移** `INIT → MAPPING → 终态`，短重试次数（`RETRY_FAILURES`）并入终态节点的 `detail`（如「5xx 重试耗尽（短重试 4 次）」）。这是与 §6.1 声明状态机（含 SENDING/RETRYING）的**有意差异**：运维价值等价（能回答「重试了几次才耗尽」），且不触碰 @Retryable 内核。
+- **查询**：并入 `GET /api/admin/monitor/outbound-requests/{id}` 的 `OutboundDetail.stateChain`（`[{seq, fromStatus, toStatus, attempt, errorCode, trigger, detail, createdAt}]`），详情抽屉一次拉取。
+- **前端入口与展示**：
+  - **入口**：Monitor「状态机与对账」tab 操作列按钮「详情/审计」→ 更名「状态链/详情」，打开 600px 详情抽屉，状态链置顶（基本信息之后、报文之前）；表格「状态」列 tag 可点击直达（P1）；route query 深链 `?tab=queue&id={outboundRequestId}` 从告警/仪表盘跳转（P2）。
+  - **组件**：`el-timeline`（纵向时间线，动态节点数 + 历史回溯语义，优于 el-steps 固定步骤条）；节点 = 状态着色圆点 + 中文状态名 + 时间 + attempt/max，副行 = trigger 文案 + detail（含错误码）；最后一个节点即当前状态，加粗描边 + 「当前」角标高亮。
+  - **状态中文/颜色**（补 `MAPPING`，现有 STATUS_LABEL 缺）：INIT=初始(info) / MAPPING=映射中(info) / COMPENSATING=待补偿(warning) / SUCCESS=成功(success) / DEAD_LETTER=死信(danger) / UNKNOWN=对账中(warning)。
+  - **trigger 文案**：FIRST_SEND=首送 / COMPENSATE=补偿重放 / CIRCUIT_OPEN=熔断短路 / RECONCILE_MANUAL=人工对账 / TTL_DOWNGRADE=TTL 降级 / REPLAY=死信重放 / EXHAUSTED=重试耗尽。
+  - **空态**：无 state_log（历史数据）时显示「暂无状态链（该记录创建于状态链上线前）」。
+  - **与对账审计时间线互补**：状态链（state_log）展示全生命周期流转，对账审计（reconcile_audit）展示 UNKNOWN 对账的 operator/reason 详细留痕，两者数据源不同、都保留不重复。
+
+**坑 / 边界（实现必读）**：
+1. **短重试次数读取时序**：`RETRY_FAILURES` 在 `UpstreamInvoker.endRetryBudget()`（doInvoke 的 finally）里被 remove，而传输异常分类 `classifyInvokeFailure` 在 finally **之后**的 execute catch 里才执行——直接读会拿到空。折中方案必须把传输异常分类**下沉到 `doInvoke` 的 catch 内**（重试次数在同一作用域可读），或 `endRetryBudget()` 改为返回失败次数；否则 detail 里的「短重试 N 次」恒为 0。
+2. **历史数据无链**：表上线前已有的出站记录无 state_log，状态链只能看到当前状态一个节点（运行表短生命周期，可接受）。
+3. **高频追加**：state_log 与 call_log 同属 append-only 高频表，按保留期归档/清理；写入为独立短 INSERT，失败只记日志、不影响主链路（不污染状态机）。
+4. **seq 排序**：同一请求首送与补偿重放串行（worker 单线程 + attempt 串行），seq 冲突概率极低，兜底按 created_at + 自增 id 排序。
+5. **范围**：本期只做**出站**状态链；入站 `inbound_delivery` 送达状态机（RECEIVED/ACKED/PENDING/DEAD_LETTER）链路更简单，列为后续扩展。
+6. **`trigger` 为 MySQL 保留字**：`outbound_request_state_log` 的物理列名用 `trigger_src`（schema.sql / 表结构设计.html / repository SQL 一致），逻辑与 API/前端字段名仍叫 `trigger`（Java record、OutboundDetail.stateChain 元素字段、前端 TRIGGER_LABEL 均用 trigger），仅 DDL/SQL 层规避保留字。
+
 ## 5. 适配器
 
 ### 5.1 适配器体系总览
@@ -246,6 +272,8 @@ stateDiagram-v2
 - 4xx（非 429）→ DEAD_LETTER，不重试。
 - 超时 / 连接异常 → UNKNOWN（结果不确定），对账收敛为 SUCCESS 或 COMPENSATING。
 - 熔断器闸门前置：OPEN 时短路径失败（50202，不 incrementAttempt、不触发短重试）——已入队记录顺延 COMPENSATING（冷却后由补偿 worker 重放），**不转死信**（详见 6.4）。
+
+> **落库口径（M5 后状态链）**：设计状态机声明 `SENDING / RETRYING`，但**实际落库状态只有 `INIT → MAPPING → 终态`**——短重试发生在 `@Retryable`（UpstreamInvoker）内部，不逐次写库（`attempt_count` 也不随之递增，仅补偿重放 `incrementAttempt`）。状态链（§4.6）忠实呈现真实落库转移：`SENDING/RETRYING` 不产生节点，短重试次数并入终态节点 detail。这是与上图的有意差异，勿误判为「漏了状态」。
 
 入站送达状态机（Flow B）：
 

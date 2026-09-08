@@ -1,6 +1,6 @@
 -- ============================================================
 -- API 中心（现行设计）· 建表脚本
--- 依据《表结构设计.html》生成，共 18 张表：配置类 11 + 运行类 7（M4 新增 reconcile_audit / alert_event）
+-- 依据《表结构设计.html》生成，共 19 张表：配置类 11 + 运行类 8（M4 新增 reconcile_audit / alert_event；M5 后新增 outbound_request_state_log 状态链）
 -- 目标库：MySQL 5.7 / 8.0 InnoDB（双兼容），字符集 utf8mb4
 -- 注意：与 doc_old/schema.sql（旧版 ERP demo 9 表）不是同一套，勿混用
 -- 不使用数据库外键约束：引用完整性由应用层保证，引用列均建索引（见各表）
@@ -291,6 +291,27 @@ CREATE TABLE alert_event (
     KEY idx_ae_time (created_at),
     KEY idx_ae_rule (rule_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='告警事件';
+
+-- 19 出站状态机流转历史（M5 后状态链，事件溯源 append-only）：outbound_request.status 只存当前值、被原地覆盖，
+-- 本表追加每次「真正变化」的转移，供监控页状态链可视化与故障定位；当前状态仍由 outbound_request.status 承载。
+-- trigger 区分同一 from→to 的多成因（如 UNKNOWN→COMPENSATING 有人工/TTL 两种）。
+-- SENDING/RETRYING 不落库（短重试在 @Retryable 内部），状态链只呈现 INIT→MAPPING→终态，短重试次数并入终态 detail。
+-- ⚠ 2026-09-08 已应用到开发库（状态链实现落地）；schema 与《表结构设计.html》同步。
+CREATE TABLE outbound_request_state_log (
+    id                  BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    outbound_request_id BIGINT       NOT NULL COMMENT '关联 outbound_request.id（多态引用不设外键）',
+    seq                 INT          NOT NULL COMMENT '同一请求内流转序号（从 1 递增，排序依据）',
+    from_status         VARCHAR(32)  COMMENT '流转前状态（首条 = NULL，表示创建为 INIT）',
+    to_status           VARCHAR(32)  NOT NULL COMMENT '流转后状态',
+    attempt             INT          NOT NULL DEFAULT 0 COMMENT '变更时的 attempt_count',
+    error_code          VARCHAR(32)  COMMENT '变更时错误码（50201/50401/50202 等）',
+    trigger_src         VARCHAR(24)  NOT NULL COMMENT '触发来源（逻辑名 trigger；trigger 为 MySQL 保留字故物理列用 trigger_src）：FIRST_SEND/COMPENSATE/CIRCUIT_OPEN/RECONCILE_MANUAL/TTL_DOWNGRADE/REPLAY/EXHAUSTED',
+    detail              VARCHAR(500) COMMENT '补充说明（死信编号 / 操作人 / 短重试次数 / 上游 5xx 等）',
+    trace_id            VARCHAR(32)  COMMENT 'traceId（冗余，便于按 trace 检索）',
+    created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_state_log_request (outbound_request_id, seq),
+    KEY idx_state_log_trace (trace_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='出站状态机流转历史（M5 后状态链，事件溯源 append-only）';
 
 -- M4 评审定稿：AlertWorker success_rate 按更新时间窗口聚合，需 updated_at 索引
 -- （现有 idx_outreq_scan(status, next_retry_at) 对 updated_at 范围过滤只能走 status 前缀扫全部历史 SUCCESS 行）

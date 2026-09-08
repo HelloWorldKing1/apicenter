@@ -1,6 +1,7 @@
 package com.deepx.apicenter.repository;
 
 import com.deepx.apicenter.model.OutboundRequestRow;
+import com.deepx.apicenter.model.OutboundRequestStateLogRow;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -17,11 +18,24 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
- * outbound_request 运行表数据访问（Flow A 状态机载体）+ 死信写入（dead_letter 表）。
+ * outbound_request 运行表数据访问（Flow A 状态机载体）+ 死信写入（dead_letter 表）+
+ * 状态链写入（outbound_request_state_log，M5 后设计 §4.6：事件溯源 append-only）。
  * 补偿 worker 按 (status, next_retry_at) 扫描（设计 §6.3 / 技术架构 §2.3 表驱动状态机）。
+ *
+ * <p>状态链埋点收敛在本类：状态「真正变化」（from ≠ to）才追加 state_log 一行；
+ * from==to 的顺延（如熔断期 COMPENSATING→COMPENSATING 只改 next_retry_at）只走 updateState，不产生节点。
  */
 @Repository
 public class OutboundRequestRepository {
+
+    /** 状态链 trigger 常量（逻辑名；物理列 trigger_src——trigger 为 MySQL 保留字） */
+    public static final String TRIGGER_FIRST_SEND = "FIRST_SEND";
+    public static final String TRIGGER_COMPENSATE = "COMPENSATE";
+    public static final String TRIGGER_CIRCUIT_OPEN = "CIRCUIT_OPEN";
+    public static final String TRIGGER_RECONCILE_MANUAL = "RECONCILE_MANUAL";
+    public static final String TRIGGER_TTL_DOWNGRADE = "TTL_DOWNGRADE";
+    public static final String TRIGGER_REPLAY = "REPLAY";
+    public static final String TRIGGER_EXHAUSTED = "EXHAUSTED";
 
     private final JdbcTemplate jdbc;
 
@@ -82,7 +96,39 @@ public class OutboundRequestRepository {
         return n == null ? 0 : n;
     }
 
-    /** 状态流转（含诊断字段与下次重试时间；传 null 表示不改）。attempt_count 由 incrementAttempt 显式维护 */
+    /**
+     * 状态流转（含诊断字段与下次重试时间；传 null 表示不改）。attempt_count 由 incrementAttempt 显式维护。
+     * <p>M5 后状态链：状态「真正变化」（from ≠ to）时追加 state_log 一行（from/attempt/trace 在更新前读取，
+     * 同一次转移内一致）；from==to 的同状态顺延（如熔断期 COMPENSATING→COMPENSATING 只改 next_retry_at）
+     * 不产生节点。调用点须传 trigger / detail（trigger 见类常量）。
+     */
+    public int transition(long id, String toStatus, String outPayload, String respPayload,
+                          LocalDateTime nextRetryAt, String errorCode,
+                          String trigger, String detail) {
+        // 1. 读更新前状态 / attempt / trace_id / 下一 seq（单条记录由状态机串行驱动：首送请求线程、
+        //    worker 单线程扫描、对账操作，同一时刻至多一个执行者，无并发覆盖风险）
+        Map<String, Object> cur = jdbc.queryForMap("""
+                SELECT status, attempt_count, trace_id, error_code,
+                       (SELECT COALESCE(MAX(seq), 0) + 1 FROM outbound_request_state_log
+                         WHERE outbound_request_id = ?) AS next_seq
+                FROM outbound_request WHERE id = ?
+                """, id, id);
+        String from = (String) cur.get("status");
+        int attempt = ((Number) cur.get("attempt_count")).intValue();
+        String traceId = (String) cur.get("trace_id");
+        String prevErrorCode = (String) cur.get("error_code");
+        int nextSeq = ((Number) cur.get("next_seq")).intValue();
+        // 2. 状态更新（原 updateState 语义）
+        int updated = updateState(id, toStatus, outPayload, respPayload, nextRetryAt, errorCode);
+        // 3. 真正变化才记状态链（error_code 记变更后的值；变更后为 null 时保留旧值语义由 detail 承载）
+        if (updated > 0 && from != null && !from.equals(toStatus)) {
+            insertLog(id, nextSeq, from, toStatus, attempt,
+                    errorCode == null ? prevErrorCode : errorCode, trigger, detail, traceId);
+        }
+        return updated;
+    }
+
+    /** 状态流转（不记状态链）：同状态顺延 / 仅刷新诊断字段时使用（如熔断期 COMPENSATING→COMPENSATING 顺延） */
     public int updateState(long id, String status, String outPayload, String respPayload,
                            LocalDateTime nextRetryAt, String errorCode) {
         return jdbc.update("""
@@ -95,6 +141,68 @@ public class OutboundRequestRepository {
                 errorCode, id);
     }
 
+    /** 状态链追加（私有：transition / degrade / reset 共用） */
+    private void insertLog(long requestId, int seq, String from, String to, int attempt,
+                           String errorCode, String trigger, String detail, String traceId) {
+        jdbc.update("""
+                INSERT INTO outbound_request_state_log
+                    (outbound_request_id, seq, from_status, to_status, attempt, error_code, trigger_src, detail, trace_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, requestId, seq, from, to, attempt, errorCode, trigger, detail, traceId);
+    }
+
+    /** 某条出站记录的状态链（监控详情展示；按 seq 升序 = 时间序） */
+    public List<OutboundRequestStateLogRow> stateChain(long outboundRequestId) {
+        return jdbc.query("""
+                SELECT * FROM outbound_request_state_log
+                WHERE outbound_request_id = ? ORDER BY seq, id
+                """, OutboundRequestStateLogRow.MAPPER, outboundRequestId);
+    }
+
+    // ---------- 状态链批量（主请求路径用：状态列即时 updateState，节点攒批后一次落库） ----------
+
+    /** 待落库节点（from/to/attempt 由调用点按状态机确定性提供；attempt = 该轮请求的尝试计数） */
+    public record StateChainNode(String fromStatus, String toStatus, int attempt,
+                                 String errorCode, String trigger, String detail) {
+    }
+
+    /**
+     * 批量落状态链（主请求路径 execute/replay 出口调用）：一次 SQL 写入本请求攒批的全部节点，
+     * seq 从该请求当前 max(seq) 续起。设计取舍：远程库下逐节点 SELECT+INSERT 会显著拖慢主链路
+     * （每节点多 1 次往返，熔断窗口/压测时序敏感），批量后主请求路径每请求仅增 1-2 次往返。
+     */
+    public int flushStateChain(long requestId, String traceId, List<StateChainNode> nodes) {
+        if (nodes == null || nodes.isEmpty()) {
+            return 0;
+        }
+        Integer maxSeq = jdbc.queryForObject("""
+                SELECT COALESCE(MAX(seq), 0) FROM outbound_request_state_log
+                WHERE outbound_request_id = ?
+                """, Integer.class, requestId);
+        int seq = maxSeq == null ? 0 : maxSeq;
+        StringBuilder sql = new StringBuilder("""
+                INSERT INTO outbound_request_state_log
+                    (outbound_request_id, seq, from_status, to_status, attempt, error_code, trigger_src, detail, trace_id)
+                VALUES
+                """);
+        List<Object> args = new java.util.ArrayList<>();
+        for (StateChainNode n : nodes) {
+            sql.append("(?, ?, ?, ?, ?, ?, ?, ?, ?),");
+            args.add(requestId);
+            args.add(++seq);
+            args.add(n.fromStatus());
+            args.add(n.toStatus());
+            args.add(n.attempt());
+            args.add(n.errorCode());
+            args.add(n.trigger());
+            args.add(n.detail());
+            args.add(traceId);
+        }
+        sql.setLength(sql.length() - 1); // 去尾逗号
+        return jdbc.update(sql.toString(), args.toArray());
+    }
+
+
     /** 尝试次数 +1（补偿重放前调用；首送时 attempt_count=1） */
     public int incrementAttempt(long id) {
         return jdbc.update("UPDATE outbound_request SET attempt_count = attempt_count + 1 WHERE id = ?", id);
@@ -104,13 +212,26 @@ public class OutboundRequestRepository {
      * UNKNOWN 对账 / TTL 降级 → COMPENSATING：attempt 清零 + 指定 next_retry_at。
      * 首送预算已随 UNKNOWN 挂起消耗（attempt ≥ max_attempts 会被 worker 直接判死信），
      * 对账重放需新预算（与死信重放 resetForReplay 同一口径）；带 status='UNKNOWN' 条件防并发重复降级。
+     * M5 后状态链：降级成功（UPDATE>0）即追加 UNKNOWN→COMPENSATING（attempt 记 0 = 新预算起点）。
      */
-    public int degradeUnknownToCompensating(long id, LocalDateTime nextRetryAt) {
-        return jdbc.update("""
+    public int degradeUnknownToCompensating(long id, LocalDateTime nextRetryAt,
+                                            String trigger, String detail) {
+        int updated = jdbc.update("""
                 UPDATE outbound_request
                 SET status = 'COMPENSATING', attempt_count = 0, next_retry_at = ?
                 WHERE id = ? AND status = 'UNKNOWN'
                 """, nextRetryAt == null ? null : java.sql.Timestamp.valueOf(nextRetryAt), id);
+        if (updated > 0) {
+            Map<String, Object> cur = jdbc.queryForMap("""
+                    SELECT trace_id, error_code,
+                           (SELECT COALESCE(MAX(seq), 0) + 1 FROM outbound_request_state_log
+                             WHERE outbound_request_id = ?) AS next_seq
+                    FROM outbound_request WHERE id = ?
+                    """, id, id);
+            insertLog(id, ((Number) cur.get("next_seq")).intValue(), "UNKNOWN", "COMPENSATING", 0,
+                    (String) cur.get("error_code"), trigger, detail, (String) cur.get("trace_id"));
+        }
+        return updated;
     }
 
     /** 补偿 worker 扫描：到期可重试的 COMPENSATING 记录（按 (status, next_retry_at) 索引） */
@@ -132,13 +253,28 @@ public class OutboundRequestRepository {
     }
 
     /** 死信重放状态重置（M4 交付，D-M4-3）：置回 COMPENSATING、attempt 清零（防立即再转死信死循环）、
-     *  next_retry_at=now 由 worker 自然扫描重放（重放复用既有 replay 路径，零新执行逻辑） */
+     *  next_retry_at=now 由 worker 自然扫描重放（重放复用既有 replay 路径，零新执行逻辑）。
+     * M5 后状态链：重置成功即追加 DEAD_LETTER→COMPENSATING（attempt 记 0 = 新预算起点；REPLAY）。 */
     public int resetForReplay(long id) {
-        return jdbc.update("""
+        String from = jdbc.queryForObject(
+                "SELECT status FROM outbound_request WHERE id = ?", String.class, id);
+        int updated = jdbc.update("""
                 UPDATE outbound_request
                 SET status = 'COMPENSATING', attempt_count = 0, next_retry_at = NOW()
                 WHERE id = ?
                 """, id);
+        if (updated > 0 && from != null && !"COMPENSATING".equals(from)) {
+            Map<String, Object> cur = jdbc.queryForMap("""
+                    SELECT trace_id, error_code,
+                           (SELECT COALESCE(MAX(seq), 0) + 1 FROM outbound_request_state_log
+                             WHERE outbound_request_id = ?) AS next_seq
+                    FROM outbound_request WHERE id = ?
+                    """, id, id);
+            insertLog(id, ((Number) cur.get("next_seq")).intValue(), from, "COMPENSATING", 0,
+                    (String) cur.get("error_code"), TRIGGER_REPLAY, "死信重放：置回补偿队列（attempt 清零）",
+                    (String) cur.get("trace_id"));
+        }
+        return updated;
     }
 
     /** 监控页运行记录查询（M4 交付，D-M4-2）：status / bizId / traceId 可空 = 不过滤，倒序分页 */

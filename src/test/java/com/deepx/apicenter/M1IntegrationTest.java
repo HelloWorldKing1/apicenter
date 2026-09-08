@@ -90,11 +90,11 @@ class M1IntegrationTest {
     // ---------- DDL 落库 ----------
 
     @Test
-    void 十八张表已落库() {
-        // 16 张（设计 §表结构）+ M4 新增 alert_rule / reconcile_audit / alert_event
+    void 十九张表已落库() {
+        // 16 张（设计 §表结构）+ M4 新增 alert_rule / reconcile_audit / alert_event + M5 后新增 outbound_request_state_log
         Integer n = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'apicenter'", Integer.class);
-        assertThat(n).isEqualTo(18);
+        assertThat(n).isEqualTo(19);
     }
 
     // ---------- 黄金用例回读（开发计划 M2 出口基准的配置部分） ----------

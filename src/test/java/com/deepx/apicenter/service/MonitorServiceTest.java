@@ -65,7 +65,8 @@ class MonitorServiceTest {
     void 人工对账_置位SUCCESS_审计MANUAL() {
         service.reconcile(1, "SUCCESS", "admin", "上游确认已到达");
         verify(outboundRequestRepository).clearErrorCode(1);
-        verify(outboundRequestRepository).updateState(eq(1L), eq("SUCCESS"), any(), any(), any(), any());
+        verify(outboundRequestRepository).transition(eq(1L), eq("SUCCESS"), any(), any(), any(), any(),
+                eq("RECONCILE_MANUAL"), any());
         verify(reconcileAuditRepository).insert(1, "UNKNOWN", "SUCCESS", "MANUAL", "admin", "上游确认已到达");
     }
 
@@ -74,7 +75,8 @@ class MonitorServiceTest {
         ArgumentCaptor<LocalDateTime> nextCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
         service.reconcile(1, "COMPENSATING", "admin", "上游确认未到达");
         // 降级走专用方法：attempt 清零（首送预算已随 UNKNOWN 挂起消耗，不清零会被 worker 直接判死信）
-        verify(outboundRequestRepository).degradeUnknownToCompensating(eq(1L), nextCaptor.capture());
+        verify(outboundRequestRepository).degradeUnknownToCompensating(eq(1L), nextCaptor.capture(),
+                eq("RECONCILE_MANUAL"), any());
         assertThat(nextCaptor.getValue()).isNotNull();
         verify(reconcileAuditRepository).insert(1, "UNKNOWN", "COMPENSATING", "MANUAL", "admin", "上游确认未到达");
     }
@@ -108,7 +110,8 @@ class MonitorServiceTest {
                 .thenReturn(java.util.List.of(unknownRow(1)));
         int n = service.downgradeExpiredUnknown();
         assertThat(n).isEqualTo(1);
-        verify(outboundRequestRepository).degradeUnknownToCompensating(eq(1L), any(LocalDateTime.class));
+        verify(outboundRequestRepository).degradeUnknownToCompensating(eq(1L), any(LocalDateTime.class),
+                eq("TTL_DOWNGRADE"), any());
         verify(reconcileAuditRepository).insert(eq(1L), eq("UNKNOWN"), eq("COMPENSATING"), eq("TTL"),
                 eq("TTL-WORKER"), anyString());
     }

@@ -12,6 +12,10 @@ import com.deepx.apicenter.repository.AppRepository;
 import com.deepx.apicenter.repository.InterfaceRepository;
 import com.deepx.apicenter.repository.OutboundRequestRepository;
 import com.deepx.apicenter.service.AppService;
+
+import static com.deepx.apicenter.repository.OutboundRequestRepository.TRIGGER_CIRCUIT_OPEN;
+import static com.deepx.apicenter.repository.OutboundRequestRepository.TRIGGER_COMPENSATE;
+import static com.deepx.apicenter.repository.OutboundRequestRepository.TRIGGER_FIRST_SEND;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
@@ -94,33 +98,66 @@ public class OutboundEngine {
         return execute(iface, body, biz, trace);
     }
 
-    /** 执行出站链路（首送与补偿重放共用入口）。M4：入口填充调用日志上下文（清理契约见 CallLogContext） */
+    // ---------- 状态链批量缓冲（主请求路径：状态列即时 updateState，节点攒批出口一次落库，
+    // 避免逐节点 SELECT+INSERT 的 WAN 往返拖慢主链路——熔断窗口 / 压测时序依赖此设计，见 §4.6 坑 3） ----------
+
+    private static final ThreadLocal<java.util.List<OutboundRequestRepository.StateChainNode>> CHAIN_BUFFER =
+            new ThreadLocal<>();
+
+    private static void beginChain() {
+        CHAIN_BUFFER.set(new java.util.ArrayList<>());
+    }
+
+    private static void chainAppend(String from, String to, int attempt, String errorCode,
+                                    String trigger, String detail) {
+        var buf = CHAIN_BUFFER.get();
+        if (buf != null) {
+            buf.add(new OutboundRequestRepository.StateChainNode(from, to, attempt, errorCode, trigger, detail));
+        }
+    }
+
+    private static java.util.List<OutboundRequestRepository.StateChainNode> endChain() {
+        var buf = CHAIN_BUFFER.get();
+        CHAIN_BUFFER.remove();
+        return buf == null ? java.util.List.of() : buf;
+    }
+
+    /** 执行出站链路（首送与补偿重放共用入口）。M4：入口填充调用日志上下文（清理契约见 CallLogContext）。
+     *  M5 后状态链：传输异常分类已下沉到 doInvoke（设计 §4.6 坑 1：短重试次数须在 endRetryBudget 之前读取）；
+     *  状态链节点攒批后在本方法 finally 一次落库（每请求 1 次批量，不拖慢主链路）。 */
     public ApiResult<?> execute(InterfaceRow iface, byte[] body, String bizId, String traceId) {
         CallLogContext.set(iface.id(), iface.appId(), traceId);
         long recordId = createRecord(iface, body, bizId, traceId);
+        beginChain();
         try {
-            return doInvoke(recordId, iface, body, traceId);
+            chainAppend(null, "INIT", 1, null, TRIGGER_FIRST_SEND, "创建出站记录");
+            return doInvoke(recordId, iface, body, traceId, false, 1, "INIT");
+        } catch (BizException e) {
+            // 链失败（D7 不污染状态机）/ 熔断短路 / 死信 / 业务失败 / 传输异常分类：均已按状态机落库或按 D7 不落运行表
+            throw e;
         } catch (Exception e) {
-            BizException mapped = classifyInvokeFailure(recordId, e);
-            if (e instanceof BizException) {
-                throw e; // 链失败不污染状态机（M0-01 D7）；死信/业务失败已在 doInvoke 内落状态
-            }
-            // 预期内的传输异常（超时/429/5xx）已按状态机归类，仅记单行 warn 不打堆栈；
-            // 真正意外的异常保留 ERROR 堆栈便于排查
-            if (e instanceof org.springframework.web.client.ResourceAccessException
-                    || e instanceof org.springframework.web.client.HttpClientErrorException.TooManyRequests
-                    || e instanceof org.springframework.web.client.HttpServerErrorException) {
-                log.warn("出站请求 {} 传输异常（{} → code {}）", recordId, e.getClass().getSimpleName(), mapped.getCode());
-            } else {
-                log.error("出站请求 {} 执行异常", recordId, e);
-            }
-            throw mapped;
+            log.error("出站请求 {} 执行异常", recordId, e); // 意外异常保留堆栈
+            throw new BizException(50000, "平台内部错误");
+        } finally {
+            flushChainSafely(recordId, traceId);
+        }
+    }
+
+    /** 状态链批量落库（失败容忍：只影响可观测数据，不影响主链路结果） */
+    private void flushChainSafely(long recordId, String traceId) {
+        try {
+            outboundRequestRepository.flushStateChain(recordId, traceId, endChain());
+        } catch (Exception e) {
+            log.warn("状态链批量落库失败 recordId={}", recordId, e);
         }
     }
 
     // ---------- 首送与重放核心 ----------
 
-    private ApiResult<?> doInvoke(long recordId, InterfaceRow iface, byte[] body, String traceId) {
+    private ApiResult<?> doInvoke(long recordId, InterfaceRow iface, byte[] body, String traceId,
+                                  boolean compensate, int attempt, String startStatus) {
+        String trigger = compensate ? TRIGGER_COMPENSATE : TRIGGER_FIRST_SEND;
+        String how = compensate ? "补偿重放" : "首送";
         // 链执行：入站鉴权 → 解码 → 报文适配 → 字段映射 → 编码 → 出站鉴权（链内统一载体 payload）
         AdapterContext ctx = chainEngine.execute(iface.id(), UnifiedModel.emptyObject(), traceId, body);
 
@@ -142,13 +179,19 @@ public class OutboundEngine {
         if (!circuitBreakerRegistry.tryAcquire(iface.id())) {
             LocalDateTime next = LocalDateTime.now().plusSeconds(
                     Math.min(circuitBreakerRegistry.retryAfterSeconds(iface.id()), CIRCUIT_DEFER_SECONDS));
+            // 首送短路：INIT→COMPENSATING 记节点；补偿轮 from==to（COMPENSATING）同态顺延不记节点
+            if (!"COMPENSATING".equals(startStatus)) {
+                chainAppend(startStatus, "COMPENSATING", attempt, "50202",
+                        TRIGGER_CIRCUIT_OPEN, how + " 熔断 OPEN，顺延补偿（不计数）");
+            }
             outboundRequestRepository.updateState(recordId, "COMPENSATING", null, null, next, "50202");
             circuitBreakerRegistry.logState("短路", iface.id(), iface.appId());
             log.warn("出站请求 {} 熔断短路（接口 {} OPEN）→ COMPENSATING 顺延至 {}", recordId, iface.id(), next);
             throw new BizException(50202, "上游熔断短路（已进入补偿队列）");
         }
 
-        // 状态 MAPPING → 调上游
+        // 状态 MAPPING → 调上游（状态列即时更新；节点攒批出口落库）
+        chainAppend(startStatus, "MAPPING", attempt, null, trigger, how + "链执行");
         outboundRequestRepository.updateState(recordId, "MAPPING", null, null, null, null);
         UpstreamInvoker.beginRetryBudget(iface.maxRetries());
         ResponseEntity<byte[]> resp;
@@ -162,23 +205,32 @@ public class OutboundEngine {
                     || e instanceof org.springframework.web.client.HttpClientErrorException.TooManyRequests
                     || e instanceof org.springframework.web.client.HttpServerErrorException) {
                 circuitBreakerRegistry.record(iface.id(), false);
+                // 分类下沉（设计 §4.6 坑 1）：在 endRetryBudget()（finally）之前读短重试次数，
+                // 与状态分类同一作用域——否则 finally remove 后 classifyInvokeFailure 读到空，detail 的短重试次数恒 0
+                long shortRetries = UpstreamInvoker.retryFailures();
+                BizException mapped = classifyInvokeFailure(recordId, e, trigger, how, attempt, shortRetries);
+                log.warn("出站请求 {} 传输异常（{} → code {}，短重试 {} 次）", recordId,
+                        e.getClass().getSimpleName(), mapped.getCode(), Math.max(0, shortRetries - 1));
+                throw mapped;
             }
-            throw e;
+            throw e; // 意外异常：原样抛给 execute / replay 的 catch 兜底
         } finally {
             UpstreamInvoker.endRetryBudget();
         }
-        return classify(recordId, iface, resp);
+        return classify(recordId, iface, resp, trigger, how, attempt);
     }
 
     /** 结果分类（M0-03 §2 异常映射表 + C2 业务失败定稿） */
-    private ApiResult<?> classify(long recordId, InterfaceRow iface, ResponseEntity<byte[]> resp) {
+    private ApiResult<?> classify(long recordId, InterfaceRow iface, ResponseEntity<byte[]> resp,
+                                  String trigger, String how, int attempt) {
         HttpStatusCode status = resp.getStatusCode();
         byte[] respBody = resp.getBody() == null ? new byte[0] : resp.getBody();
         if (status.is2xxSuccessful()) {
-            return handleSuccess(recordId, iface, respBody);
+            return handleSuccess(recordId, iface, respBody, trigger, how, attempt);
         }
         // 4xx 非 429 → 死信（不重试；5xx/429 已在 Invoker 内重试，到此即耗尽）
         String reason = "上游 " + status.value() + "：" + resp.getStatusCode();
+        chainAppend("MAPPING", "DEAD_LETTER", attempt, "50201", trigger, how + " 4xx 不重试：" + reason);
         outboundRequestRepository.updateState(recordId, "DEAD_LETTER", null, null, null, "50201");
         outboundRequestRepository.insertDeadLetter("OUTBOUND", recordId, reason, bytesText(respBody));
         long deadLetterId = deadLetterId(recordId);
@@ -186,9 +238,10 @@ public class OutboundEngine {
     }
 
     /** 2xx：信封适配判业务成败（M0-03 定稿 C2：业务失败也记 SUCCESS、业务码透传）；RESP 过滤仅成功路径（D-M3-3） */
-    private ApiResult<?> handleSuccess(long recordId, InterfaceRow iface, byte[] respBody) {
+    private ApiResult<?> handleSuccess(long recordId, InterfaceRow iface, byte[] respBody, String trigger, String how, int attempt) {
         UnifiedModel respModel = parseResponse(iface.id(), respBody);
         String outPayload = modelText(respModel);
+        chainAppend("MAPPING", "SUCCESS", attempt, null, trigger, how + " 响应 " + respBody.length + " 字节");
         outboundRequestRepository.updateState(recordId, "SUCCESS", null, outPayload, null, null);
         log.info("出站请求 {} 成功（响应 {} 字节）", recordId, respBody.length);
 
@@ -219,7 +272,8 @@ public class OutboundEngine {
         InterfaceRow iface = interfaceRepository.findById(row.interfaceId())
                 .orElseThrow(() -> BizException.ifaceNotFound(row.interfaceId()));
         // 熔断闸门前置（D-M4-1）：OPEN 时不 incrementAttempt（未触达上游不计尝试，防熔断期间
-        // 空转消耗重试预算），只顺延 next_retry_at = min(冷却剩余, 3s)
+        // 空转消耗重试预算），只顺延 next_retry_at = min(冷却剩余, 3s)；COMPENSATING→COMPENSATING
+        // 为同状态顺延（from==to 不记状态链，仅更新 next_retry_at）
         if (!circuitBreakerRegistry.tryAcquire(row.interfaceId())) {
             LocalDateTime next = LocalDateTime.now().plusSeconds(
                     Math.min(circuitBreakerRegistry.retryAfterSeconds(row.interfaceId()), CIRCUIT_DEFER_SECONDS));
@@ -229,25 +283,21 @@ public class OutboundEngine {
         }
         log.info("补偿重放 outbound_request {}（attempt {}/{}）", row.id(), row.attemptCount() + 1, row.maxAttempts());
         outboundRequestRepository.incrementAttempt(row.id());
+        int attempt = row.attemptCount() + 1; // increment 后的当前轮尝试计数
+        beginChain();
         try {
             ApiResult<?> result = doInvoke(row.id(), iface,
                     row.inPayload() == null ? new byte[0]
                             : row.inPayload().getBytes(java.nio.charset.StandardCharsets.UTF_8),
-                    row.traceId());
+                    row.traceId(), true, attempt, "COMPENSATING");
             log.info("补偿重放 outbound_request {} 结果 code={}", row.id(), result.code());
+        } catch (BizException e) {
+            // 链失败（D7）与死信 / 业务失败 / 传输异常分类（doInvoke 内已落状态）不重复处理，仅记录
+            log.warn("补偿重放 outbound_request {} 失败：{}", row.id(), e.getMessage());
         } catch (Exception e) {
-            BizException mapped = classifyInvokeFailure(row.id(), e);
-            if (e instanceof BizException) {
-                // 链失败（D7）与死信/业务失败（doInvoke 内已落状态）不重复分类，仅记录
-                log.warn("补偿重放 outbound_request {} 失败：{}", row.id(), mapped.getMessage());
-            } else if (e instanceof org.springframework.web.client.ResourceAccessException
-                    || e instanceof org.springframework.web.client.HttpClientErrorException.TooManyRequests
-                    || e instanceof org.springframework.web.client.HttpServerErrorException) {
-                log.warn("补偿重放 outbound_request {} 传输异常（{} → code {}）", row.id(),
-                        e.getClass().getSimpleName(), mapped.getCode());
-            } else {
-                log.error("补偿重放 outbound_request {} 执行异常", row.id(), e);
-            }
+            log.error("补偿重放 outbound_request {} 执行异常", row.id(), e);
+        } finally {
+            flushChainSafely(row.id(), row.traceId());
         }
     }
 
@@ -256,21 +306,31 @@ public class OutboundEngine {
      * ResourceAccessException（读超时/连接异常，@Retryable 耗尽后透传）→ UNKNOWN 对账；
      * TooManyRequests / HttpServerErrorException → COMPENSATING（next_retry_at 续期）；
      * 其余 → 50000（状态不动，由调用方记录）。
+     * M5 后状态链：仅由 doInvoke 的 catch 调用（分类下沉——保证 shortRetries 在 endRetryBudget 之前可读），
+     * 状态归类走 transition（detail 带短重试次数）。
      */
-    private BizException classifyInvokeFailure(long recordId, Exception e) {
+    private BizException classifyInvokeFailure(long recordId, Exception e, String trigger, String how,
+                                               int attempt, long shortRetries) {
+        int retries = (int) Math.max(0, shortRetries - 1); // 失败调用次数 - 1 = 短重试次数
         if (e instanceof org.springframework.web.client.ResourceAccessException) {
+            chainAppend("MAPPING", "UNKNOWN", attempt, "50401", trigger,
+                    how + " 读超时/连接异常（短重试 " + retries + " 次），结果待对账");
             outboundRequestRepository.updateState(recordId, "UNKNOWN", null, null, null, "50401");
             log.info("出站请求 {} 结果不确定（读超时/连接异常）→ UNKNOWN 待对账", recordId);
             return new BizException(50401, "上游超时，结果待对账（UNKNOWN）");
         }
         if (e instanceof org.springframework.web.client.HttpClientErrorException.TooManyRequests) {
             LocalDateTime next = LocalDateTime.now().plusSeconds(3);
+            chainAppend("MAPPING", "COMPENSATING", attempt, "42903", trigger,
+                    how + " 429 重试耗尽（短重试 " + retries + " 次）");
             outboundRequestRepository.updateState(recordId, "COMPENSATING", null, null, next, "42903");
             log.info("出站请求 {} 重试耗尽（429）→ COMPENSATING，补偿 worker 兜底", recordId);
             return new BizException(50201, "上游暂时不可用，已进入补偿队列");
         }
         if (e instanceof org.springframework.web.client.HttpServerErrorException) {
             LocalDateTime next = LocalDateTime.now().plusSeconds(3);
+            chainAppend("MAPPING", "COMPENSATING", attempt, "50201", trigger,
+                    how + " 5xx 重试耗尽（短重试 " + retries + " 次）");
             outboundRequestRepository.updateState(recordId, "COMPENSATING", null, null, next, "50201");
             log.info("出站请求 {} 重试耗尽（5xx）→ COMPENSATING，补偿 worker 兜底", recordId);
             return new BizException(50201, "上游暂时不可用，已进入补偿队列");
@@ -280,6 +340,8 @@ public class OutboundEngine {
 
     // ---------- 私有 ----------
 
+    /** 创建出站记录（status=INIT，首送即第 1 次尝试）。INIT 状态链首条由 execute 的
+     *  chainAppend(null→INIT) + finally flush 统一批量落库（主路径每请求仅 1 次批量，见 flushStateChain） */
     private long createRecord(InterfaceRow iface, byte[] body, String bizId, String traceId) {
         return outboundRequestRepository.insert(new OutboundRequestRow(
                 0, iface.id(), iface.appId(), bizId,

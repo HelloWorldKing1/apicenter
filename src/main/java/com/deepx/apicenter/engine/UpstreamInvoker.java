@@ -61,6 +61,11 @@ public class UpstreamInvoker {
         RETRY_FAILURES.remove();
     }
 
+    /** 本次调用已失败次数（M5 后状态链：引擎须在 endRetryBudget 之前读取，写 detail 的「短重试 N 次」） */
+    public static long retryFailures() {
+        return RETRY_FAILURES.get();
+    }
+
     /**
      * 接口级重试预算判定：失败 1 次计 1，失败次数 ≤ 预算则继续重试
      * （maxRetries=0 → 首次失败即停，共 1 次调用；=2 → 共 3 次调用，与 Spring 语义一致）。

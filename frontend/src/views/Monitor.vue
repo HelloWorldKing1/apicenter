@@ -271,6 +271,28 @@
           <el-descriptions-item label="bizId">{{ detail.row.bizId }}</el-descriptions-item>
           <el-descriptions-item label="traceId" :span="2">{{ detail.row.traceId }}</el-descriptions-item>
         </el-descriptions>
+        <!-- 状态链（设计 §4.6）：完整状态流转时间线；空态 = 创建于状态链上线前的历史记录 -->
+        <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+          <span class="side-title" style="margin:0">状态链</span>
+          <span class="tip" style="margin:0" v-if="!detail.row.stateChain || !detail.row.stateChain.length">
+            暂无历史（记录创建于状态链上线前，仅当前状态可查）
+          </span>
+        </div>
+        <el-timeline v-if="detail.row.stateChain && detail.row.stateChain.length" style="padding-left:2px">
+          <el-timeline-item v-for="(s, i) in detail.row.stateChain" :key="s.seq"
+                            :type="chainNodeType(s.toStatus)" size="large"
+                            :timestamp="(s.createdAt || '').replace('T', ' ').slice(0, 19)" placement="top">
+            <div class="chain-main">
+              <b>{{ STATUS_LABEL[s.toStatus] || s.toStatus }}</b>
+              <el-tag v-if="i === detail.row.stateChain.length - 1" size="small" type="danger" effect="plain" style="margin-left:6px">当前</el-tag>
+              <span class="chain-meta">尝试 {{ s.attempt }}</span>
+            </div>
+            <div class="chain-sub">
+              {{ TRIGGER_LABEL[s.trigger] || s.trigger }}<template v-if="s.errorCode"> · {{ s.errorCode }}</template>
+              <template v-if="s.detail"> — {{ s.detail }}</template>
+            </div>
+          </el-timeline-item>
+        </el-timeline>
         <h4 class="side-title">入站报文 in_payload（预览，<4000 字）</h4>
         <pre class="mono-block">{{ detail.row.inPayloadPreview || '—' }}</pre>
         <h4 class="side-title">出站报文 out_payload（预览）</h4>
@@ -365,14 +387,22 @@ const route = useRoute()
 const router = useRouter()
 
 const STATUS_LABEL = {
-  INIT: '初始', UNKNOWN: '对账中', COMPENSATING: '待补偿',
+  INIT: '初始', MAPPING: '映射中', UNKNOWN: '对账中', COMPENSATING: '待补偿',
   SUCCESS: '成功', DEAD_LETTER: '死信'
 }
 const METRIC_LABEL = {
   success_rate: '近5分钟出站成功率（%）', p99_latency: '近5分钟出站P99（ms）',
   dead_letter_backlog: '死信PENDING堆积（条）', retry_backlog: '待重试积压（条）'
 }
-const statusTag = s => ({ SUCCESS: 'success', DEAD_LETTER: 'danger', UNKNOWN: 'warning', COMPENSATING: 'warning' }[s] || 'info')
+// 状态链 trigger 中文（设计 §4.6：FIRST_SEND/COMPENSATE/CIRCUIT_OPEN/...）
+const TRIGGER_LABEL = {
+  FIRST_SEND: '首送', COMPENSATE: '补偿重放', CIRCUIT_OPEN: '熔断短路',
+  RECONCILE_MANUAL: '人工对账', TTL_DOWNGRADE: 'TTL 降级',
+  REPLAY: '死信重放', EXHAUSTED: '重试耗尽'
+}
+const statusTag = s => ({ SUCCESS: 'success', DEAD_LETTER: 'danger', UNKNOWN: 'warning', COMPENSATING: 'warning', INIT: 'info', MAPPING: 'info' }[s] || 'info')
+// 状态链时间线节点色（el-timeline-item type：primary/success/warning/danger/info）
+const chainNodeType = s => ({ SUCCESS: 'success', DEAD_LETTER: 'danger', UNKNOWN: 'warning', COMPENSATING: 'warning', INIT: 'info', MAPPING: 'primary' }[s] || 'info')
 
 const cards = ref([
   { title: '今日调用量', value: '—', sub: '' },
@@ -661,6 +691,9 @@ onBeforeUnmount(() => {
 .pager { margin-top: 8px; display: flex; justify-content: center; }
 .rules-title { color: #909399; font-size: 13px; margin: 12px 0 4px; }
 .side-title { margin: 12px 0 6px; color: #606266; font-size: 13px; }
+.chain-main { display: flex; align-items: baseline; gap: 6px; }
+.chain-meta { color: #a8abb2; font-size: 12px; margin-left: auto; padding-right: 6px; }
+.chain-sub { color: #909399; font-size: 12px; line-height: 1.5; word-break: break-all; }
 .mono-block {
   background: #F7F8FA; border: 1px solid #EBEEF5; border-radius: 6px; padding: 10px;
   font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 12px;

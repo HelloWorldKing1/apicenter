@@ -104,7 +104,8 @@
         <div class="basic-item">
           <span class="basic-label">应用</span>
           <el-select v-model="form.appId" placeholder="选择应用" @change="onAppChange" style="width: 100%">
-            <el-option v-for="a in apps" :key="a.appId" :label="`${a.name}（${a.appId}）`" :value="a.appId" />
+            <!-- 新建只选已启用应用；编辑回显兼容（当前归属停用/注销应用时仍列出该项，提交语义不变） -->
+            <el-option v-for="a in formAppOptions" :key="a.appId" :label="`${a.name}（${a.appId}）`" :value="a.appId" />
           </el-select>
         </div>
         <div class="basic-item">
@@ -647,6 +648,16 @@ function onAdapterChange(kind) {
 }
 
 const groupOptions = computed(() => groups.value.filter((g) => g.appId === form.appId))
+
+/** 归属应用下拉：仅启用（ENABLED）应用可选；编辑时若当前归属停用/注销则追加该项保持回显 */
+const formAppOptions = computed(() => {
+  const enabled = apps.value.filter((a) => a.status === 'ENABLED')
+  if (dialog.isEdit && form.appId && !enabled.some((a) => a.appId === form.appId)) {
+    const cur = apps.value.find((a) => a.appId === form.appId)
+    if (cur) enabled.push(cur)
+  }
+  return enabled
+})
 
 // 目标字段双向代理（v-model 不能绑定三元表达式，按类型切换 upstreamPath / callbackUrl）
 const targetField = computed({

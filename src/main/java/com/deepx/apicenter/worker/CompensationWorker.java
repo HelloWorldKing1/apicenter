@@ -70,7 +70,10 @@ public class CompensationWorker {
         for (OutboundRequestRow row : due) {
             try {
                 if (row.attemptCount() >= row.maxAttempts()) {
-                    outboundRequestRepository.updateState(row.id(), "DEAD_LETTER", null, null, null, "50201");
+                    // M5 后状态链：COMPENSATING → DEAD_LETTER（EXHAUSTED）
+                    outboundRequestRepository.transition(row.id(), "DEAD_LETTER", null, null, null, "50201",
+                            OutboundRequestRepository.TRIGGER_EXHAUSTED,
+                            "补偿重试耗尽（attempt " + row.attemptCount() + "/" + row.maxAttempts() + "）");
                     insertDeadLetterOnce("OUTBOUND", row.id(),
                             "补偿重试耗尽（attempt " + row.attemptCount() + "/" + row.maxAttempts() + "）",
                             row.inPayload());
