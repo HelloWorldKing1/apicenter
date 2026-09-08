@@ -124,6 +124,15 @@ class SnapshotChangeDiffTest {
     }
 
     @Test
+    void 回滚detail_类型与主字段差异() {
+        String detail = SnapshotChangeDiff.rollbackDetail(OLD, NEW);
+        assertThat(detail).contains("\"type\":\"ROLLBACK\"");
+        assertThat(detail).contains("\"field\":\"timeoutMs\"").contains("\"old\":\"3000\"").contains("\"new\":\"5000\"");
+        // ROLLBACK 无手填备注
+        assertThat(detail).contains("\"manual\":\"\"");
+    }
+
+    @Test
     void 主字段补全与长值截断() {
         String longV = "x".repeat(120);
         String oldJ = "{\"main\":{\"code\":\"A\",\"name\":\"old\",\"ifType\":\"OUTBOUND\",\"method\":\"POST\",\"path\":\"/a\",\"groupId\":1,\"desc\":\"" + longV + "\"}}";

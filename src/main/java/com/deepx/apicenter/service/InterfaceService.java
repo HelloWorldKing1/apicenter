@@ -259,8 +259,12 @@ public class InterfaceService {
         SnapshotRepository.SnapshotDetail snap = snapshotRepository.find(id, req.targetVersion())
                 .orElseThrow(() -> BizException.snapshotNotFound(id, req.targetVersion()));
         InterfaceRequest request = snapshotSerializer.toRequest(snap.configJson(), req.currentVersion());
-        // 评审定稿：回滚说明极简 = 「回滚至 v{目标}」（不携带 operator/reason、不做 from 补全），detail 为空
-        updatePersist(id, request, "回滚至 v" + req.targetVersion(), null);
+        // 回滚说明极简 = 「回滚至 v{目标}」；同时生成 type=ROLLBACK 的结构化变更详情
+        // （回滚前当前配置 vs 目标版本配置），供版本历史「变更详情」展示（2026-09-08）
+        SnapshotRepository.SnapshotDetail prev = snapshotRepository.find(id, req.currentVersion()).orElse(null);
+        String oldConfig = prev != null ? prev.configJson() : currentConfigJson(id);
+        String detail = SnapshotChangeDiff.rollbackDetail(oldConfig, snap.configJson());
+        updatePersist(id, request, "回滚至 v" + req.targetVersion(), detail);
     }
 
     // ---------- 版本查询（M5 D-M5-1） ----------

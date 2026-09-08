@@ -45,12 +45,22 @@ public final class SnapshotChangeDiff {
     public record DiffResult(String summary, String detailJson) {
     }
 
-    /** 生成：manual 为 X-Change-Note 手填备注（可空） */
+    /** 生成（编辑保存）：manual 为 X-Change-Note 手填备注（可空） */
     public static DiffResult build(String oldJson, String newJson, String manual) {
+        return build0(oldJson, newJson, manual, "UPDATE");
+    }
+
+    /** 生成（回滚，2026-09-08）：detail 为「回滚前当前配置 vs 目标版本配置」差异，type=ROLLBACK；
+     * 摘要文案不采用（回滚说明固定为「回滚至 v{目标}」），仅取 detail 供版本历史「变更详情」渲染。 */
+    public static String rollbackDetail(String oldConfigJson, String targetConfigJson) {
+        return build0(oldConfigJson, targetConfigJson, null, "ROLLBACK").detailJson();
+    }
+
+    private static DiffResult build0(String oldJson, String newJson, String manual, String type) {
         JsonNode oldRoot = parse(oldJson);
         JsonNode newRoot = parse(newJson);
         ObjectNode detail = MAPPER.createObjectNode();
-        detail.put("type", "UPDATE");
+        detail.put("type", type);
 
         List<String> parts = new ArrayList<>();
 

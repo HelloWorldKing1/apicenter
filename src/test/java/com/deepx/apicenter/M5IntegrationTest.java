@@ -217,6 +217,11 @@ class M5IntegrationTest {
         assertSnapshotCount(verIfaceId, 3);
         String note = latestChangeNote(verIfaceId);
         assertThat(note).isEqualTo("回滚至 v1.0");
+        // 回滚行仍应生成 type=ROLLBACK 的结构化变更详情（相对回滚前版本的字段差异）
+        String rollbackDetail = jdbcTemplate.queryForObject(
+                "SELECT change_detail FROM interface_snapshot WHERE interface_id = ? AND version = ?",
+                String.class, verIfaceId, new BigDecimal("1.2"));
+        assertThat(rollbackDetail).isNotNull().contains("\"type\":\"ROLLBACK\"").contains("\"fields\"");
 
         // 回滚后立即调用（S6：回滚发布 INTERFACE 事件）→ rename 语义恢复（不再枚举映射）
         // 先清 WireMock 请求计数（上面的 enumMap 调用记录清掉，verify(0) 才具鉴别力）
