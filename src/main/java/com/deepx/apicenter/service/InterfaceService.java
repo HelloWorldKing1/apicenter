@@ -224,7 +224,8 @@ public class InterfaceService {
                 interfaceRepository.findBindings(id));
     }
 
-    /** 更新持久化（校验 / 唯一性 / 乐观锁 / 全量替换 / 写快照 + 事件）；说明由调用方给定（回滚直调本方法绕开 diff） */
+    /** 更新持久化（校验 / 唯一性 / 乐观锁 / 全量替换 / 写快照 + 事件）；说明由调用方给定。
+     * 注意：私有方法不挂事务（@Transactional 对私有无效），须在调用方事务内（update/rollback 已 @Transactional）。 */
     private void updatePersist(long id, InterfaceRequest req, String changeNote, String changeDetail) {
         InterfaceRow current = interfaceRepository.findById(id).orElseThrow(() -> BizException.ifaceNotFound(id));
         validate(req);

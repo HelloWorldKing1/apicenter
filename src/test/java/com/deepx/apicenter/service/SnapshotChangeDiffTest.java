@@ -86,4 +86,54 @@ class SnapshotChangeDiffTest {
         assertThat(r.summary()).contains("删除 c→d");
         assertThat(r.summary()).contains("修改 1 条");
     }
+
+    @Test
+    void mapping增删混合_新增数正确() {
+        // 一增一删（同数）：新增数必须为 1（回归 H2 公式错误）
+        String oldJ = """
+                {"main":{"code":"I","method":"POST","path":"/m"},
+                 "mappings":[{"source":"a","op":"rename","target":"b","param":null,"nullStrategy":"KEEP"},
+                             {"source":"c","op":"rename","target":"d","param":null,"nullStrategy":"KEEP"}]}
+                """;
+        String newJ = """
+                {"main":{"code":"I","method":"POST","path":"/m"},
+                 "mappings":[{"source":"a","op":"rename","target":"b","param":null,"nullStrategy":"KEEP"},
+                             {"source":"e","op":"rename","target":"f","param":null,"nullStrategy":"KEEP"}]}
+                """;
+        SnapshotChangeDiff.DiffResult r = SnapshotChangeDiff.build(oldJ, newJ, null);
+        assertThat(r.summary()).contains("字段映射 2→2");
+        assertThat(r.summary()).contains("新增 e→f");
+        assertThat(r.summary()).contains("删除 c→d");
+    }
+
+    @Test
+    void 参数sample与body内容改动_产生摘要() {
+        String oldJ = """
+                {"main":{"code":"I","method":"POST","path":"/m"},
+                 "params":[{"side":"IN","name":"p","type":"string","required":true,"sample":"a"}],
+                 "bodies":[{"side":"IN","bodyType":"form","raw":null,"form":"[[\"k\",\"v\"]]"}]}
+                """;
+        String newJ = """
+                {"main":{"code":"I","method":"POST","path":"/m"},
+                 "params":[{"side":"IN","name":"p","type":"string","required":true,"sample":"b"}],
+                 "bodies":[{"side":"IN","bodyType":"form","raw":null,"form":"[[\"k\",\"v2\"]]"}]}
+                """;
+        SnapshotChangeDiff.DiffResult r = SnapshotChangeDiff.build(oldJ, newJ, null);
+        assertThat(r.summary()).contains("参数 1→1（修改 1 条）");
+        assertThat(r.summary()).contains("Body(IN) 内容有改动");
+    }
+
+    @Test
+    void 主字段补全与长值截断() {
+        String longV = "x".repeat(120);
+        String oldJ = "{\"main\":{\"code\":\"A\",\"name\":\"old\",\"ifType\":\"OUTBOUND\",\"method\":\"POST\",\"path\":\"/a\",\"groupId\":1,\"desc\":\"" + longV + "\"}}";
+        String newJ = "{\"main\":{\"code\":\"B\",\"name\":\"new\",\"ifType\":\"INBOUND\",\"method\":\"POST\",\"path\":\"/a\",\"groupId\":2,\"desc\":\"" + longV + "x\"}}";
+        SnapshotChangeDiff.DiffResult r = SnapshotChangeDiff.build(oldJ, newJ, null);
+        assertThat(r.summary()).contains("接口标识 A→B");
+        assertThat(r.summary()).contains("接口类型 OUTBOUND→INBOUND");
+        assertThat(r.summary()).contains("分组 1→2");
+        // 长值截断 + …，且不超上限
+        assertThat(r.summary().length()).isLessThan(900);
+        assertThat(r.summary()).contains("…");
+    }
 }

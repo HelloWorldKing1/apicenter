@@ -53,8 +53,9 @@ public final class InterfaceDtos {
     }
 
     /**
-     * 回滚请求（M5 D-M5-1）：targetVersion 目标快照、currentVersion 乐观锁、operator / reason 审计拼入 change_note。
-     * H2 修复：operator / reason 限长（change_note 列 VARCHAR(255)，拼接后仍须 < 250，防超长直插 500）。
+     * 回滚请求（M5 D-M5-1）：targetVersion 目标快照、currentVersion 乐观锁（版本号 +0.1 步进）。
+     * operator / reason：为历史 API 兼容保留（@Deprecated 语义）——2026-09-07 起回滚说明极简为「回滚至 v{目标}」，
+     * 不再拼入 operator/reason；本字段仅预留，不再写入 change_note。
      */
     public record RollbackRequest(
             @NotNull(message = "目标版本不能为空") BigDecimal targetVersion,

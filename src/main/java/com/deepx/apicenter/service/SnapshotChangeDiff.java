@@ -28,9 +28,15 @@ public final class SnapshotChangeDiff {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    /** 摘要中单值最大展示长度（超长截断 + …，防 change_note 溢出与视图膨胀） */
+    private static final int VALUE_MAX = 60;
+    /** 摘要总长上限（DB change_note VARCHAR(1000)，留余量防边界字符截断） */
+    private static final int SUMMARY_MAX = 900;
+
     /** 主字段中文 label（顺序即摘要展示顺序；code/status/version/appId 等不参与——status 由生命周期管理） */
     private static final String[][] MAIN_KEYS = {
-            {"name", "名称"}, {"method", "HTTP 方法"}, {"path", "平台侧路径"},
+            {"code", "接口标识"}, {"name", "名称"}, {"ifType", "接口类型"}, {"method", "HTTP 方法"},
+            {"path", "平台侧路径"}, {"groupId", "分组"},
             {"protocolIn", "入站协议"}, {"protocolOut", "出站协议"},
             {"upstreamPath", "上游路径"}, {"callbackUrl", "回调地址"},
             {"timeoutMs", "读超时(ms)"}, {"maxRetries", "最大重试"}, {"desc", "描述"}
@@ -60,7 +66,7 @@ public final class SnapshotChangeDiff {
             if (!ov.equals(nv)) {
                 fieldCount++;
                 if (fieldCount <= 3) {
-                    parts.add(label + " " + (ov.isEmpty() ? "∅" : ov) + "→" + (nv.isEmpty() ? "∅" : nv));
+                    parts.add(label + " " + (ov.isEmpty() ? "∅" : shortVal(ov)) + "→" + (nv.isEmpty() ? "∅" : shortVal(nv)));
                 }
                 ObjectNode f = fields.addObject();
                 f.put("field", key).put("label", label).put("old", ov).put("new", nv);
@@ -88,6 +94,10 @@ public final class SnapshotChangeDiff {
         if (manual != null && !manual.isBlank()) {
             sb.append("｜备注：").append(manual.trim());
         }
+        if (sb.length() > SUMMARY_MAX) {
+            sb.setLength(SUMMARY_MAX - 1);
+            sb.append("…");
+        }
         return new DiffResult(sb.toString(), detail.toString());
     }
 
@@ -106,7 +116,7 @@ public final class SnapshotChangeDiff {
                     addNames.add(e.getKey());
                 }
                 arr.addObject().put("action", "ADD").put("key", e.getKey()).put("type", text(e.getValue().get("type")));
-            } else if (changed(oldN, e.getValue(), "type", "required")) {
+            } else if (changed(oldN, e.getValue(), "type", "required", "sample")) {
                 upd++;
                 arr.addObject().put("action", "UPD").put("key", e.getKey());
             }
@@ -142,11 +152,12 @@ public final class SnapshotChangeDiff {
         Map<String, JsonNode> oldM = index(oldArr, MAPPING_KEY);
         Map<String, JsonNode> newM = index(newArr, MAPPING_KEY);
         ArrayNode arr = detail.putArray("mappings");
-        int del = 0, upd = 0;
+        int add = 0, del = 0, upd = 0;
         List<String> addList = new ArrayList<>(), delList = new ArrayList<>();
         for (Map.Entry<String, JsonNode> e : newM.entrySet()) {
             JsonNode oldN = oldM.get(e.getKey());
             if (oldN == null) {
+                add++;
                 if (addList.size() < 2) {
                     addList.add(e.getKey());
                 }
@@ -165,7 +176,6 @@ public final class SnapshotChangeDiff {
                 arr.addObject().put("action", "DEL").put("key", e.getKey());
             }
         }
-        int add = newM.size() - oldM.size() + del;
         if (add > 0 || del > 0 || upd > 0) {
             List<String> bits = new ArrayList<>();
             if (add > 0) {
@@ -270,12 +280,16 @@ public final class SnapshotChangeDiff {
             String ot = text(oldN.get("bodyType"));
             String nt = text(e.getValue().get("bodyType"));
             boolean rawChanged = !text(oldN.get("raw")).equals(text(e.getValue().get("raw")));
-            if (!ot.equals(nt) || rawChanged) {
+            boolean formChanged = !text(oldN.get("form")).equals(text(e.getValue().get("form")));
+            if (!ot.equals(nt) || rawChanged || formChanged) {
                 ObjectNode node = arr.addObject();
                 node.put("action", "UPD").put("key", e.getKey());
                 node.put("bodyType", ot + "→" + nt);
-                node.put("hasChanged", rawChanged);
-                parts.add("Body(" + e.getKey() + ") " + (ot.isEmpty() ? "∅" : ot) + "→" + (nt.isEmpty() ? "∅" : nt));
+                node.put("hasChanged", rawChanged || formChanged);
+                parts.add("Body(" + e.getKey() + ") "
+                        + (!ot.equals(nt)
+                        ? (ot.isEmpty() ? "∅" : ot) + "→" + (nt.isEmpty() ? "∅" : nt)
+                        : "内容有改动"));
             }
         }
     }
@@ -319,6 +333,13 @@ public final class SnapshotChangeDiff {
             return String.join("、", names);
         }
         return String.join("、", names) + " 等 " + count + " 条";
+    }
+
+    private static String shortVal(String v) {
+        if (v == null || v.length() <= VALUE_MAX) {
+            return v;
+        }
+        return v.substring(0, VALUE_MAX) + "…";
     }
 
     private static String text(JsonNode n) {
