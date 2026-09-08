@@ -83,7 +83,7 @@ npm run dev           # 前端 dev server :5173（/api 代理到 8080）
 npm run build         # 构建产物输出到 src/main/resources/static/（后端直接 serve）
 ```
 
-运行后可访问：管理面 `http://localhost:5173`（dev）/ `http://localhost:8080`（build 产物）；`/actuator/health` 健康检查。启动时 SeedDataInitializer 幂等导入 fastmoss 黄金用例种子（`app.api-center.seed.enabled` 可关）。
+运行后可访问：管理面 `http://localhost:5173`（dev）/ `http://localhost:8080`（build 产物）；`/actuator/health` 健康检查。fastmoss 种子默认不自动导入（`app.api-center.seed.enabled=false`）：需要演示基线时执行 `POST /api/admin/seed/import` 手动导入。
 
 ## 架构与源码结构
 

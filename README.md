@@ -52,7 +52,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 ```
 
 - 管理面 `http://localhost:5173`（dev）/ `http://localhost:8080`（build 产物）；`/actuator/health` 健康检查。
-- 启动时 SeedDataInitializer 幂等导入 fastmoss 黄金用例种子（`app.api-center.seed.enabled` 可关）。
+- fastmoss 种子默认不自动导入：需要演示基线时执行 `POST /api/admin/seed/import` 手动导入（或置 `app.api-center.seed.enabled=true` 重启）。
 - 执行面（Flow A）平台侧路径直接打后端：`POST http://localhost:8080/fastmoss/creatorList`。
 
 ## 事实来源

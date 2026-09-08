@@ -82,10 +82,26 @@ public class SeedDataInitializer implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
+        // 启动自动导入默认关闭（app.api-center.seed.enabled=false，yaml 默认）：
+        // 需要 fastmoss 演示基线时通过 POST /api/admin/seed/import 手动导入，或临时开启开关后重启。
         if (!seedEnabled) {
-            log.info("种子导入已关闭（app.api-center.seed.enabled=false）");
+            log.info("种子自动导入已关闭（app.api-center.seed.enabled=false）；需要时 POST /api/admin/seed/import");
             return;
         }
+        importSeed();
+    }
+
+    /** 手动导入入口（幂等 / 增量补齐 / 残缺重建语义与启动自动导入一致；controller 复用） */
+    public synchronized void importSeed() {
+        try {
+            doImport();
+        } catch (Exception e) {
+            log.error("种子导入失败", e);
+            throw new IllegalStateException("种子导入失败：" + e.getMessage(), e);
+        }
+    }
+
+    private void doImport() {
         if (seedIntact()) {
             log.info("fastmoss 种子完整，跳过导入（幂等）");
             return;
