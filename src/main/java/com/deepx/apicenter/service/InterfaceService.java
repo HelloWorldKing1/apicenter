@@ -2,6 +2,7 @@ package com.deepx.apicenter.service;
 
 import com.deepx.apicenter.config.ConfigChangedEvent;
 import com.deepx.apicenter.dto.InterfaceDtos.BodyDto;
+import com.deepx.apicenter.dto.InterfaceDtos.CopyRequest;
 import com.deepx.apicenter.dto.InterfaceDtos.BindingDto;
 import com.deepx.apicenter.dto.InterfaceDtos.FieldDefDto;
 import com.deepx.apicenter.dto.InterfaceDtos.InterfaceRequest;
@@ -107,6 +108,11 @@ public class InterfaceService {
 
     @Transactional
     public long create(InterfaceRequest req) {
+        return createWithNote(req, null);
+    }
+
+    /** 创建（含快照 change_note，供 copy 标注来源；其余路径保持空说明） */
+    private long createWithNote(InterfaceRequest req, String changeNote) {
         validate(req);
         if (interfaceRepository.existsByCode(req.code())) {
             throw BizException.fieldInvalid("接口标识已存在：" + req.code());
@@ -117,8 +123,56 @@ public class InterfaceService {
         validateBelong(req);
         long id = interfaceRepository.insertAndGetId(toRow(req, "DRAFT", BASE_VERSION, 0));
         insertChildren(id, req);
-        writeSnapshot(id, null); // M5 D-M5-1：创建 → v1.0 首快照
+        writeSnapshot(id, changeNote); // M5 D-M5-1：创建 → v1.0 首快照（change_note 可为空）
         return id;
+    }
+
+    /**
+     * 接口复制（方案 B，2026-09-07 拍板）：
+     * 源 = detail 当前配置（六段子表全量）；新 code/path 必填；归属固定 = 源应用/源分组（不支持跨应用）；
+     * name/desc/upstreamPath/callbackUrl 可空 = 沿用/默认；凭证随应用、快照历史与运行数据不复制；
+     * 产物 DRAFT v1.0，首快照 change_note = 「复制自 {源code}#v{源版本}」。
+     * 组装后走 createWithNote = 复用既有校验 / 唯一性 / 归属 / 级联插入（零旁路）。
+     */
+    @Transactional
+    public long copy(long sourceId, CopyRequest req) {
+        InterfaceResponse src = detail(sourceId);
+        String name = isBlank(req.name()) ? src.name() + " 副本" : req.name().trim();
+        String desc = isBlank(req.desc()) ? src.desc() : req.desc().trim();
+        String upstream = isBlank(req.upstreamPath()) ? src.upstreamPath() : req.upstreamPath().trim();
+        String callback = isBlank(req.callbackUrl()) ? src.callbackUrl() : req.callbackUrl().trim();
+        InterfaceRequest target = new InterfaceRequest(
+                req.code(), name, src.ifType(), src.method(), req.path(),
+                src.protocolIn(), src.protocolOut(), src.appId(), src.groupId(),
+                upstream, callback, null, src.timeoutMs(), src.maxRetries(), desc, BASE_VERSION,
+                toParamDtos(src.params()), toBodyDtos(src.bodies()), toMappingDtos(src.mappings()),
+                toFieldDefDtos(src.fieldDefs()), toBindingDtos(src.bindings()));
+        return createWithNote(target, "复制自 " + src.code() + "#v" + src.version());
+    }
+
+    // ---------- 复制用：运行行模型 → 请求 DTO（仅固定字段搬移） ----------
+
+    private List<ParamDto> toParamDtos(List<InterfaceRow.ParamRow> rows) {
+        return rows.stream().map(r -> new ParamDto(r.side(), r.name(), r.type(),
+                r.required(), r.sample(), r.sortOrder())).toList();
+    }
+
+    private List<BodyDto> toBodyDtos(List<InterfaceRow.BodyRow> rows) {
+        return rows.stream().map(r -> new BodyDto(r.side(), r.bodyType(), r.raw(), r.form())).toList();
+    }
+
+    private List<MappingDto> toMappingDtos(List<InterfaceRow.MappingRow> rows) {
+        return rows.stream().map(r -> new MappingDto(r.source(), r.op(), r.target(),
+                r.param(), r.nullStrategy(), r.sortOrder())).toList();
+    }
+
+    private List<FieldDefDto> toFieldDefDtos(List<InterfaceRow.FieldDefRow> rows) {
+        return rows.stream().map(r -> new FieldDefDto(r.kind(), r.name(), r.type(),
+                r.desc(), r.sortOrder())).toList();
+    }
+
+    private List<BindingDto> toBindingDtos(List<InterfaceRow.BindingRow> rows) {
+        return rows.stream().map(r -> new BindingDto(r.role(), r.adapterId(), r.version())).toList();
     }
 
     @Transactional

@@ -4,6 +4,7 @@ import com.deepx.apicenter.adapter.auth.HmacSigner;
 import com.deepx.apicenter.dto.ApiResult;
 import com.deepx.apicenter.dto.InterfaceDtos.InterfaceRequest;
 import com.deepx.apicenter.dto.InterfaceDtos.InterfaceResponse;
+import com.deepx.apicenter.dto.InterfaceDtos.CopyRequest;
 import com.deepx.apicenter.dto.InterfaceDtos.RollbackRequest;
 import com.deepx.apicenter.engine.ChainEngine;
 import com.deepx.apicenter.engine.OutboundEngine;
@@ -240,6 +241,12 @@ public class InterfaceController {
     @GetMapping("/{id}/versions/{version}")
     public ApiResult<InterfaceService.VersionDetail> versionDetail(@PathVariable long id, @PathVariable BigDecimal version) {
         return ApiResult.ok(interfaceService.versionDetail(id, version));
+    }
+
+    /** 复制（方案 B）：以源当前配置建新接口（新 code/path，同应用同分组，DRAFT v1.0）；返回新接口 id */
+    @PostMapping("/{id}/copy")
+    public ApiResult<Long> copy(@PathVariable long id, @Valid @RequestBody CopyRequest req) {
+        return ApiResult.ok(interfaceService.copy(id, req));
     }
 
     /** 回滚：目标快照 + 乐观锁 currentVersion + operator / reason（拼入新版本 change_note） */

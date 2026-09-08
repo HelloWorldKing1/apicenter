@@ -434,6 +434,7 @@
       <div class="detail-actions">
         <el-button type="primary" @click="openEdit(detail.row)">编辑</el-button>
         <el-button type="primary" plain @click="openVersionHistory(detail.row)">版本历史</el-button>
+        <el-button type="primary" plain @click="openCopy(detail.row)">复制</el-button>
         <!-- M3：测试接口仅 OUTBOUND；INBOUND 用「模拟回调」（否则入站接口会错误地走出站链路） -->
         <el-button v-if="detail.row.ifType === 'OUTBOUND'" type="warning"
                    @click="openTest(detail.row)">测试接口</el-button>
@@ -493,6 +494,37 @@
       <template #footer>
         <el-button @click="vh.rollbackVisible = false">取消</el-button>
         <el-button type="danger" @click="doRollback">确认回滚</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- ============ 接口复制（方案 B：同应用同分组 / DRAFT v1.0 / 凭证沿用本应用） ============ -->
+    <el-dialog v-model="cp.visible" :title="`复制接口 · ${cp.src ? cp.src.code : ''}`" width="560px">
+      <div class="tip" style="margin-bottom: 10px">
+        复制源：{{ cp.src?.name }}（{{ cp.src?.code }}#v{{ cp.src?.version }}，{{ cp.src?.ifType === 'OUTBOUND' ? '出站' : '入站' }}）。
+        产物为<b>草稿</b>并固定归入源应用/分组；接口标识与平台侧路径必填且全局唯一；凭证沿用本应用；
+        快照历史与运行数据不复制（新接口从 v1.0 独立开始）。
+      </div>
+      <el-form label-width="96px">
+        <el-form-item label="接口标识" required>
+          <el-input v-model="cp.code" maxlength="64" placeholder="新接口唯一标识（全局唯一，如 IF-NEW-01）" clearable />
+        </el-form-item>
+        <el-form-item label="名称">
+          <el-input v-model="cp.name" maxlength="200" placeholder="默认：{源名} 副本" clearable />
+        </el-form-item>
+        <el-form-item label="平台侧路径" required>
+          <el-input v-model="cp.path" maxlength="255" placeholder="新平台路径（全局唯一，如 /api/new-path）" clearable />
+        </el-form-item>
+        <el-form-item :label="cp.src?.ifType === 'OUTBOUND' ? '上游路径' : '回调地址'">
+          <el-input v-model="cp.target" clearable
+                    :placeholder="cp.src ? `留空 = 沿用源（${copySrcTarget(cp.src)}）` : ''" />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="cp.desc" type="textarea" :rows="2" maxlength="500" placeholder="留空 = 沿用源描述" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="cp.visible = false">取消</el-button>
+        <el-button type="primary" :loading="cp.saving" @click="submitCopy">复制为草稿</el-button>
       </template>
     </el-dialog>
   </div>
@@ -981,6 +1013,55 @@ function formatJson(text) {
     return JSON.stringify(JSON.parse(text), null, 2)
   } catch {
     return text
+  }
+}
+
+// ---------- 接口复制（方案 B：同应用同分组 / DRAFT / 凭证沿用本应用） ----------
+const cp = reactive({ visible: false, src: null, code: '', name: '', path: '', target: '', desc: '', saving: false })
+
+function copySrcTarget(src) {
+  return (src?.ifType === 'OUTBOUND' ? src.upstreamPath : src.callbackUrl) || '—'
+}
+
+function openCopy(row) {
+  cp.src = row
+  cp.code = ''
+  cp.path = ''
+  cp.name = `${row.name || row.code} 副本`
+  cp.target = ''
+  cp.desc = ''
+  cp.saving = false
+  cp.visible = true
+}
+
+async function submitCopy() {
+  if (!cp.src) return
+  if (!cp.code.trim() || !cp.path.trim()) {
+    ElMessage.warning('接口标识与平台侧路径必填')
+    return
+  }
+  const outbound = cp.src.ifType === 'OUTBOUND'
+  cp.saving = true
+  try {
+    const body = {
+      code: cp.code.trim(),
+      name: cp.name.trim() || null,
+      path: cp.path.trim(),
+      upstreamPath: outbound ? (cp.target.trim() || null) : null,
+      callbackUrl: outbound ? null : (cp.target.trim() || null),
+      desc: cp.desc.trim() || null
+    }
+    const newId = await http.post(`/interfaces/${cp.src.id}/copy`, body)
+    ElMessage.success(`已复制为草稿（新接口 #${newId}）`)
+    cp.visible = false
+    load()
+    // 打开新接口详情（新 id 拉取，避免复用旧 row）
+    detail.row = await http.get(`/interfaces/${newId}`)
+    detail.visible = true
+  } catch {
+    // 唯一性/校验冲突错误由 http 拦截器统一提示（与 create 同文案）
+  } finally {
+    cp.saving = false
   }
 }
 

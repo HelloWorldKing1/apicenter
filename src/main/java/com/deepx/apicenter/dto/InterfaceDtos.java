@@ -39,6 +39,20 @@ public final class InterfaceDtos {
     }
 
     /**
+     * 接口复制请求（方案 B，2026-09-07 拍板）：code/path 必填（全局唯一）；name/desc/upstreamPath/callbackUrl
+     * 可空 = 沿用源；归属固定 = 源应用/源分组（不支持跨应用）；产物 = DRAFT v1.0。
+     */
+    public record CopyRequest(
+            @NotBlank(message = "新接口标识不能为空") String code,
+            @NotBlank(message = "平台侧路径不能为空") String path,
+            String name,
+            String upstreamPath,
+            String callbackUrl,
+            String desc
+    ) {
+    }
+
+    /**
      * 回滚请求（M5 D-M5-1）：targetVersion 目标快照、currentVersion 乐观锁、operator / reason 审计拼入 change_note。
      * H2 修复：operator / reason 限长（change_note 列 VARCHAR(255)，拼接后仍须 < 250，防超长直插 500）。
      */
