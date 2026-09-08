@@ -206,9 +206,9 @@ class M5IntegrationTest {
         BigDecimal v2 = versionOf(verIfaceId);
         assertThat(v2).isEqualByComparingTo(new BigDecimal("1.1"));
 
-        // 回滚 v1.0（HTTP rollback：operator/reason 拼入 change_note；乐观锁 currentVersion=1.1）
+        // 回滚 v1.0（HTTP rollback：变更说明极简 = 「回滚至 v1.0」；乐观锁 currentVersion=1.1）
         ResponseEntity<byte[]> rb = postAdmin("/api/admin/interfaces/" + verIfaceId + "/rollback",
-                "{\"targetVersion\":1.0,\"operator\":\"m5-tester\",\"reason\":\"回归验收\",\"currentVersion\":1.1}");
+                "{\"targetVersion\":1.0,\"currentVersion\":1.1}");
         assertThat(rb.getStatusCode().value()).isEqualTo(200);
 
         BigDecimal v3 = versionOf(verIfaceId);
@@ -216,7 +216,7 @@ class M5IntegrationTest {
         assertThat(statusOf(verIfaceId)).isEqualTo("PUBLISHED"); // status 保持不变（快照不含 status）
         assertSnapshotCount(verIfaceId, 3);
         String note = latestChangeNote(verIfaceId);
-        assertThat(note).contains("回滚至 v1.0").contains("operator=m5-tester").contains("reason=回归验收");
+        assertThat(note).isEqualTo("回滚至 v1.0");
 
         // 回滚后立即调用（S6：回滚发布 INTERFACE 事件）→ rename 语义恢复（不再枚举映射）
         // 先清 WireMock 请求计数（上面的 enumMap 调用记录清掉，verify(0) 才具鉴别力）

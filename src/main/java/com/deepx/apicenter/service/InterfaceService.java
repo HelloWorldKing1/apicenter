@@ -123,7 +123,8 @@ public class InterfaceService {
         validateBelong(req);
         long id = interfaceRepository.insertAndGetId(toRow(req, "DRAFT", BASE_VERSION, 0));
         insertChildren(id, req);
-        writeSnapshot(id, changeNote); // M5 D-M5-1：创建 → v1.0 首快照（change_note 可为空）
+        // M5 D-M5-1：创建 → v1.0 首快照；P5 拍板：无 changeNote 时写「初始创建」（复制由 copy 传入来源文案）
+        writeSnapshot(id, changeNote == null ? "初始创建" : changeNote, null);
         return id;
     }
 
@@ -180,14 +181,51 @@ public class InterfaceService {
         update(id, req, null);
     }
 
-    /** 全量替换 + 版本化（M5）：成功更新后 version+1（updateWithVersion 自增）并写新快照（change_note 可为空） */
+    /**
+     * 全量替换 + 版本化（M5）：成功更新后 version +0.1 并写新快照。
+     * 变更说明完善（2026-09-07）：changeNote = X-Change-Note 手填**备注**（可空，≤250），
+     * 落库 change_note = 自动 diff 摘要（+ 可选 ｜备注 段）、change_detail = 结构化 JSON。
+     */
     @Transactional
     public void update(long id, InterfaceRequest req, String changeNote) {
-        // H2 修复：change_note 列 VARCHAR(255)，超长直插会抛 DataIntegrityViolation（500）——
-        // 在唯一入口统一限长兜底（覆盖 X-Change-Note 头与 rollback 拼装两类来源，DTO @Size 之外的最后一道闸）
+        // H2 修复：备注超长直插抛 500 —— 唯一入口统一限长兜底
         if (changeNote != null && changeNote.length() > 250) {
-            throw BizException.fieldInvalid("变更说明超长（最多 250 字）");
+            throw BizException.fieldInvalid("变更备注超长（最多 250 字）");
         }
+        InterfaceRow current = interfaceRepository.findById(id).orElseThrow(() -> BizException.ifaceNotFound(id));
+        // 旧配置 = 上一个快照（每次成功配置变更均写快照，与当前库态一致、零额外查询）
+        String note;
+        String detail;
+        // 旧配置优先取上一个快照；对无快照的历史行（M5 前遗留/数据被清）回退为从当前库态现场构建，
+        // 保证任何成功更新都生成变更摘要（2026-09-08 修复：prev 缺失曾导致 change_note 为 null）
+        SnapshotRepository.SnapshotDetail prev = snapshotRepository.find(id, current.version()).orElse(null);
+        String oldJson = prev != null ? prev.configJson() : currentConfigJson(id);
+        if (oldJson != null) {
+            SnapshotChangeDiff.DiffResult diff =
+                    SnapshotChangeDiff.build(oldJson, newSnapshotJson(req), changeNote);
+            note = diff.summary();
+            detail = diff.detailJson();
+        } else {
+            note = changeNote == null || changeNote.isBlank() ? null : changeNote.trim();
+            detail = null;
+        }
+        updatePersist(id, req, note, detail);
+    }
+
+    /** 现场构建当前配置 JSON（无快照时的 diff 旧配置来源；与 writeSnapshot 读取同源） */
+    private String currentConfigJson(long id) {
+        InterfaceRow row = interfaceRepository.findById(id)
+                .orElseThrow(() -> BizException.ifaceNotFound(id));
+        return snapshotSerializer.toJson(row,
+                interfaceRepository.findParams(id),
+                interfaceRepository.findBodies(id),
+                interfaceRepository.findMappings(id),
+                interfaceRepository.findFieldDefs(id),
+                interfaceRepository.findBindings(id));
+    }
+
+    /** 更新持久化（校验 / 唯一性 / 乐观锁 / 全量替换 / 写快照 + 事件）；说明由调用方给定（回滚直调本方法绕开 diff） */
+    private void updatePersist(long id, InterfaceRequest req, String changeNote, String changeDetail) {
         InterfaceRow current = interfaceRepository.findById(id).orElseThrow(() -> BizException.ifaceNotFound(id));
         validate(req);
         validateBelong(req);
@@ -205,7 +243,7 @@ public class InterfaceService {
         }
         interfaceRepository.deleteChildren(id);
         insertChildren(id, req);
-        writeSnapshot(id, changeNote); // 新版本 = req.version + 1（乐观锁自增后回读）
+        writeSnapshot(id, changeNote, changeDetail); // 新版本 = req.version + 0.1（乐观锁自增后回读）
         eventPublisher.publishEvent(ConfigChangedEvent.interfaceChanged(id));
     }
 
@@ -220,10 +258,8 @@ public class InterfaceService {
         SnapshotRepository.SnapshotDetail snap = snapshotRepository.find(id, req.targetVersion())
                 .orElseThrow(() -> BizException.snapshotNotFound(id, req.targetVersion()));
         InterfaceRequest request = snapshotSerializer.toRequest(snap.configJson(), req.currentVersion());
-        String note = "回滚至 v" + req.targetVersion()
-                + "（operator=" + (req.operator() == null ? "" : req.operator())
-                + ", reason=" + (req.reason() == null ? "" : req.reason()) + "）";
-        update(id, request, note);
+        // 评审定稿：回滚说明极简 = 「回滚至 v{目标}」（不携带 operator/reason、不做 from 补全），detail 为空
+        updatePersist(id, request, "回滚至 v" + req.targetVersion(), null);
     }
 
     // ---------- 版本查询（M5 D-M5-1） ----------
@@ -234,7 +270,7 @@ public class InterfaceService {
         long total = snapshotRepository.count(id);
         int offset = Math.max(0, (page - 1) * pageSize);
         List<VersionItem> items = snapshotRepository.listPage(id, offset, pageSize).stream()
-                .map(s -> new VersionItem(s.version(), s.changeNote(), s.createdAt()))
+                .map(s -> new VersionItem(s.version(), s.changeNote(), s.createdAt(), s.hasDetail()))
                 .toList();
         return new VersionPage(items, total, page, pageSize);
     }
@@ -244,16 +280,18 @@ public class InterfaceService {
         interfaceRepository.findById(id).orElseThrow(() -> BizException.ifaceNotFound(id));
         SnapshotRepository.SnapshotDetail snap = snapshotRepository.find(id, version)
                 .orElseThrow(() -> BizException.snapshotNotFound(id, version));
-        return new VersionDetail(snap.version(), snap.changeNote(), snap.createdAt(), snap.configJson());
+        return new VersionDetail(snap.version(), snap.changeNote(), snap.createdAt(),
+                snap.configJson(), snap.changeDetail());
     }
 
-    public record VersionItem(BigDecimal version, String changeNote, LocalDateTime createdAt) {
+    public record VersionItem(BigDecimal version, String changeNote, LocalDateTime createdAt, boolean hasDetail) {
     }
 
     public record VersionPage(List<VersionItem> list, long total, int page, int pageSize) {
     }
 
-    public record VersionDetail(BigDecimal version, String changeNote, LocalDateTime createdAt, String configJson) {
+    public record VersionDetail(BigDecimal version, String changeNote, LocalDateTime createdAt,
+                                String configJson, String changeDetail) {
     }
 
     @Transactional
@@ -294,8 +332,8 @@ public class InterfaceService {
 
     // ---------- 私有 ----------
 
-    /** 写快照：回读当前状态（版本已自增、子表已重建）序列化为 config_json（含 appId，换应用回滚不恢复错归属） */
-    private void writeSnapshot(long interfaceId, String changeNote) {
+    /** 写快照：回读当前状态（版本已自增、子表已重建）序列化为 config_json；changeDetail 可空 */
+    private void writeSnapshot(long interfaceId, String changeNote, String changeDetail) {
         InterfaceRow row = interfaceRepository.findById(interfaceId)
                 .orElseThrow(() -> BizException.ifaceNotFound(interfaceId));
         snapshotRepository.insert(interfaceId, row.version(),
@@ -305,7 +343,7 @@ public class InterfaceService {
                         interfaceRepository.findMappings(interfaceId),
                         interfaceRepository.findFieldDefs(interfaceId),
                         interfaceRepository.findBindings(interfaceId)),
-                changeNote);
+                changeNote, changeDetail);
     }
 
     // ---------- 校验（M1 设计 §2.5 类型互斥矩阵） ----------
@@ -413,32 +451,82 @@ public class InterfaceService {
 
     // ---------- 私有 ----------
 
+    /** 变更说明 diff 用：把本次请求归一化为“新快照 JSON”（与落库序列化同源，子表映射同 insertChildren） */
+    private String newSnapshotJson(InterfaceRequest req) {
+        InterfaceRow row = toRow(req, "DRAFT", BASE_VERSION, 0);
+        return snapshotSerializer.toJson(row,
+                paramRows(req), bodyRows(req), mappingRows(req), fieldDefRows(req), bindingRows(req));
+    }
+
+    // ---------- 私有 ----------
+
     private void insertChildren(long interfaceId, InterfaceRequest req) {
         List<ParamDto> params = req.params() == null ? List.of() : req.params();
         List<BodyDto> bodies = req.bodies() == null ? List.of() : req.bodies();
         List<MappingDto> mappings = req.mappings() == null ? List.of() : req.mappings();
         List<FieldDefDto> fieldDefs = req.fieldDefs() == null ? List.of() : req.fieldDefs();
         List<BindingDto> bindings = req.bindings() == null ? List.of() : req.bindings();
-        interfaceRepository.insertParams(interfaceId, params.stream()
+        interfaceRepository.insertParams(interfaceId, toParamRows(params));
+        interfaceRepository.insertBodies(interfaceId, toBodyRows(bodies));
+        interfaceRepository.insertMappings(interfaceId, toMappingRows(mappings));
+        interfaceRepository.insertFieldDefs(interfaceId, toFieldDefRows(fieldDefs));
+        interfaceRepository.insertBindings(interfaceId, toBindingRows(bindings));
+    }
+
+    /** 新快照 diff 用：请求子表 → 行模型（默认值规则与 insertChildren 完全一致，防 diff 误报） */
+    private List<InterfaceRow.ParamRow> paramRows(InterfaceRequest req) {
+        return toParamRows(req.params() == null ? List.of() : req.params());
+    }
+
+    private List<InterfaceRow.BodyRow> bodyRows(InterfaceRequest req) {
+        return toBodyRows(req.bodies() == null ? List.of() : req.bodies());
+    }
+
+    private List<InterfaceRow.MappingRow> mappingRows(InterfaceRequest req) {
+        return toMappingRows(req.mappings() == null ? List.of() : req.mappings());
+    }
+
+    private List<InterfaceRow.FieldDefRow> fieldDefRows(InterfaceRequest req) {
+        return toFieldDefRows(req.fieldDefs() == null ? List.of() : req.fieldDefs());
+    }
+
+    private List<InterfaceRow.BindingRow> bindingRows(InterfaceRequest req) {
+        return toBindingRows(req.bindings() == null ? List.of() : req.bindings());
+    }
+
+    private List<InterfaceRow.ParamRow> toParamRows(List<ParamDto> params) {
+        return params.stream()
                 .map(p -> new InterfaceRow.ParamRow(0, p.side(), p.name(), p.type() == null ? "string" : p.type(),
                         Boolean.TRUE.equals(p.required()), p.sample(), p.sortOrder() == null ? 0 : p.sortOrder()))
-                .toList());
-        interfaceRepository.insertBodies(interfaceId, bodies.stream()
+                .toList();
+    }
+
+    private List<InterfaceRow.BodyRow> toBodyRows(List<BodyDto> bodies) {
+        return bodies.stream()
                 .map(b -> new InterfaceRow.BodyRow(0, b.side(), b.bodyType() == null ? "none" : b.bodyType(),
                         b.raw(), b.form()))
-                .toList());
-        interfaceRepository.insertMappings(interfaceId, mappings.stream()
+                .toList();
+    }
+
+    private List<InterfaceRow.MappingRow> toMappingRows(List<MappingDto> mappings) {
+        return mappings.stream()
                 .map(m -> new InterfaceRow.MappingRow(0, m.source(), m.op(), m.target(), m.param(),
                         m.nullStrategy() == null ? "KEEP" : m.nullStrategy(),
                         m.sortOrder() == null ? 0 : m.sortOrder()))
-                .toList());
-        interfaceRepository.insertFieldDefs(interfaceId, fieldDefs.stream()
+                .toList();
+    }
+
+    private List<InterfaceRow.FieldDefRow> toFieldDefRows(List<FieldDefDto> fieldDefs) {
+        return fieldDefs.stream()
                 .map(f -> new InterfaceRow.FieldDefRow(0, f.kind(), f.name(), f.type() == null ? "string" : f.type(),
                         f.desc(), f.sortOrder() == null ? 0 : f.sortOrder()))
-                .toList());
-        interfaceRepository.insertBindings(interfaceId, bindings.stream()
+                .toList();
+    }
+
+    private List<InterfaceRow.BindingRow> toBindingRows(List<BindingDto> bindings) {
+        return bindings.stream()
                 .map(b -> new InterfaceRow.BindingRow(0, b.role(), b.adapterId(), b.version()))
-                .toList());
+                .toList();
     }
 
     private InterfaceRow toRow(InterfaceRequest req, String status, BigDecimal version, long id) {

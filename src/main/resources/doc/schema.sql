@@ -80,7 +80,8 @@ CREATE TABLE interface_snapshot (
     interface_id BIGINT       NOT NULL COMMENT '所属接口',
     version      DECIMAL(10,1) NOT NULL COMMENT '版本号（与 interface.version 同步 +0.1 步进）',
     config_json  LONGTEXT     NOT NULL COMMENT '整接口定义快照（参数/Body/字段映射/响应·ack/适配器绑定）',
-    change_note  VARCHAR(255) COMMENT '变更说明',
+    change_detail LONGTEXT    COMMENT '结构化变更详情 JSON（版本历史变更详情渲染源，可空=历史/回滚/创建/复制）',
+    change_note  VARCHAR(1000) COMMENT '变更说明摘要（自动 diff 生成 + 可选备注；回滚=回滚至 v{目标}）',
     created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '快照时间',
     UNIQUE KEY uk_snapshot (interface_id, version)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='接口配置快照';

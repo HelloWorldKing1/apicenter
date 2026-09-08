@@ -457,9 +457,11 @@
         <el-table-column prop="createdAt" label="时间" width="165">
           <template #default="{ row }">{{ (row.createdAt || '').replace('T', ' ').slice(0, 19) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="200">
+        <el-table-column label="操作" width="270">
           <template #default="{ row }">
             <el-button size="small" @click="viewSnapshot(row.version)">快照</el-button>
+            <el-button size="small" type="primary" plain :disabled="!row.hasDetail"
+                       @click="openChangeDetail(row.version)">变更详情</el-button>
             <el-button size="small" type="warning" plain
                        :disabled="row.version === (vh.iface?.version || 0)"
                        @click="confirmRollback(row.version)">回滚到此版本</el-button>
@@ -468,29 +470,27 @@
       </el-table>
       <div v-if="vh.detail" style="margin-top: 10px">
         <div class="side-desc" style="margin-bottom: 6px">
-          v{{ vh.detail.version }} 快照 JSON（完整可重建，不含 status）
+          v{{ vh.detail.version }}
+          <span v-if="vh.pane === 'detail'">变更详情（结构化：主字段与子表增删改，不含 raw 全文）</span>
+          <span v-else>快照 JSON（完整可重建，不含 status）</span>
         </div>
-        <pre class="snapshot-json">{{ formatJson(vh.detail.configJson) }}</pre>
+        <pre v-if="vh.pane === 'detail'" class="snapshot-json">
+          {{ vh.detail.changeDetail ? formatJson(vh.detail.changeDetail) : '（历史版本无结构化变更详情）' }}
+        </pre>
+        <pre v-else class="snapshot-json">{{ formatJson(vh.detail.configJson) }}</pre>
       </div>
       <template #footer>
         <el-button @click="vh.visible = false">关闭</el-button>
       </template>
     </el-dialog>
 
-    <!-- ============ 回滚确认（operator / reason 必填，二次确认） ============ -->
+    <!-- ============ 回滚确认（变更说明极简：回滚至 v{目标}，二次确认） ============ -->
     <el-dialog v-model="vh.rollbackVisible" title="回滚确认" width="460px">
       <p style="margin: 0 0 12px; color: #606266">
         将回滚至 <b>v{{ vh.targetVersion }}</b>（当前 v{{ vh.iface?.version }}）——
         以该版本快照全量替换当前配置并生成新版本（v{{ ((vh.iface?.version || 0) + 0.1).toFixed(1) }}），生命周期状态保持不变。
+        新版本变更说明记录为「回滚至 v{{ vh.targetVersion }}」。
       </p>
-      <el-form label-width="72px">
-        <el-form-item label="操作人" required>
-          <el-input v-model="vh.operator" maxlength="100" placeholder="如 admin" />
-        </el-form-item>
-        <el-form-item label="依据说明">
-          <el-input v-model="vh.reason" maxlength="100" placeholder="如：线上问题回滚" />
-        </el-form-item>
-      </el-form>
       <template #footer>
         <el-button @click="vh.rollbackVisible = false">取消</el-button>
         <el-button type="danger" @click="doRollback">确认回滚</el-button>
@@ -960,12 +960,13 @@ async function sendTest() {
 }
 
 // ---------- 版本历史（M5 D-M5-1） ----------
-const vh = reactive({ visible: false, iface: null, list: [], detail: null,
+const vh = reactive({ visible: false, iface: null, list: [], detail: null, pane: 'snap',
   rollbackVisible: false, targetVersion: 0, operator: '', reason: '' })
 
 async function openVersionHistory(row) {
   vh.list = []
   vh.detail = null
+  vh.pane = 'snap'
   vh.rollbackVisible = false
   vh.visible = true
   // 当前版本必须以最新详情为准：编辑保存后传入的 row（detail.row）可能仍是保存前旧版本，
@@ -981,6 +982,13 @@ async function openVersionHistory(row) {
 async function viewSnapshot(version) {
   const d = await http.get(`/interfaces/${vh.iface.id}/versions/${version}`)
   vh.detail = d
+  vh.pane = 'snap'
+}
+
+async function openChangeDetail(version) {
+  const d = await http.get(`/interfaces/${vh.iface.id}/versions/${version}`)
+  vh.detail = d
+  vh.pane = 'detail'
 }
 
 function confirmRollback(version) {
@@ -991,13 +999,8 @@ function confirmRollback(version) {
 }
 
 async function doRollback() {
-  if (!vh.operator.trim()) {
-    ElMessage.warning('请填写操作人')
-    return
-  }
   await http.post(`/interfaces/${vh.iface.id}/rollback`, {
-    targetVersion: vh.targetVersion, operator: vh.operator.trim(), reason: vh.reason.trim() || null,
-    currentVersion: vh.iface.version
+    targetVersion: vh.targetVersion, currentVersion: vh.iface.version
   })
   ElMessage.success(`已回滚至 v${vh.targetVersion}（新版本 v${(Number(vh.iface.version) + 0.1).toFixed(1)}）`)
   vh.rollbackVisible = false
