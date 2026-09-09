@@ -83,8 +83,12 @@ public class OutboundRequestRepository {
                 OutboundRequestRow.MAPPER, appId, bizId);
     }
 
-    /** 测试 / 运维清理：按应用删除运行数据（含其死信） */
+    /** 测试 / 运维清理：按应用删除运行数据（含其状态链与死信） */
     public int deleteByApp(String appId) {
+        jdbc.update("""
+                DELETE FROM outbound_request_state_log
+                WHERE outbound_request_id IN (SELECT id FROM outbound_request WHERE app_id = ?)
+                """, appId);
         jdbc.update("DELETE FROM dead_letter WHERE ref_id IN (SELECT id FROM outbound_request WHERE app_id = ?)", appId);
         return jdbc.update("DELETE FROM outbound_request WHERE app_id = ?", appId);
     }

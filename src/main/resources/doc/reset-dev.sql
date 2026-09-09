@@ -15,8 +15,9 @@
 -- ============================================================================
 
 -- ============================================================================
--- 一、运行数据（6 张，TRUNCATE 自增重置）
+-- 一、运行数据（7 张，TRUNCATE 自增重置）
 -- ============================================================================
+TRUNCATE TABLE outbound_request_state_log; -- 状态链（M5 后，关联 outbound_request）
 TRUNCATE TABLE dead_letter;          -- ref_id 多态引用运行表
 TRUNCATE TABLE reconcile_audit;      -- 对账审计（关联 outbound_request）
 TRUNCATE TABLE outbound_request;     -- 出站状态机载体
@@ -42,6 +43,7 @@ TRUNCATE TABLE alert_rule;           -- 自建告警规则（seed 不重建）
 -- ============================================================================
 -- 附录 A：备选——不想重置自增 ID 时，用 DELETE 等价格式替代以上 TRUNCATE：
 -- ============================================================================
+-- DELETE FROM outbound_request_state_log;
 -- DELETE FROM dead_letter;
 -- DELETE FROM reconcile_audit;
 -- DELETE FROM outbound_request;
