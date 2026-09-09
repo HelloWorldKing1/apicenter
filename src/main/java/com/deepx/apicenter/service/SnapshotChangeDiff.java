@@ -38,7 +38,7 @@ public final class SnapshotChangeDiff {
             {"code", "接口标识"}, {"name", "名称"}, {"ifType", "接口类型"}, {"method", "HTTP 方法"},
             {"path", "平台侧路径"}, {"groupId", "分组"},
             {"protocolIn", "入站协议"}, {"protocolOut", "出站协议"},
-            {"upstreamPath", "上游路径"}, {"callbackUrl", "回调地址"},
+            {"upstreamPath", "供应商接口路径"}, {"callbackUrl", "回调地址"},
             {"timeoutMs", "读超时(ms)"}, {"maxRetries", "最大重试"}, {"desc", "描述"}
     };
 

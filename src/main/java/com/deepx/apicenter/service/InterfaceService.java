@@ -371,11 +371,11 @@ public class InterfaceService {
         List<ParamDto> params = req.params() == null ? List.of() : req.params();
         if ("OUTBOUND".equals(req.ifType())) {
             if (isBlank(req.upstreamPath())) {
-                throw BizException.fieldInvalid("出站接口必填上游路径 upstreamPath");
+                throw BizException.fieldInvalid("出站接口必填供应商接口路径 upstreamPath");
             }
             // 上游路径应为相对路径（拼应用服务地址），拒绝绝对 URL 与路径穿越（中危 #7）
             if (req.upstreamPath().matches("^https?://.*") || req.upstreamPath().contains("..")) {
-                throw BizException.fieldInvalid("上游路径应为相对路径（拼应用服务地址），不含协议与「..」");
+                throw BizException.fieldInvalid("供应商接口路径应为相对路径（拼应用服务地址），不含协议与「..」");
             }
             if (!isBlank(req.callbackUrl())) {
                 throw BizException.fieldInvalid("出站接口不允许配置回调地址 callbackUrl");
@@ -397,7 +397,7 @@ public class InterfaceService {
             // SSRF 防护（M0-03 §4 点名 M3）：内网 / 回环地址拒绝（callback-allow-private 开关控制）
             callbackUrlValidator.validateForSave(req.callbackUrl());
             if (!isBlank(req.upstreamPath())) {
-                throw BizException.fieldInvalid("入站接口不允许配置上游路径 upstreamPath");
+                throw BizException.fieldInvalid("入站接口不允许配置供应商接口路径 upstreamPath");
             }
             if (fieldDefs.stream().anyMatch(f -> "RESP".equals(f.kind()))) {
                 throw BizException.fieldInvalid("入站接口不允许配置出站响应字段");

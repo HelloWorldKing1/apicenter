@@ -64,12 +64,12 @@ public class AdapterImplCatalog {
             // ---------- 报文 message ----------
             new ImplMeta("NoopMessageAdapter", "message", "直通（无转换）", List.of()),
             new ImplMeta("EnvelopeMessageAdapter", "message", "信封报文适配", List.of(
-                    f("envelope", "业务数据容器", "text", true, null, "如 data（上游业务内容所在字段，会放入平台响应的 data）"),
-                    f("codeField", "上游状态码字段", "text", true, null, "如 code"),
-                    f("successValue", "成功值", "text", true, null, "如 0，上游状态码等于它即业务成功"),
+                    f("envelope", "业务数据容器", "text", true, null, "如 data（供应商业务内容所在字段，会放入平台响应的 data）"),
+                    f("codeField", "供应商状态码字段", "text", true, null, "如 code"),
+                    f("successValue", "成功值", "text", true, null, "如 0，供应商状态码等于它即业务成功"),
                     f("codeMappings", "错误码映射", "codeMap", false, null, "可多条，逗号/换行分隔：如 1001→50201, 1002→50401"),
                     f("messageField", "消息字段", "text", false, null, "如 message，失败时透传为平台响应的 msg"),
-                    f("defaultErrorCode", "兜底错误码", "text", false, null, "如 50201，上游失败码未命中映射时使用"))),
+                    f("defaultErrorCode", "兜底错误码", "text", false, null, "如 50201，供应商失败码未命中映射时使用"))),
             new ImplMeta("HeaderMappingAdapter", "message", "报文头映射", List.of(
                     f("headerMappings", "报文头映射规则", "textarea", true, null, "每行一条：来源头名→目标头名，如 X-Upstream→X-Trace-Id")))
     );

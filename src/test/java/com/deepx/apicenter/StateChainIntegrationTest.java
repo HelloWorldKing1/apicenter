@@ -182,7 +182,7 @@ class StateChainIntegrationTest {
 
         // 人工对账置为已到达 → 追加 RECONCILE_MANUAL 节点
         long id = idOf("biz-unk");
-        monitorService.reconcile(id, "SUCCESS", "admin", "上游确认已到达");
+        monitorService.reconcile(id, "SUCCESS", "admin", "供应商确认已到达");
 
         List<OutboundRequestStateLogRow> after = chain("biz-unk");
         assertThat(after).hasSize(4);

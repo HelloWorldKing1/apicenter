@@ -94,7 +94,7 @@ public class OutboundEngine {
         }
         String trace = traceId == null ? UUID.randomUUID().toString().replace("-", "") : traceId;
         String biz = bizId == null || bizId.isBlank() ? UUID.randomUUID().toString() : bizId;
-        log.info("路由命中接口 code={} appId={} 上游={}", iface.code(), iface.appId(), iface.upstreamPath());
+        log.info("路由命中接口 code={} appId={} 供应商={}", iface.code(), iface.appId(), iface.upstreamPath());
         return execute(iface, body, biz, trace);
     }
 
@@ -187,7 +187,7 @@ public class OutboundEngine {
             outboundRequestRepository.updateState(recordId, "COMPENSATING", null, null, next, "50202");
             circuitBreakerRegistry.logState("短路", iface.id(), iface.appId());
             log.warn("出站请求 {} 熔断短路（接口 {} OPEN）→ COMPENSATING 顺延至 {}", recordId, iface.id(), next);
-            throw new BizException(50202, "上游熔断短路（已进入补偿队列）");
+            throw new BizException(50202, "供应商熔断短路（已进入补偿队列）");
         }
 
         // 状态 MAPPING → 调上游（状态列即时更新；节点攒批出口落库）
@@ -229,12 +229,12 @@ public class OutboundEngine {
             return handleSuccess(recordId, iface, respBody, trigger, how, attempt);
         }
         // 4xx 非 429 → 死信（不重试；5xx/429 已在 Invoker 内重试，到此即耗尽）
-        String reason = "上游 " + status.value() + "：" + resp.getStatusCode();
+        String reason = "供应商 " + status.value() + "：" + resp.getStatusCode();
         chainAppend("MAPPING", "DEAD_LETTER", attempt, "50201", trigger, how + " 4xx 不重试：" + reason);
         outboundRequestRepository.updateState(recordId, "DEAD_LETTER", null, null, null, "50201");
         outboundRequestRepository.insertDeadLetter("OUTBOUND", recordId, reason, bytesText(respBody));
         long deadLetterId = deadLetterId(recordId);
-        throw new BizException(50201, "上游拒绝（4xx）：" + reason + "，死信编号 " + deadLetterId);
+        throw new BizException(50201, "供应商拒绝（4xx）：" + reason + "，死信编号 " + deadLetterId);
     }
 
     /** 2xx：信封适配判业务成败（M0-03 定稿 C2：业务失败也记 SUCCESS、业务码透传）；RESP 过滤仅成功路径（D-M3-3） */
@@ -256,7 +256,7 @@ public class OutboundEngine {
         if (!envelope.success()) {
             // 业务失败：状态机 SUCCESS（传输层已获明确结果），业务码透传（C2）
             return ApiResult.error(parseCode(envelope.code(), 50201),
-                    envelope.msg() == null ? "上游业务失败" : envelope.msg());
+                    envelope.msg() == null ? "供应商业务失败" : envelope.msg());
         }
         UnifiedModel.UNode filtered = RespFieldFilter.filter(envelope.bizData(), respDefs(iface), new java.util.ArrayList<>());
         return ApiResult.ok(toJson(filtered));
@@ -317,7 +317,7 @@ public class OutboundEngine {
                     how + " 读超时/连接异常（短重试 " + retries + " 次），结果待对账");
             outboundRequestRepository.updateState(recordId, "UNKNOWN", null, null, null, "50401");
             log.info("出站请求 {} 结果不确定（读超时/连接异常）→ UNKNOWN 待对账", recordId);
-            return new BizException(50401, "上游超时，结果待对账（UNKNOWN）");
+            return new BizException(50401, "供应商超时，结果待对账（UNKNOWN）");
         }
         if (e instanceof org.springframework.web.client.HttpClientErrorException.TooManyRequests) {
             LocalDateTime next = LocalDateTime.now().plusSeconds(3);
@@ -325,7 +325,7 @@ public class OutboundEngine {
                     how + " 429 重试耗尽（短重试 " + retries + " 次）");
             outboundRequestRepository.updateState(recordId, "COMPENSATING", null, null, next, "42903");
             log.info("出站请求 {} 重试耗尽（429）→ COMPENSATING，补偿 worker 兜底", recordId);
-            return new BizException(50201, "上游暂时不可用，已进入补偿队列");
+            return new BizException(50201, "供应商暂时不可用，已进入补偿队列");
         }
         if (e instanceof org.springframework.web.client.HttpServerErrorException) {
             LocalDateTime next = LocalDateTime.now().plusSeconds(3);
@@ -333,7 +333,7 @@ public class OutboundEngine {
                     how + " 5xx 重试耗尽（短重试 " + retries + " 次）");
             outboundRequestRepository.updateState(recordId, "COMPENSATING", null, null, next, "50201");
             log.info("出站请求 {} 重试耗尽（5xx）→ COMPENSATING，补偿 worker 兜底", recordId);
-            return new BizException(50201, "上游暂时不可用，已进入补偿队列");
+            return new BizException(50201, "供应商暂时不可用，已进入补偿队列");
         }
         return new BizException(50000, "平台内部错误");
     }

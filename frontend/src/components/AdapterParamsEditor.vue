@@ -7,11 +7,11 @@
     <!-- 信封适配器的语义提示：平台统一归化响应为 { code, msg, data } -->
     <div v-if="currentMeta && currentMeta.impl === 'EnvelopeMessageAdapter'" class="impl-hint">
       <b>平台统一归化响应为 { code, msg, data }</b>
-      <p>你配置的是「如何解读上游响应」，平台回给调用方始终是统一信封：</p>
+      <p>你配置的是「如何解读供应商响应」，平台回给调用方始终是统一信封：</p>
       <ul>
-        <li><code>code</code>：上游业务成功（<code>codeField</code> = <code>successValue</code>）时为 0；失败时取 <code>codeMappings</code> 映射的平台码，未命中用 <code>defaultErrorCode</code>；</li>
-        <li><code>msg</code>：成功固定 "ok"；失败透传上游 <code>messageField</code> 内容；</li>
-        <li><code>data</code>：即上游 <code>envelope</code> 字段内的业务内容（如 fastmoss 的 total/list），失败时为空。</li>
+        <li><code>code</code>：供应商业务成功（<code>codeField</code> = <code>successValue</code>）时为 0；失败时取 <code>codeMappings</code> 映射的平台码，未命中用 <code>defaultErrorCode</code>；</li>
+        <li><code>msg</code>：成功固定 "ok"；失败透传供应商 <code>messageField</code> 内容；</li>
+        <li><code>data</code>：即供应商 <code>envelope</code> 字段内的业务内容（如 fastmoss 的 total/list），失败时为空。</li>
       </ul>
     </div>
     <template v-if="currentMeta">
@@ -32,7 +32,7 @@
           <el-input v-else-if="f.kind === 'textarea'" v-model="modelValue.params[f.key]" type="textarea"
                     :rows="3" :placeholder="f.hint || '请输入'" />
           <el-input v-else-if="f.kind === 'codeMap'" v-model="modelValue.params[f.key]" type="textarea"
-                    :rows="3" :placeholder="f.hint || '上游码→平台码，逗号分隔'" />
+                    :rows="3" :placeholder="f.hint || '供应商码→平台码，逗号分隔'" />
           <el-input v-else-if="f.kind === 'secret'" disabled
                     :placeholder="f.hint || '凭证值请到「应用管理 → 点击应用 → 凭证」中维护'" />
           <el-input v-else v-model="modelValue.params[f.key]" :placeholder="f.hint || '请输入'" />

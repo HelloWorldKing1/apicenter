@@ -81,7 +81,7 @@
 <!-- ============ 1. app ============ -->
 <section class="table" id="t-app">
   <div class="t-head"><span class="no">01</span><h2>应用（供应商）</h2><span class="en">app</span></div>
-  <div class="t-desc">应用 = 平台对接的一方供应商（第三方上游）。出站签名凭证与回调验签凭证两类分离（凭证落 <a href="#t-credential">app_credential</a> 表）；IP 黑白名单、配额限流在此表统一承载。</div>
+  <div class="t-desc">应用 = 平台对接的一方供应商（第三方供应商）。出站签名凭证与回调验签凭证两类分离（凭证落 <a href="#t-credential">app_credential</a> 表）；IP 黑白名单、配额限流在此表统一承载。</div>
   <table class="f">
     <tr><th style="width:22%">字段</th><th style="width:20%">类型</th><th style="width:14%">约束</th><th>说明</th></tr>
     <tr><td class="c pk">app_id</td><td class="c">VARCHAR(32)</td><td>PK</td><td>全局唯一应用标识（如 TENCENT-CLOUD）</td></tr>
@@ -90,7 +90,7 @@
     <tr><td class="c ref">auth_adapter_id</td><td class="c">VARCHAR(16)</td><td></td><td>出站供应商签名适配器（引用 adapter.id，NULL = 无鉴权）</td></tr>
     <tr><td class="c ref">callback_auth_adapter_id</td><td class="c">VARCHAR(16)</td><td></td><td>回调验签适配器（引用 adapter.id，NULL = 无鉴权），仅对入站回调接口生效</td></tr>
     <tr><td class="c ref">default_message_adapter_id</td><td class="c">VARCHAR(16)</td><td></td><td>默认报文适配器（引用 adapter.id，NULL = 平台默认）；接口级绑定可覆盖</td></tr>
-    <tr><td class="c">base_url</td><td class="c">VARCHAR(255)</td><td></td><td>服务地址（供应商 API 根地址，出站接口的上游路径拼于此）</td></tr>
+    <tr><td class="c">base_url</td><td class="c">VARCHAR(255)</td><td></td><td>服务地址（供应商 API 根地址，出站接口的供应商接口路径拼于此）</td></tr>
     <tr><td class="c">ip_whitelist</td><td class="c">VARCHAR(500)</td><td></td><td>来源 IP 白名单（英文逗号分隔，空 = 不限制）</td></tr>
     <tr><td class="c">ip_blacklist</td><td class="c">VARCHAR(500)</td><td></td><td>来源 IP 黑名单</td></tr>
     <tr><td class="c">qps_limit</td><td class="c">INT</td><td></td><td>QPS 限流（空/0 = 不限）</td></tr>
@@ -121,7 +121,7 @@
 <!-- ============ 3. interface ============ -->
 <section class="table" id="t-interface">
   <div class="t-head"><span class="no">03</span><h2>接口定义</h2><span class="en">interface</span></div>
-  <div class="t-desc">接口 = 平台对外暴露 / 代理的一个 API 定义。类型区分出站中转与入站回调；目标地址随类型互斥（出站 = 上游路径，入站 = 回调地址）。参数、映射、响应/ack 字段、适配器绑定分别落在子表。</div>
+  <div class="t-desc">接口 = 平台对外暴露 / 代理的一个 API 定义。类型区分出站中转与入站回调；目标地址随类型互斥（出站 = 供应商接口路径，入站 = 回调地址）。参数、映射、响应/ack 字段、适配器绑定分别落在子表。</div>
   <table class="f">
     <tr><th style="width:22%">字段</th><th style="width:20%">类型</th><th style="width:14%">约束</th><th>说明</th></tr>
     <tr><td class="c pk">id</td><td class="c">BIGINT</td><td>PK 自增</td><td>主键</td></tr>
@@ -132,13 +132,13 @@
     <tr><td class="c">path</td><td class="c">VARCHAR(255)</td><td>NOT NULL</td><td>平台侧路径（如 /api/orders、/callback/{appId}/instance-state）</td></tr>
     <tr><td class="c">protocol_in</td><td class="c">VARCHAR(8)</td><td>NOT NULL DEFAULT 'JSON'</td><td>入站协议（来源 → 平台）：JSON / XML</td></tr>
     <tr><td class="c">protocol_out</td><td class="c">VARCHAR(8)</td><td>NOT NULL DEFAULT 'JSON'</td><td>出站协议（平台 → 目标）：JSON / XML</td></tr>
-    <tr><td class="c ref">app_id</td><td class="c">VARCHAR(32)</td><td>NOT NULL</td><td>归属应用（供应商，既是归属也是上游）</td></tr>
+    <tr><td class="c ref">app_id</td><td class="c">VARCHAR(32)</td><td>NOT NULL</td><td>归属应用（供应商，既是归属也是供应商）</td></tr>
     <tr><td class="c ref">group_id</td><td class="c">BIGINT</td><td>NOT NULL</td><td>归属分组（须属于所选应用）</td></tr>
-    <tr><td class="c">upstream_path</td><td class="c">VARCHAR(255)</td><td></td><td>出站上游路径（相对路径，拼 app.base_url；仅 OUTBOUND）</td></tr>
+    <tr><td class="c">upstream_path</td><td class="c">VARCHAR(255)</td><td></td><td>出站供应商接口路径（相对路径，拼 app.base_url；仅 OUTBOUND）</td></tr>
     <tr><td class="c">callback_url</td><td class="c">VARCHAR(255)</td><td></td><td>入站回调地址（送达目标 URL；仅 INBOUND，必填）</td></tr>
     <tr><td class="c">status</td><td class="c">VARCHAR(16)</td><td>NOT NULL DEFAULT 'DRAFT'</td><td>DRAFT 草稿 / PUBLISHED 发布 / OFFLINE 下线；下线后停止路由</td></tr>
     <tr><td class="c">version</td><td class="c">INT</td><td>NOT NULL DEFAULT 1</td><td>配置版本（变更生成新版本，见 interface_snapshot）</td></tr>
-    <tr><td class="c">timeout_ms</td><td class="c">INT</td><td>NOT NULL DEFAULT 3000</td><td>读超时（出站 = 调上游超时；入站 = 回调地址调用超时）</td></tr>
+    <tr><td class="c">timeout_ms</td><td class="c">INT</td><td>NOT NULL DEFAULT 3000</td><td>读超时（出站 = 调供应商超时；入站 = 回调地址调用超时）</td></tr>
     <tr><td class="c">max_retries</td><td class="c">INT</td><td>NOT NULL DEFAULT 4</td><td>最大重试次数</td></tr>
     <tr><td class="c">desc</td><td class="c">VARCHAR(500)</td><td></td><td>描述</td></tr>
     <tr><td class="c">created_at / updated_at</td><td class="c">DATETIME</td><td>NOT NULL</td><td>创建 / 更新时间</td></tr>
@@ -268,13 +268,13 @@
 <!-- ============ 11. outbound_request ============ -->
 <section class="table" id="t-outreq">
   <div class="t-head"><span class="no">11</span><h2>出站请求（Flow A 状态机载体）</h2><span class="en">outbound_request</span></div>
-  <div class="t-desc">出站 outbox：每次调用一行，status 即状态机载体。补偿 worker 按 (status, next_retry_at) 扫描；UNKNOWN 记录进对账。重放安全依赖上游对业务键（biz_id）幂等。</div>
+  <div class="t-desc">出站 outbox：每次调用一行，status 即状态机载体。补偿 worker 按 (status, next_retry_at) 扫描；UNKNOWN 记录进对账。重放安全依赖供应商对业务键（biz_id）幂等。</div>
   <table class="f">
     <tr><th style="width:22%">字段</th><th style="width:20%">类型</th><th style="width:14%">约束</th><th>说明</th></tr>
     <tr><td class="c pk">id</td><td class="c">BIGINT</td><td>PK 自增</td><td>主键</td></tr>
     <tr><td class="c ref">interface_id</td><td class="c">BIGINT</td><td>NOT NULL</td><td>所属接口</td></tr>
     <tr><td class="c">app_id</td><td class="c">VARCHAR(32)</td><td>NOT NULL</td><td>供应商应用</td></tr>
-    <tr><td class="c">biz_id</td><td class="c">VARCHAR(64)</td><td>NOT NULL</td><td>业务键（请求携带稳定 biz_id，上游据此去重）</td></tr>
+    <tr><td class="c">biz_id</td><td class="c">VARCHAR(64)</td><td>NOT NULL</td><td>业务键（请求携带稳定 biz_id，供应商据此去重）</td></tr>
     <tr><td class="c">in_payload</td><td class="c">CLOB</td><td></td><td>入站原始报文（统一内部模型序列化）</td></tr>
     <tr><td class="c">out_payload</td><td class="c">CLOB</td><td></td><td>映射后出站报文（诊断 / 重放用）</td></tr>
     <tr><td class="c">resp_payload</td><td class="c">CLOB</td><td></td><td>供应商响应</td></tr>
@@ -282,7 +282,7 @@
     <tr><td class="c">attempt_count</td><td class="c">INT</td><td>NOT NULL DEFAULT 0</td><td>累计尝试次数（首送 + 短重试 + 补偿重试）</td></tr>
     <tr><td class="c">max_attempts</td><td class="c">INT</td><td>NOT NULL DEFAULT 5</td><td>补偿最大次数（超限转死信；短重试上限另取 interface.max_retries）</td></tr>
     <tr><td class="c">next_retry_at</td><td class="c">DATETIME</td><td></td><td>下次重试 / 补偿时间（worker 扫描依据）</td></tr>
-    <tr><td class="c">error_code</td><td class="c">VARCHAR(32)</td><td></td><td>错误码（50201 上游 5xx / 50401 超时等）</td></tr>
+    <tr><td class="c">error_code</td><td class="c">VARCHAR(32)</td><td></td><td>错误码（50201 供应商 5xx / 50401 超时等）</td></tr>
     <tr><td class="c">trace_id</td><td class="c">VARCHAR(32)</td><td></td><td>全链路 traceId</td></tr>
     <tr><td class="c">created_at / updated_at</td><td class="c">DATETIME</td><td>NOT NULL</td><td>创建 / 状态更新时间</td></tr>
   </table>
@@ -440,7 +440,7 @@
     <tr><td class="c">attempt</td><td class="c">INT</td><td>NOT NULL DEFAULT 0</td><td>变更时的 attempt_count</td></tr>
     <tr><td class="c">error_code</td><td class="c">VARCHAR(32)</td><td></td><td>变更时错误码（50201 / 50401 / 50202 等）</td></tr>
     <tr><td class="c">trigger_src</td><td class="c">VARCHAR(24)</td><td>NOT NULL</td><td>触发来源（逻辑名 trigger，trigger 为 MySQL 保留字故物理列用 trigger_src）：FIRST_SEND / COMPENSATE / CIRCUIT_OPEN / RECONCILE_MANUAL / TTL_DOWNGRADE / REPLAY / EXHAUSTED</td></tr>
-    <tr><td class="c">detail</td><td class="c">VARCHAR(500)</td><td></td><td>补充说明（死信编号 / 操作人 / 短重试次数 / 上游 5xx 等）</td></tr>
+    <tr><td class="c">detail</td><td class="c">VARCHAR(500)</td><td></td><td>补充说明（死信编号 / 操作人 / 短重试次数 / 供应商 5xx 等）</td></tr>
     <tr><td class="c">trace_id</td><td class="c">VARCHAR(32)</td><td></td><td>traceId（冗余，便于按 trace 检索）</td></tr>
     <tr><td class="c">created_at</td><td class="c">DATETIME</td><td>NOT NULL DEFAULT CURRENT_TIMESTAMP</td><td>转移时间</td></tr>
   </table>
@@ -513,7 +513,7 @@
     <tr><td class="c">类型互斥</td><td>if_type 决定目标地址、鉴权角色、响应/ack 字段类型；切换类型时另一侧字段清空（应用层校验）</td></tr>
     <tr><td class="c">外键</td><td>不设数据库外键约束；表中黄色标注（ref）的列为逻辑引用列，完整性由应用层保证且均建索引，删除语义见 schema.sql 头部「删除策略约定」</td></tr>
     <tr><td class="c">删除策略</td><td>接口以「下线」为主；call_log / dead_letter 按保留期归档清理</td></tr>
-    <tr><td class="c">可靠性</td><td>不设平台侧幂等表；去重依赖上游对业务键幂等（outbound_request.biz_id 稳定传递）</td></tr>
+    <tr><td class="c">可靠性</td><td>不设平台侧幂等表；去重依赖供应商对业务键幂等（outbound_request.biz_id 稳定传递）</td></tr>
   </table>
 </section>
 

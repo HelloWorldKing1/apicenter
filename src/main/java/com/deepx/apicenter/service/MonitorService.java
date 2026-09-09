@@ -119,9 +119,9 @@ public class MonitorService {
             outboundRequestRepository.degradeUnknownToCompensating(row.id(),
                     LocalDateTime.now().plusSeconds(TTL_RETRY_INTERVAL_SECONDS),
                     OutboundRequestRepository.TRIGGER_TTL_DOWNGRADE,
-                    "UNKNOWN 超过 " + unknownTtlMinutes + " 分钟自动降级（重放依赖上游幂等，ADR 5）");
+                    "UNKNOWN 超过 " + unknownTtlMinutes + " 分钟自动降级（重放依赖供应商幂等，ADR 5）");
             reconcileAuditRepository.insert(row.id(), "UNKNOWN", "COMPENSATING", "TTL",
-                    "TTL-WORKER", "UNKNOWN 超过 " + unknownTtlMinutes + " 分钟自动降级（重放依赖上游幂等，ADR 5）");
+                    "TTL-WORKER", "UNKNOWN 超过 " + unknownTtlMinutes + " 分钟自动降级（重放依赖供应商幂等，ADR 5）");
             log.info("UNKNOWN 超时降级 outbound_request {}（updated_at 超 {} 分钟）→ COMPENSATING", row.id(), unknownTtlMinutes);
         }
         return expired.size();

@@ -252,7 +252,7 @@ const state = {
     { time:'10:28:02', iface:'/ecs/describe-instances', app:'ALIYUN', code:200, ms:74,  trace:'tr-4e9c06' }
   ],
   alerts: [
-    { level:'warn', text:'/ecs/describe-instances 上游 5xx，已进入补偿重试', time:'10:30:12' },
+    { level:'warn', text:'/ecs/describe-instances 供应商 5xx，已进入补偿重试', time:'10:30:12' },
     { level:'danger', text:'TENCENT-CLOUD 近 1 分钟 QPS 超限，触发限流', time:'10:28:30' }
   ],
   adapters: [
@@ -347,10 +347,10 @@ const ADAPTER_FIELDS = {
   ],
   EnvelopeMessageAdapter: [
     { key:'envelope', label:'信封（业务数据容器）', kind:'text', placeholder:'data', hint:'业务数据所在那一层的字段名，如 data' },
-    { key:'codeField', label:'状态码字段名', kind:'text', placeholder:'code', hint:'上游响应里表示成功/失败的状态码字段，如 code' },
-    { key:'successValue', label:'成功值', kind:'text', placeholder:'0', hint:'上游状态码等于该值时视为成功，如 0' },
-    { key:'codeMappings', label:'错误码映射', kind:'codeMap', hint:'上游错误码 → 平台错误码，点加号新增一条' },
-    { key:'messageField', label:'消息字段名', kind:'text', placeholder:'message', hint:'上游响应里的错误消息字段，失败时透传到平台 msg' },
+    { key:'codeField', label:'状态码字段名', kind:'text', placeholder:'code', hint:'供应商响应里表示成功/失败的状态码字段，如 code' },
+    { key:'successValue', label:'成功值', kind:'text', placeholder:'0', hint:'供应商状态码等于该值时视为成功，如 0' },
+    { key:'codeMappings', label:'错误码映射', kind:'codeMap', hint:'供应商错误码 → 平台错误码，点加号新增一条' },
+    { key:'messageField', label:'消息字段名', kind:'text', placeholder:'message', hint:'供应商响应里的错误消息字段，失败时透传到平台 msg' },
     { key:'defaultErrorCode', label:'兜底错误码', kind:'text', placeholder:'50201', hint:'未命中错误码映射时使用的平台错误码' }
   ],
   HeaderMappingAdapter: [
@@ -524,7 +524,7 @@ function openAppDetail(appId){ currentAppId=appId; renderTopbar('apps'); renderA
 function deleteApp(id){
   const a = state.apps.find(x=>x.appId===id);
   if(!a) return;
-  if(!confirm(`确认删除应用「${a.name}」？其下接口将一并删除，引用它的接口将解绑上游。`)) return;
+  if(!confirm(`确认删除应用「${a.name}」？其下接口将一并删除，引用它的接口将解绑供应商。`)) return;
   state.interfaces = state.interfaces.filter(i=>i.appId!==id);
   state.apps = state.apps.filter(x=>x.appId!==id);
   if(currentAppId===id){ currentAppId=null; }
@@ -601,7 +601,7 @@ function renderInterfaceDetail(el){
             <div class="keyval"><span class="k">接口类型</span><span class="v">${i.ifType==='inbound'?'入站回调':'出站中转'}</span></div>
             <div class="keyval"><span class="k">路径</span><span class="v">${i.method} ${i.path}</span></div>
             <div class="keyval"><span class="k">协议（入站 → 出站）</span><span class="v">${i.protocolIn} → ${i.protocolOut}</span></div>
-            <div class="keyval"><span class="k">${i.ifType==='inbound'?'回调地址':'上游路径'}</span><span class="v">${i.ifType==='inbound'?(i.deliveryUrl||''):i.upstreamPath}</span></div>
+            <div class="keyval"><span class="k">${i.ifType==='inbound'?'回调地址':'供应商接口路径'}</span><span class="v">${i.ifType==='inbound'?(i.deliveryUrl||''):i.upstreamPath}</span></div>
             <div class="keyval"><span class="k">归属</span><span class="v">${i.appId} / ${i.group}</span></div>
             <div class="keyval"><span class="k">描述</span><span class="v">${i.desc || '—'}</span></div>
           </div>
@@ -785,7 +785,7 @@ let codeMapList = [];
 function codeMapRowsHtml(boxId){
   const rows = codeMapList.map((m,i)=>`
     <div style="display:flex;align-items:center;gap:8px;padding:6px 0">
-      <input value="${m.from}" placeholder="上游错误码，如 10001" style="flex:1" onchange="onCodeMapChange(${i},'from',this.value)">
+      <input value="${m.from}" placeholder="供应商错误码，如 10001" style="flex:1" onchange="onCodeMapChange(${i},'from',this.value)">
       <span style="color:var(--muted)">→</span>
       <input value="${m.to}" placeholder="平台错误码，如 50201" style="flex:1" onchange="onCodeMapChange(${i},'to',this.value)">
       <button type="button" class="btn sm danger" onclick="removeCodeMap('${boxId}',${i})">×</button>
@@ -915,7 +915,7 @@ function renderAppendix(){
           <span class="node">字段映射</span><span class="arr">→</span>
           <span class="node core">协议编码</span><span class="arr">→</span>
           <span class="node">出站鉴权</span><span class="arr">→</span>
-          <span class="node end">调上游</span>
+          <span class="node end">调供应商</span>
         </div>
         <div style="padding:0 18px 16px;color:var(--muted);font-size:13px">
           统一内部模型（UnifiedModel）为链内唯一数据载体；四种端到端转换场景 json-json / json-xml / xml-xml / xml-json 由整条链协作完成。
@@ -973,13 +973,13 @@ function renderAppendix(){
           <tr><td>401xx</td><td>鉴权失败</td><td>40100 验签失败、40101 时间戳过期、40102 应用未启用</td></tr>
           <tr><td>400xx</td><td>参数 / 请求错误</td><td>40001 字段缺失、40002 报文格式非法</td></tr>
           <tr><td>404xx</td><td>资源不存在</td><td>40401 接口不存在、40402 应用不存在</td></tr>
-          <tr><td>429xx</td><td>限流 / 配额</td><td>42901 QPS 限流、42902 日配额超限、42903 上游限流（透传上游 429）</td></tr>
-          <tr><td>502xx</td><td>上游错误</td><td>50201 上游 5xx</td></tr>
-          <tr><td>504xx</td><td>上游超时</td><td>50401 上游读超时</td></tr>
+          <tr><td>429xx</td><td>限流 / 配额</td><td>42901 QPS 限流、42902 日配额超限、42903 供应商限流（透传供应商 429）</td></tr>
+          <tr><td>502xx</td><td>供应商错误</td><td>50201 供应商 5xx</td></tr>
+          <tr><td>504xx</td><td>供应商超时</td><td>50401 供应商读超时</td></tr>
           <tr><td>500xx</td><td>平台内部错误</td><td>50000 未知异常</td></tr>
         </tbody></table>
         <div style="padding:0 18px 14px;color:var(--muted);font-size:13px">
-          上游返回 429 属限流语义，归入 429xx（42903）；502xx 仅表示上游 5xx（网关错误）。
+          供应商返回 429 属限流语义，归入 429xx（42903）；502xx 仅表示供应商 5xx（网关错误）。
         </div>
       </div>
     </div>
@@ -990,7 +990,7 @@ function renderAppendix(){
         <div class="keyval"><span class="k">熔断</span><span class="v">CLOSED → OPEN → HALF_OPEN；OPEN 快速失败，冷却后半开探测</span></div>
         <div class="keyval"><span class="k">补偿</span><span class="v">重试耗尽转 COMPENSATING，补偿 worker 定时扫描重放</span></div>
         <div class="keyval"><span class="k">死信</span><span class="v">4xx（非 429）落 dead_letter，不重试</span></div>
-        <div class="keyval"><span class="k">对账</span><span class="v">超时 / 连接异常 → UNKNOWN，查询上游收敛 SUCCESS 或 COMPENSATING</span></div>
+        <div class="keyval"><span class="k">对账</span><span class="v">超时 / 连接异常 → UNKNOWN，查询供应商收敛 SUCCESS 或 COMPENSATING</span></div>
       </div>
     </div>`;
 }
@@ -1209,7 +1209,7 @@ function openInterfaceModal(id){
       <div class="grid3">
         <div class="field"><label>应用</label><select id="f-if-app" onchange="populateGroups()">${appOpts}</select></div>
         <div class="field"><label>分组</label><select id="f-if-group"><option value="">— 请先选应用 —</option></select></div>
-        <div class="field"><label id="f-if-target-label">上游路径</label><input id="f-if-target-path" placeholder="/order" value="${i?(i.ifType==='inbound'?(i.deliveryUrl||''):i.upstreamPath):''}"></div>
+        <div class="field"><label id="f-if-target-label">供应商接口路径</label><input id="f-if-target-path" placeholder="/order" value="${i?(i.ifType==='inbound'?(i.deliveryUrl||''):i.upstreamPath):''}"></div>
       </div>
       <div class="grid3">
         <div class="field"><label>读超时(ms)</label><input type="number" id="f-if-timeout" value="${i?i.config.timeout:3000}"></div>
@@ -1446,7 +1446,7 @@ function onIfTypeChange(){
   const inbound = document.getElementById('f-if-type').value === 'inbound';
   const label = document.getElementById('f-if-target-label');
   const input = document.getElementById('f-if-target-path');
-  if(label){ label.textContent = inbound ? '回调地址' : '上游路径'; }
+  if(label){ label.textContent = inbound ? '回调地址' : '供应商接口路径'; }
   if(input){ input.placeholder = inbound ? '如 http://localhost:9000/webhook' : '/order'; }
   document.getElementById('f-if-resp-out-area').style.display = inbound ? 'none' : '';
   document.getElementById('f-if-ack-area').style.display = inbound ? '' : 'none';
@@ -1463,7 +1463,7 @@ function submitInterface(){
   if(!name || !path){ alert('请填写接口名称与路径'); return; }
   if(!appId || !group){ alert('请选择应用与分组'); return; }
   const ifType = document.getElementById('f-if-type').value;
-  if(!targetPath){ alert(ifType==='inbound' ? '请填写回调地址' : '请填写上游路径'); return; }
+  if(!targetPath){ alert(ifType==='inbound' ? '请填写回调地址' : '请填写供应商接口路径'); return; }
   const badMap = fieldMappings.findIndex(m => !m.target || (m.op !== 'default' && !m.source));
   if(badMap >= 0){ alert(`第 ${badMap+1} 条字段映射缺少入站/出站字段`); return; }
   const badParam = fieldMappings.findIndex(m => m.op !== 'rename' && !m.param);

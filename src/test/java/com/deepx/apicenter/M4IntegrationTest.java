@@ -299,7 +299,7 @@ class M4IntegrationTest {
 
         // ① 置为「已到达」→ SUCCESS + 审计 MANUAL
         ResponseEntity<byte[]> ok = postAdmin("/api/admin/monitor/outbound-requests/" + unknown.id() + "/reconcile",
-                "{\"target\":\"SUCCESS\",\"operator\":\"m4-tester\",\"reason\":\"上游确认已到达\"}");
+                "{\"target\":\"SUCCESS\",\"operator\":\"m4-tester\",\"reason\":\"供应商确认已到达\"}");
         assertThat(ok.getStatusCode().value()).isEqualTo(200);
         assertThat(outboundRequestRepository.findById(unknown.id()).orElseThrow().status()).isEqualTo("SUCCESS");
         assertThat(reconcileAuditRepository.findByOutboundRequest(unknown.id())).hasSize(1);
@@ -317,7 +317,7 @@ class M4IntegrationTest {
                 .withHeader("Content-Type", "application/json").withBody("{\"ok\":true}")));
 
         ResponseEntity<byte[]> requeue = postAdmin("/api/admin/monitor/outbound-requests/" + unknown2.id() + "/reconcile",
-                "{\"target\":\"COMPENSATING\",\"operator\":\"m4-tester\",\"reason\":\"上游确认未到达\"}");
+                "{\"target\":\"COMPENSATING\",\"operator\":\"m4-tester\",\"reason\":\"供应商确认未到达\"}");
         assertThat(requeue.getStatusCode().value()).isEqualTo(200);
         assertThat(outboundRequestRepository.findById(unknown2.id()).orElseThrow().status())
                 .isEqualTo("COMPENSATING");

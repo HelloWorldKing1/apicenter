@@ -39,7 +39,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="path" label="平台侧路径" show-overflow-tooltip />
-        <el-table-column label="上游侧路径" show-overflow-tooltip>
+        <el-table-column label="供应商接口路径" show-overflow-tooltip>
           <template #default="{ row }">
             <span v-if="row.ifType === 'OUTBOUND'" class="upstream-text">{{ row.upstreamPath }}</span>
             <span v-else class="upstream-na">—</span>
@@ -81,7 +81,7 @@
         <el-input v-model="form.path" class="path-input" placeholder="平台侧路径，如 /api/orders" />
         <span class="arrow">→</span>
         <el-input v-model="targetField" class="target-input"
-                  :placeholder="form.ifType === 'OUTBOUND' ? '上游路径（拼应用服务地址），如 /shop/v1/creatorList' : '回调地址（送达目标 URL，必填）'" />
+                  :placeholder="form.ifType === 'OUTBOUND' ? '供应商接口路径（拼应用服务地址，upstreamPath）如 /shop/v1/creatorList' : '回调地址（送达目标 URL，必填）'" />
       </div>
 
       <!-- 基础信息（紧凑一行） -->
@@ -407,7 +407,7 @@
         </el-descriptions-item>
         <el-descriptions-item label="归属">{{ detail.row.appName }} / {{ detail.row.groupName }}</el-descriptions-item>
         <el-descriptions-item label="版本">v{{ detail.row.version }}</el-descriptions-item>
-        <el-descriptions-item label="上游路径" :span="2" v-if="detail.row.ifType === 'OUTBOUND'">{{ detail.row.upstreamPath }}</el-descriptions-item>
+        <el-descriptions-item label="供应商接口路径" :span="2" v-if="detail.row.ifType === 'OUTBOUND'">{{ detail.row.upstreamPath }}</el-descriptions-item>
         <el-descriptions-item label="回调地址" :span="2" v-else>{{ detail.row.callbackUrl }}</el-descriptions-item>
         <el-descriptions-item label="超时 / 重试">{{ detail.row.timeoutMs }}ms / {{ detail.row.maxRetries }} 次</el-descriptions-item>
         <el-descriptions-item label="创建时间">{{ (detail.row.createdAt || '').replace('T', ' ').slice(0, 19) }}</el-descriptions-item>
@@ -504,7 +504,7 @@
         <el-form-item label="平台侧路径" required>
           <el-input v-model="cp.path" maxlength="255" placeholder="新平台路径（全局唯一，如 /api/new-path）" clearable />
         </el-form-item>
-        <el-form-item :label="cp.src?.ifType === 'OUTBOUND' ? '上游路径' : '回调地址'">
+        <el-form-item :label="cp.src?.ifType === 'OUTBOUND' ? '供应商接口路径' : '回调地址'">
           <el-input v-model="cp.target" clearable
                     :placeholder="cp.src ? `留空 = 沿用源（${copySrcTarget(cp.src)}）` : ''" />
         </el-form-item>
