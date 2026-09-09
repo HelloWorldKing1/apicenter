@@ -138,7 +138,7 @@ CREATE TABLE interface_field_def (
 -- 09 适配器定义：三类（鉴权/协议/报文）；无状态、配置驱动；凭证类参数不落此处，统一存 app
 CREATE TABLE adapter (
     id         VARCHAR(16) PRIMARY KEY COMMENT '适配器标识（如 ADP-001）',
-    name       VARCHAR(64) NOT NULL COMMENT '适配器名称（展示用，建议唯一；绑定一律按 id 引用）',
+    name       VARCHAR(64) NOT NULL COMMENT '适配器名称（全表唯一 D6'，2026-09-08；绑定一律按 id 引用）',
     type       VARCHAR(16) NOT NULL COMMENT 'auth 鉴权 / protocol 协议 / message 报文',
     impl       VARCHAR(64) NOT NULL COMMENT '实现类（HmacAuthAdapter / JsonProtocolAdapter / EnvelopeMessageAdapter 等）',
     enabled    TINYINT(1)  NOT NULL DEFAULT 1 COMMENT '启用 / 停用',
@@ -146,6 +146,7 @@ CREATE TABLE adapter (
     params     LONGTEXT    COMMENT '参数 JSON（按 impl 元数据 schema；凭证类参数不落此处）',
     created_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_adapter_name (name),
     KEY idx_adapter_type (type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='适配器定义';
 
@@ -155,7 +156,7 @@ CREATE TABLE interface_adapter_binding (
     interface_id BIGINT      NOT NULL COMMENT '所属接口',
     `role`       VARCHAR(16) NOT NULL COMMENT 'MESSAGE 报文 / AUTH 供应商签名（仅出站）/ CALLBACK_AUTH 回调验签（仅入站）',
     adapter_id   VARCHAR(16) COMMENT '绑定的适配器；NULL = 继承应用默认',
-    version      VARCHAR(16) COMMENT '指定适配器版本（灰度切换；空 = 用适配器当前启用版本）',
+    version      VARCHAR(16) COMMENT '适配器实例版本（仅记录/留痕——D6' 绑定即实例，version 不再参与运行时路由）',
     UNIQUE KEY uk_binding (interface_id, `role`),
     KEY idx_binding_adapter (adapter_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='接口-适配器绑定';

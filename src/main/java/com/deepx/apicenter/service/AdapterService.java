@@ -20,7 +20,11 @@ import java.util.List;
 
 /**
  * 适配器管理（M1 注册表骨架）：CRUD + params 按 impl 元数据 schema 校验。
- * 约束（M0-01 D6，M5 灰度放宽）：同 (impl, version) 至多 1 条 enabled=1——同 impl 多版本灰度共存；
+ * 约束（D6' 定稿，2026-09-08 弃用灰度版本路由）：
+ * - adapter.name 全表唯一（id 仍是唯一键与绑定键，name 防重名）；
+ * - 同 (impl, version) 允许多条启用并存——不再按 (impl, version) 拦启用；
+ *   多实例并行首选同 impl 不同 version（灰度/并存正规形态），同 version 多实例靠 name 区分；
+ * - binding.version 不再参与运行时路由（D1：绑定即实例，恒用绑定行 adapter_id），仅记录/留痕。
  * 凭证类参数不落 params（统一走应用凭证管理）。变更发布 ADAPTER 事件 → 链缓存全清（D-M5-2）。
  * 删除策略（schema.sql）：app 三列与 binding.adapter_id 引用置 NULL（回退「无鉴权 / 平台默认」）。
  */
@@ -80,10 +84,8 @@ public class AdapterService {
 
     @Transactional
     public void enable(String id, boolean enabled) {
-        AdapterRow row = adapterRepository.findById(id).orElseThrow(() -> BizException.fieldInvalid("适配器不存在：" + id));
-        if (enabled && adapterRepository.countEnabledByImplVersion(row.impl(), row.version(), id) > 0) {
-            throw BizException.fieldInvalid("同 (impl, version) 至多 1 条启用记录（M0-01 D6，M5 灰度放宽为版本维度），请先停用同版本的其他适配器");
-        }
+        adapterRepository.findById(id).orElseThrow(() -> BizException.fieldInvalid("适配器不存在：" + id));
+        // D6'：启用不再受同 (impl, version) 限制（同 impl+version 允许多启用并存，靠 name 区分）
         adapterRepository.updateEnabled(id, enabled);
         eventPublisher.publishEvent(ConfigChangedEvent.adapterChanged());
     }
@@ -106,12 +108,9 @@ public class AdapterService {
         if (!meta.type().equals(req.type())) {
             throw BizException.fieldInvalid("适配器类型不匹配：" + req.impl() + " 属于 " + meta.type());
         }
-        // D6「同 impl 至多 1 条 enabled」双路径校验：enabled 为空按默认 true（toRow 同语义），
-        // create 与 update（排除自身）均须校验（中危 #4 修复）；D6 按 (impl, version) 维度（M5 灰度放宽）
-        boolean enabled = req.enabled() == null || req.enabled();
-        String version = req.version() == null || req.version().isBlank() ? "1.0" : req.version();
-        if (enabled && adapterRepository.countEnabledByImplVersion(req.impl(), version, excludeId == null ? "" : excludeId) > 0) {
-            throw BizException.fieldInvalid("同 (impl, version) 至多 1 条启用记录（M0-01 D6，M5 灰度放宽为版本维度），请先停用同版本的其他适配器");
+        // D6'：name 全表唯一（create/update 均校验，排除自身）；同 (impl, version) 允许多启用，不再拦
+        if (req.name() != null && adapterRepository.countByName(req.name(), excludeId == null ? "" : excludeId) > 0) {
+            throw BizException.fieldInvalid("适配器名称已存在（名称全表唯一）：" + req.name());
         }
         // params 按 impl schema 校验并归一化
         JsonNode node;

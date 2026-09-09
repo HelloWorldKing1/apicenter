@@ -324,40 +324,50 @@ class M1IntegrationTest {
         assertThat(credentialService.listViews(TEST_APP)).isEmpty();
     }
 
-    // ---------- 适配器 D6：同 impl 至多 1 条启用（create 默认启用 + update 双路径） ----------
+    // ---------- 适配器 D6'：同 (impl, version) 允许多启用；adapter.name 全表唯一（2026-09-08 定稿） ----------
 
     @Test
-    void 适配器同impl双启用拒绝() {
-        // 用种子不存在的 impl（HmacAuthAdapter 仅元数据，无实现 Bean 也可创建）；
-        // params 需补齐 schema 必填字段
+    void 适配器同impl同版本多启用_name全表唯一() {
+        // 用种子不存在的 impl（HmacAuthAdapter 仅元数据，无实现 Bean 也可创建）；params 补齐 schema 必填
         String params = "{\"signatureAlgorithm\":\"HMAC-SHA256\",\"signatureHeader\":\"X-Signature\",\"timestampToleranceSeconds\":300}";
         adapterService.create(new AdapterRequest("M1-TEST-ADP1", "测试适配器1", "auth", "HmacAuthAdapter",
                 true, "1.0", params));
-        try {
-            // create 时 enabled 缺省（默认 true）→ 拒绝
-            assertThatThrownBy(() -> adapterService.create(new AdapterRequest("M1-TEST-ADP2", "测试适配器2",
-                    "auth", "HmacAuthAdapter", null, "1.0", params)))
-                    .isInstanceOf(BizException.class)
-                    .hasMessageContaining("至多 1 条启用");
-            // update 把 disabled 改为 enabled → 拒绝（中危 #4：update 路径漏检）
-            adapterService.create(new AdapterRequest("M1-TEST-ADP3", "测试适配器3", "auth", "HmacAuthAdapter",
-                    false, "1.0", params));
-            assertThatThrownBy(() -> adapterService.update("M1-TEST-ADP3",
-                    new AdapterRequest("M1-TEST-ADP3", "测试适配器3", "auth", "HmacAuthAdapter",
-                            true, "1.0", params)))
-                    .isInstanceOf(BizException.class)
-                    .hasMessageContaining("至多 1 条启用");
-        } finally {
-            adapterService.delete("M1-TEST-ADP1");
-            if (adapterRepository("M1-TEST-ADP3")) {
-                adapterService.delete("M1-TEST-ADP3");
-            }
+        // D6'：同 impl 同 version 可建第二条并启用（create 缺省 enabled=true 亦放行）——不再按 (impl, version) 拦
+        adapterService.create(new AdapterRequest("M1-TEST-ADP2", "测试适配器2", "auth", "HmacAuthAdapter",
+                null, "1.0", params));
+        assertThat(adapterEnabled("M1-TEST-ADP2")).isTrue();
+        // update 从停用改为启用同样放行
+        adapterService.create(new AdapterRequest("M1-TEST-ADP3", "测试适配器3", "auth", "HmacAuthAdapter",
+                false, "1.0", params));
+        adapterService.update("M1-TEST-ADP3", new AdapterRequest("M1-TEST-ADP3", "测试适配器3", "auth", "HmacAuthAdapter",
+                true, "1.0", params));
+        assertThat(adapterEnabled("M1-TEST-ADP3")).isTrue();
+        // name 全表唯一：create / update 撞名均拒绝（D2）
+        assertThatThrownBy(() -> adapterService.create(new AdapterRequest("M1-TEST-ADP4", "测试适配器1", "auth", "HmacAuthAdapter",
+                true, "1.0", params)))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("名称已存在");
+        assertThatThrownBy(() -> adapterService.update("M1-TEST-ADP2", new AdapterRequest("M1-TEST-ADP2", "测试适配器1", "auth", "HmacAuthAdapter",
+                true, "1.0", params)))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("名称已存在");
+        adapterService.delete("M1-TEST-ADP1");
+        if (adapterRepository("M1-TEST-ADP2")) {
+            adapterService.delete("M1-TEST-ADP2");
+        }
+        if (adapterRepository("M1-TEST-ADP3")) {
+            adapterService.delete("M1-TEST-ADP3");
         }
     }
 
     private boolean adapterRepository(String id) {
         return jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM adapter WHERE id = ?", Integer.class, id) > 0;
+    }
+
+    private boolean adapterEnabled(String id) {
+        return Integer.valueOf(1).equals(
+                jdbcTemplate.queryForObject("SELECT enabled FROM adapter WHERE id = ?", Integer.class, id));
     }
 
     // ---------- 凭证重复激活（CAS 状态校验） ----------

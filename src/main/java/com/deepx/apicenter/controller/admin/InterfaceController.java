@@ -44,7 +44,7 @@ import java.util.UUID;
 /**
  * 接口管理：完整定义模型（主表 + 参数 / Body / 字段映射 / 响应·ack / 绑定子表）；
  * 更新为全量替换 + version 乐观锁；生命周期 草稿 → 发布 → 下线；
- * M5：版本快照与回滚（D-M5-1）+ 灰度路由 chainTrace（D-M5-2，test 端点强制实时解析）；
+ * M5：版本快照与回滚（D-M5-1）+ chainTrace（D-M5-2，test 端点强制实时解析；绑定即实例，version 不路由）；
  * 另提供「测试接口」（出站链路调试）与「模拟回调」（入站链路调试，M3）。
  */
 @RestController

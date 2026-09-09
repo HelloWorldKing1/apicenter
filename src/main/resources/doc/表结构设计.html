@@ -239,7 +239,7 @@
   <table class="f">
     <tr><th style="width:22%">字段</th><th style="width:20%">类型</th><th style="width:14%">约束</th><th>说明</th></tr>
     <tr><td class="c pk">id</td><td class="c">VARCHAR(16)</td><td>PK</td><td>适配器标识（如 ADP-001）</td></tr>
-    <tr><td class="c">name</td><td class="c">VARCHAR(64)</td><td>NOT NULL</td><td>适配器名称（展示用，建议唯一；绑定一律按 id 引用）</td></tr>
+    <tr><td class="c">name</td><td class="c">VARCHAR(64)</td><td>NOT NULL, UNIQUE uk_adapter_name</td><td>适配器名称（全表唯一 D6'；绑定一律按 id 引用）</td></tr>
     <tr><td class="c">type</td><td class="c">VARCHAR(16)</td><td>NOT NULL</td><td>auth 鉴权 / protocol 协议 / message 报文</td></tr>
     <tr><td class="c">impl</td><td class="c">VARCHAR(64)</td><td>NOT NULL</td><td>实现类：HmacAuthAdapter / CloudSignatureAdapter / CloudCallbackSignatureAdapter / JsonProtocolAdapter / XmlProtocolAdapter / EnvelopeMessageAdapter / HeaderMappingAdapter 等</td></tr>
     <tr><td class="c">enabled</td><td class="c">TINYINT(1)</td><td>NOT NULL DEFAULT 1</td><td>启用 / 停用</td></tr>
@@ -260,7 +260,7 @@
     <tr><td class="c ref">interface_id</td><td class="c">BIGINT</td><td>NOT NULL</td><td>所属接口</td></tr>
     <tr><td class="c">role</td><td class="c">VARCHAR(16)</td><td>NOT NULL</td><td>MESSAGE / AUTH / CALLBACK_AUTH</td></tr>
     <tr><td class="c ref">adapter_id</td><td class="c">VARCHAR(16)</td><td></td><td>绑定的适配器；NULL = 继承应用默认</td></tr>
-    <tr><td class="c">version</td><td class="c">VARCHAR(16)</td><td></td><td>指定适配器版本（灰度切换；空 = 用适配器当前启用版本）</td></tr>
+    <tr><td class="c">version</td><td class="c">VARCHAR(16)</td><td></td><td>适配器实例版本（仅记录/留痕——D6' 绑定即实例，version 不再参与运行时路由）</td></tr>
   </table>
   <div class="idx"><b>索引</b>：PK(id)，UNIQUE(interface_id, role)，INDEX(adapter_id)</div>
 </section>

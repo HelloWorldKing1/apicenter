@@ -32,8 +32,9 @@ import java.util.stream.Collectors;
 /**
  * 适配器链引擎（M0-01 契约落地 + M5 D-M5-2 解析时机上移）：
  * - 固定六阶段链（§4）：入站鉴权 → 协议解码 → 报文适配 → 字段映射（固定步骤）→ 协议编码 → 出站鉴权
- * - 绑定解析（M0-01 §5 / M5 矩阵 #1-#4）：MESSAGE/AUTH/CALLBACK_AUTH 角色按
- *   「接口覆盖 → 应用默认 → 平台默认」逐层解析，含 binding.version 灰度路由 + enabled 校验 + 逐层回退；
+ * - 绑定解析（M0-01 §5 / D6' 定稿）：MESSAGE/AUTH/CALLBACK_AUTH 角色按
+ *   「接口覆盖 → 应用默认 → 平台默认」逐层解析（恒用绑定行 adapter_id 所指实例 + enabled 校验 + 逐层回退）；
+ *   binding.version 不再参与运行时路由（D1 弃用灰度版本定位，2026-09-08），仅记录/留痕；
  *   协议按 protocol_in/out 自动推导；回调验签 CALLBACK_AUTH 仅 INBOUND 生效
  * - 解析时机上移（M5 二轮定稿，2026-09-07）：绑定解析结果 / 映射规则 / 入站参数声明在
  *   **链装配时一次解析并烘焙进缓存链**（不再每请求实时查库）；凭证保持每请求实时读
@@ -291,11 +292,11 @@ public class ChainEngine {
     // ---------- 绑定解析（M0-01 §5.1 + M5 D-M5-2 矩阵 #1-#4，装配时执行） ----------
 
     /**
-     * 绑定解析（M5 矩阵定稿）：
+     * 绑定解析（D6' 定稿，2026-09-08 弃用灰度版本路由）：
      * #1 adapter_id 空 → 应用默认（应用默认空 → 平台默认 Noop）
-     * #2 adapter_id 非空、version 空 → 该行（须 enabled=1）
-     * #3 adapter_id 非空、version 非空 → 同 impl + 指定 version + enabled=1 定位行（灰度路径）
-     * #4 目标行停用或缺失 → 逐层回退 + log.warn（接口绑定 → 应用默认 → 平台默认 Noop）
+     * #2 adapter_id 非空 → 该行所指实例（须 enabled=1；binding.version 仅记录/留痕，不参与定位——
+     *    同 (impl, version) 已允许多启用并存，版本无法唯一路由）
+     * #3 目标行停用或缺失 → 逐层回退 + log.warn（接口绑定 → 应用默认 → 平台默认 Noop）
      * 注意：绑定行存在但 adapter_id 为空 = 「显式继承应用默认」，回退到 appDefaultAdapterId
      * （管理面前端恒提交空绑定行，不能直接判空兜底吞掉应用级配置）。
      */
@@ -325,23 +326,14 @@ public class ChainEngine {
         return defaultInstance(role);
     }
 
-    /** 绑定行解析（矩阵 #2 / #3）；返回 null = 该绑定不可用 → 上层按 #4 回退 */
+    /** 绑定行解析（D6' D1：绑定即实例，恒用绑定行 adapter_id 所指实例，enabled 校验、停用即回退）
+     *  binding.version 仅记录/留痕，不再参与运行时定位（同 (impl,version) 允许多启用后版本定位有歧义，故弃用） */
     private AdapterInstance resolveBindingRow(InterfaceRow.BindingRow binding, String role) {
         AdapterRow base = adapterRepository.findById(binding.adapterId()).orElse(null);
-        if (base == null) {
+        if (base == null || !base.enabled()) {
             return null;
         }
-        if (binding.version() == null || binding.version().isBlank()) {
-            // 矩阵 #2：version 空 → 绑定行所指实例（enabled 校验，停用即回退）
-            return base.enabled() ? instanceOf(base) : null;
-        }
-        // 矩阵 #3：灰度——version 非空 → 同 impl + 指定版本 + enabled=1 定位行；
-        // 绑定行所指实例停用同样视为不可用（停用即回退统一口径）
-        if (!base.enabled()) {
-            return null;
-        }
-        AdapterRow target = adapterRepository.findByImplAndVersionEnabled(base.impl(), binding.version()).orElse(null);
-        return target == null ? null : instanceOf(target);
+        return instanceOf(base);
     }
 
     /** M5 test 端点 chainTrace（留痕通道 3）：强制实时解析（不走缓存），输出本次装配角色明细 */

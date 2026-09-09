@@ -254,19 +254,25 @@ class M5IntegrationTest {
         assertThat(body(stale)).contains("40001").contains("已被他人修改");
     }
 
-    // ---------- S3/S4/S5：灰度路由 / 即时生效 / 目标缺失回退 ----------
+    // ---------- S3/S4/S5：绑定切换即时生效（D6' 弃用灰度版本路由——绑定即实例，version 仅记录） ----------
 
     @Test
-    void s3_灰度路由_绑定v9_2按v9_2剥壳() throws Exception {
+    void s3_绑定即实例_version不再路由_切实例即时生效() throws Exception {
         stubUpstream("/up-gray");
-        // 初始 v9.1（matrix #2）：RESP_A（code=0）成功 → 业务数据 v=1
+        // 初始绑定 ENV_V1（v9.1 code=0）：RESP_A 成功 → 业务数据 v=1
         wireMock.resetAll();
         stubFor(post("/up-gray").willReturn(okJson(RESP_A)));
         String a = body(call("/m5/gray", "{}"));
         assertThat(a).contains("\"code\":0").contains("\"v\":1").doesNotContain("\"status\"");
 
-        // 绑定切 v9.2（matrix #3：version=9.2，同 impl 定位启用行）→ 立即调用（不等 TTL）→ v=2 语义
+        // D1 验证：绑定行带 version=9.2 但 adapter_id 仍 ENV_V1 → 恒用 ENV_V1（不再按 version 重定位）→ 仍 v=1
         setMessageBinding(grayIfaceId, ENV_V1, "9.2");
+        wireMock.resetAll();
+        stubFor(post("/up-gray").willReturn(okJson(RESP_A)));
+        assertThat(body(call("/m5/gray", "{}"))).contains("\"v\":1").doesNotContain("\"bad\"");
+
+        // 真切换 = 换绑定实例 ENV_V2（v9.2 status=ok）：RESP_B 成功 → v=2（即时生效，不等 TTL）
+        setMessageBinding(grayIfaceId, ENV_V2, null);
         wireMock.resetAll();
         stubFor(post("/up-gray").willReturn(okJson(RESP_B)));
         String b = body(call("/m5/gray", "{}"));
@@ -274,26 +280,26 @@ class M5IntegrationTest {
     }
 
     @Test
-    void s4_灰度即时生效_事件失效_chainTrace同步() throws Exception {
+    void s4_绑定切换即时生效_事件失效_chainTrace同步() throws Exception {
         stubUpstream("/up-gray");
         wireMock.resetAll();
         stubFor(post("/up-gray").willReturn(okJson(RESP_A)));
         assertThat(body(call("/m5/gray", "{}"))).contains("\"v\":1");
 
-        // 切 v9.2 → 立即调用（服务发布 INTERFACE 事件 → 缓存精准失效 → 重新装配）
-        setMessageBinding(grayIfaceId, ENV_V1, "9.2");
+        // 切绑定实例 ENV_V2 → 立即调用（INTERFACE 事件 → 缓存精准失效 → 重新装配）
+        setMessageBinding(grayIfaceId, ENV_V2, null);
         wireMock.resetAll();
         stubFor(post("/up-gray").willReturn(okJson(RESP_B)));
         assertThat(body(call("/m5/gray", "{}"))).contains("\"v\":2");
 
-        // test 端点（chainTrace 留痕通道 3）：强制实时解析 → 反映当前绑定 v9.2
+        // test 端点（chainTrace 留痕通道 3）：强制实时解析 → 反映当前绑定实例 ENV_V2（v9.2）
         ResponseEntity<byte[]> test = postAdmin("/api/admin/interfaces/" + grayIfaceId + "/test", null);
         assertThat(test.getStatusCode().value()).isEqualTo(200);
         String t = body(test);
         assertThat(t).contains("\"chainTrace\"").contains("M5-ENV-2").contains("\"9.2\"")
                 .contains("\"result\"").contains("\"v\":2");
 
-        // version 置空（matrix #2 回 M5-ENV-1 v9.1）→ 立即恢复 v1 行为
+        // 切回 ENV_V1 → 立即恢复 v1 行为
         setMessageBinding(grayIfaceId, ENV_V1, null);
         wireMock.resetAll();
         stubFor(post("/up-gray").willReturn(okJson(RESP_A)));
@@ -301,26 +307,19 @@ class M5IntegrationTest {
     }
 
     @Test
-    void s5_灰度目标缺失回退应用默认与Noop_停用即回退() throws Exception {
+    void s5_停用即回退应用默认与Noop_重新启用恢复() throws Exception {
         stubUpstream("/up-gray");
-        // 目标缺失：绑定 version=9.9（不存在）→ 矩阵 #3 找不到 → 应用默认（无）→ 平台默认 Noop 直通
-        setMessageBinding(grayIfaceId, ENV_V1, "9.9");
-        wireMock.resetAll();
-        stubFor(post("/up-gray").willReturn(okJson(RESP_A)));
-        String passthrough = body(call("/m5/gray", "{}"));
-        // Noop：整个响应体原样透传（不再按信封剥壳——code/status 字段都保留在 data 内）
-        assertThat(passthrough).contains("\"code\":0").contains("\"status\":\"bad\"");
-
-        // 停用即回退：当前绑定 M5-ENV-1（v9.1）停用 → 不可用 → 应用默认（无）→ Noop 直通；
-        // 先确认启用态 v9.1 剥壳正常（v=1），再停用验证回退
+        // 启用态 v9.1 剥壳正常（v=1）
         setMessageBinding(grayIfaceId, ENV_V1, null);
         wireMock.resetAll();
         stubFor(post("/up-gray").willReturn(okJson(RESP_A)));
         assertThat(body(call("/m5/gray", "{}"))).contains("\"v\":1");
+
+        // 停用绑定实例 ENV_V1 → 不可用 → 应用默认（无）→ 平台默认 Noop 直通（不再按信封剥壳）
         adapterService.enable(ENV_V1, false);
         wireMock.resetAll();
         stubFor(post("/up-gray").willReturn(okJson(RESP_A)));
-        assertThat(body(call("/m5/gray", "{}"))).contains("\"status\":\"bad\"");
+        assertThat(body(call("/m5/gray", "{}"))).contains("\"code\":0").contains("\"status\":\"bad\"");
 
         // 重新启用 → 恢复信封剥壳（v9.1）
         adapterService.enable(ENV_V1, true);
@@ -347,17 +346,22 @@ class M5IntegrationTest {
     }
 
     @Test
-    void d6放宽_同impl多版本启用_同版本重复拒绝() {
-        // M5-ENV-1 / M5-ENV-2 已在 setup 启用（不同 version）——同 impl 多版本灰度共存成立
+    void d6新语义_同impl同版本可多启用_name全表唯一() {
+        // M5-ENV-1 / M5-ENV-2 已在 setup 启用（不同 version）——同 impl 多版本并存仍成立
         assertThat(adapterRepository.findById(ENV_V1).orElseThrow().enabled()).isTrue();
         assertThat(adapterRepository.findById(ENV_V2).orElseThrow().enabled()).isTrue();
-        // 同 (impl, version) 重复启用 → 拒绝（D6 版本维度）
-        adapterRepository.insert(new AdapterRow("M5-ENV-3", "信封 v1 dup", "message",
+        // D6'：同 (impl, version) 也允许第二条启用（与 ENV_V1 同为 9.1，灰度路由已弃用、实例靠 id+name 区分）
+        adapterRepository.insert(new AdapterRow("M5-ENV-3", "信封 v1 双实例", "message",
                 ENV_IMPL, false, "9.1", "{\"envelope\":\"data\",\"codeField\":\"code\",\"successValue\":\"0\",\"messageField\":\"message\"}",
                 null, null));
-        assertThatThrownBy(() -> adapterService.enable("M5-ENV-3", true))
+        adapterService.enable("M5-ENV-3", true); // 不再拒绝：与 ENV_V1 同 (impl=EnvelopeMessageAdapter, 9.1) 并存启用
+        assertThat(adapterRepository.findById("M5-ENV-3").orElseThrow().enabled()).isTrue();
+        // name 全表唯一（D2）：create 撞现有名（ENV_V1 的「信封 v1（code=0）」）→ 拒绝
+        assertThatThrownBy(() -> adapterService.create(new com.deepx.apicenter.dto.AdapterDtos.AdapterRequest(
+                "M5-ENV-DUP", "信封 v1（code=0）", "message", ENV_IMPL, true, "9.1",
+                "{\"envelope\":\"data\",\"codeField\":\"code\",\"successValue\":\"0\",\"messageField\":\"message\"}")))
                 .isInstanceOf(BizException.class)
-                .hasMessageContaining("同 (impl, version) 至多 1 条启用");
+                .hasMessageContaining("名称已存在");
     }
 
     // ---------- helpers ----------

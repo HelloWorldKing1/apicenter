@@ -15,11 +15,11 @@
 
 | 项 | 状态 |
 |---|---|
-| 设计文档 | 已定稿：`src/main/resources/doc/` 6 份 + schema.sql（**18 张表**，M4 新增 reconcile_audit / alert_event） |
+| 设计文档 | 已定稿：`src/main/resources/doc/` 6 份 + schema.sql（**19 张表**，M4 新增 reconcile_audit / alert_event，M5 后新增 outbound_request_state_log 状态链） |
 | M0 契约设计 | **已评审通过 v1.0（2026-09-02）**：`doc/开发文档/` M0-01/02/03/04（确认点全部通过） |
 | 旧 demo 代码 | 已删除（commit `ad55cea`），git 历史可查 |
 | 数据库 | MySQL PolarDB 已按新 schema 建库（连接信息见 application.yaml）；M4 DDL（两表 + idx_outreq_updated 索引）已于 2026-09-04 应用到开发库 |
-| 工程代码 | **M1 + M2 + M3 + M4 已落地并测试通过（全库 164 个 @Test）；M5.1/M5.2 已落地（全库 174 个 @Test，2026-09-07 surefire 全绿）**。M4 = 熔断器三态 + UNKNOWN 人工对账 + TTL 降级 + 死信重放 + GatewayGuard 防护 + call_log 脱敏与 traceId 贯穿 + 指标告警。M5.1 = 接口版本快照与回滚（config_json 序列化 / 回滚复用全量替换 + 乐观锁；版本 v1.0 起每次配置变更 / 回滚 +0.1 步进、历史只增不回退 / 版本查询端点）；M5.2 = 绑定 version 灰度矩阵 + 解析时机上移（绑定/映射/参数烘焙进缓存链，凭证保持实时）+ ConfigChangedEvent 事件失效 + test 端点 chainTrace + D6 放宽（同 impl 多版本启用）+ 前端版本历史/变更说明/绑定版本下拉。测试归属：M1 22 / M2 23 / M3 62 / M4 57 / **M5 10**（M5IntegrationTest 7 + SnapshotSerializerTest 3） |
+| 工程代码 | **M1 + M2 + M3 + M4 已落地并测试通过；M5.1/M5.2 已落地（全库 174 个 @Test 基准）；M5 后状态链已落地（全库归属 180 = M1 22 / M2 23 / M3 62 / M4 57 / M5 10 + StateChainIntegrationTest 6；2026-09-08）**。M4 = 熔断器三态 + UNKNOWN 人工对账 + TTL 降级 + 死信重放 + GatewayGuard 防护 + call_log 脱敏与 traceId 贯穿 + 指标告警。M5.1 = 接口版本快照与回滚（config_json 序列化 / 回滚复用全量替换 + 乐观锁；版本 v1.0 起每次配置变更 / 回滚 +0.1 步进、历史只增不回退 / 版本查询端点）；M5.2 = 适配器绑定即实例 + 解析时机上移（绑定/映射/参数烘焙进缓存链，凭证保持实时）+ ConfigChangedEvent 事件失效 + test 端点 chainTrace + D6'（2026-09-08 定稿：adapter.name 全表唯一；同 (impl, version) 允许多启用；version 不再路由）+ 前端版本历史/变更说明。测试归属：M1 22 / M2 23 / M3 62 / M4 57 / **M5 10**（M5IntegrationTest 7 + SnapshotSerializerTest 3）+ 状态链 6 |
 | 里程碑计划 | **M4 手动验收（方案已细化，2026-09-05）待完成；M5.3 压测执行 + M5 手动验收待排期**——M5 开发计划已评审定稿（2026-09-04 一轮 + 09-07 二轮），D-M5-1~3 即编码依据，总盘 9 人日 |
 | 未拍板决策 | 无（M0 全部评审通过；M4/M5 计划均已评审定稿） |
 
@@ -32,7 +32,7 @@
 | `API中心设计方案.md` | 设计总纲：应用（供应商）/ 分组 / 接口 / 监控 / 适配器 5 模块；接口定义模型（出站中转 / 入站回调）；三类适配器（鉴权 / 协议 / 报文）+ 接口级字段映射；状态机 / 错误码 / 容错附录 |
 | `技术架构和实现方案.md` | 实现路径：分层架构、技术选型、适配器链引擎、出 / 入站执行引擎、M1–M5 路线图、ADR |
 | `可行性报告.md` | 技术可行性评估、工作量估算（约 81 人日）、风险与应对 |
-| `表结构设计.html` | 18 张表（配置 11 + 运行 7，M4 增 reconcile_audit / alert_event）+ 枚举汇总 + 原型数据模型映射对照 |
+| `表结构设计.html` | 19 张表（配置 11 + 运行 8，M4 增 reconcile_audit / alert_event，M5 后增 outbound_request_state_log）+ 枚举汇总 + 原型数据模型映射对照 |
 | `API中心时序图与流程图.md` | 配置流程、Flow A / B 时序、请求处理 + 容错流程图 |
 | `API中心原型.html` | 可交互管理面原型（数据模型与交互即事实来源） |
 
@@ -93,7 +93,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 |---|---|---|
 | `controller/` | 管理面 REST（应用 / 分组 / 接口 / 监控 / 适配器 5 模块）+ 接入层路由 | M1 / M2 / M4（监控 + 死信重放 + 对账端点） |
 | `service/` | 业务编排：配置校验、状态机流转、接入层防护（GatewayGuard） | M1 / M4 |
-| `repository/` | JdbcTemplate 数据访问（18 张表） | M1 / M4（reconcile_audit / alert_event） |
+| `repository/` | JdbcTemplate 数据访问（19 张表） | M1 / M4（reconcile_audit / alert_event）/ M5 后（state_log） |
 | `engine/` | 适配器链引擎 + 出站 / 入站执行引擎 + 熔断器（CircuitBreakerRegistry） | M2 / M3 / M4 |
 | `adapter/` | 鉴权 / 协议 / 报文三类适配器实现 | M2 |
 | `mapping/` | 动态字段映射引擎（M0-02 规范，6 操作运行时解释器） | M2 |
@@ -121,7 +121,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 ## 配置与数据模型
 
 - 配置集中在 `src/main/resources/application.yaml`：仅基础设施参数（datasource、`retry-worker-fixed-delay-ms: 3000`、`unknown-ttl-minutes: 10`）；业务配置（应用 / 接口 / 适配器 / 字段映射）全部落库。
-- `src/main/resources/doc/schema.sql`：18 张表（配置 11 + 运行 7，M4 新增 reconcile_audit / alert_event + idx_outreq_updated），无数据库外键（引用完整性应用层保证，引用列建索引），与《表结构设计.html》逐表一致。
+- `src/main/resources/doc/schema.sql`：19 张表（配置 11 + 运行 8，M4 新增 reconcile_audit / alert_event + idx_outreq_updated，M5 后新增 outbound_request_state_log + adapter.name 唯一），无数据库外键（引用完整性应用层保证，引用列建索引），与《表结构设计.html》逐表一致。
 
 ## 约定与注意事项（Gotchas）
 
@@ -135,8 +135,8 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 - **`mvn test` 不清旧产物**：删源文件后旧 class 残留在 target/classes 会被 Spring 扫描装配——结构变更务必 `mvn clean test`。
 - **列表接口不带子表**：断言/校验接口子表（params/mappings 等）必须走 `detail()`，`list()` 的子表恒空。
 - **熔断 / 限流 / 日配额为单实例内存口径**：多实例部署各实例独立（v1.1 分布式，日配额重启清零）；QPS 为固定秒级窗口（交界突刺最坏 2×limit）；WireMock 占 18080 与集成测试同端口，手动验收期间勿同时跑 `mvn test`。语义详见《M4开发计划.md》。
-- **M5 链缓存烘焙与事件失效**：绑定解析 / 映射规则 / 入站参数声明在链装配时一次解析烘焙进缓存链（凭证仍每请求实时读）——**配置变更后灰度/协议即时生效依赖 `ConfigChangedEvent` 事件失效**：InterfaceService（update/rollback/publish/offline/delete）→ INTERFACE 精准移除；AdapterService（增改/启停/删）、AppService（默认绑定/启停）→ ADAPTER/APP 全清；**新增配置入口必须补发事件**（漏一处最长 5 分钟不生效，TTL 兜底）。凭证轮换不进清单（每请求实时读，天然即时）。
-- **适配器 D6 已放宽为 (impl, version) 维度**（M5 灰度）：同 impl 不同版本可并存启用；同 (impl, version) 仍至多 1 条 enabled。绑定 version 解析矩阵（#1-#4）见《M5开发计划.md》D-M5-2；version 空 = 用绑定行所指实例。
+- **M5 链缓存烘焙与事件失效**：绑定解析 / 映射规则 / 入站参数声明在链装配时一次解析烘焙进缓存链（凭证仍每请求实时读）——**配置变更后绑定/协议即时生效依赖 `ConfigChangedEvent` 事件失效**：InterfaceService（update/rollback/publish/offline/delete）→ INTERFACE 精准移除；AdapterService（增改/启停/删）、AppService（默认绑定/启停）→ ADAPTER/APP 全清；**新增配置入口必须补发事件**（漏一处最长 5 分钟不生效，TTL 兜底）。凭证轮换不进清单（每请求实时读，天然即时）。
+- **适配器 D6'（2026-09-08 定稿，替换 M5 灰度版本矩阵）**：adapter.name 全表唯一；同 (impl, version) 允许多条启用并存（实例靠 id + name 区分）；多实例并行首选同 impl 不同 version；binding.version **不再路由**——绑定即实例（恒用绑定行 adapter_id），version 仅记录/留痕；目标实例缺失 / 停用 → 逐层回退应用默认 → Noop。
 - **接口变更说明走 `X-Change-Note` 请求头**（不扩展 InterfaceRequest DTO）：随 PUT 保存生成新版本快照的 change_note；版本历史 / 回滚端点 `GET/POST /api/admin/interfaces/{id}/versions...`、回滚 body {targetVersion, operator, reason, currentVersion}（目标缺失 40403 / 乐观锁冲突 40001）。
 - **test 端点响应已包装**：`POST /{id}/test` data 变为 `{chainTrace, result}`（D-M5-2 留痕通道 3，强制实时解析）；前端解析相应调整。
 - **更多 Spring 7 / Jackson 3 / WireMock 3 踩坑**：见 `doc/开发文档/技术踩坑记录.md`（写代码前先查）。

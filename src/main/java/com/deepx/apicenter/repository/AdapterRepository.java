@@ -9,8 +9,9 @@ import java.util.Optional;
 
 /**
  * adapter 表数据访问（适配器定义）。
- * 约束（M0-01 D6，M5 灰度放宽为 impl + version 维度）：同 impl 同 version 至多 1 条 enabled=1——
- * 灰度需同 impl 多版本共存且均启用（D-M5-2 矩阵 #3），不同 version 不受限。
+ * 约束（D6' 定稿，2026-09-08）：adapter.name 全表唯一（id 为唯一键与绑定键）；
+ * 同 (impl, version) 允许多条启用并存（不做灰度路由，多实例靠 id+name 区分；
+ * 并行首选同 impl 不同 version）；binding.version 仅记录/留痕不参与运行时定位。
  * 删除策略：app 三列 + binding.adapter_id 引用置 NULL（回退「无鉴权 / 平台默认」）。
  */
 @Repository
@@ -40,18 +41,12 @@ public class AdapterRepository {
         return n == null ? 0 : n;
     }
 
-    /** 同 (impl, version) 启用的记录数（M5 D6 灰度放宽：版本维度唯一；同版本重复实例仍拒绝） */
-    public int countEnabledByImplVersion(String impl, String version, String excludeId) {
+    /** adapter.name 全表唯一（D6' 语义：实例区分靠 id + name；同 (impl, version) 允许多条启用并存，不做灰度路由） */
+    public int countByName(String name, String excludeId) {
         Integer n = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM adapter WHERE impl = ? AND version = ? AND enabled = 1 AND id <> ?",
-                Integer.class, impl, version, excludeId);
+                "SELECT COUNT(*) FROM adapter WHERE name = ? AND id <> ?",
+                Integer.class, name, excludeId == null ? "" : excludeId);
         return n == null ? 0 : n;
-    }
-
-    /** 灰度矩阵 #3：同 impl + 指定 version 且启用的行（D-M5-2 解析用） */
-    public Optional<AdapterRow> findByImplAndVersionEnabled(String impl, String version) {
-        return jdbc.query("SELECT * FROM adapter WHERE impl = ? AND version = ? AND enabled = 1",
-                AdapterRow.MAPPER, impl, version).stream().findFirst();
     }
 
     public boolean existsById(String id) {

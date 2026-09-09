@@ -326,23 +326,12 @@
                          @change="onAdapterChange('message')">
                 <el-option v-for="a in messageAdapters" :key="a.id" :label="`${a.name}（${a.impl}）`" :value="a.id" />
               </el-select>
-              <!-- M5 D-M5-2：同 impl 多版本灰度——选中适配器后可选指定版本（空 = 跟随当前版本） -->
-              <el-select v-if="form.messageAdapterId" v-model="form.messageVersion" clearable
-                         placeholder="跟随当前版本（空）" style="width: 100%; margin-top: 6px" size="small">
-                <el-option v-for="v in implVersionOptions(form.messageAdapterId)" :key="v.version"
-                           :label="`v${v.version} · ${v.name}`" :value="v.version" />
-              </el-select>
             </div>
             <div class="adv-item">
               <span class="basic-label">{{ form.ifType === 'OUTBOUND' ? '供应商签名' : '回调验签' }}</span>
               <el-select v-model="form.authAdapterId" clearable placeholder="继承应用默认" style="width: 100%"
                          @change="onAdapterChange('auth')">
                 <el-option v-for="a in authAdapters" :key="a.id" :label="`${a.name}（${a.impl}）`" :value="a.id" />
-              </el-select>
-              <el-select v-if="form.authAdapterId" v-model="form.authVersion" clearable
-                         placeholder="跟随当前版本（空）" style="width: 100%; margin-top: 6px" size="small">
-                <el-option v-for="v in implVersionOptions(form.authAdapterId)" :key="v.version"
-                           :label="`v${v.version} · ${v.name}`" :value="v.version" />
               </el-select>
             </div>
           </div>
@@ -633,15 +622,7 @@ function emptyForm() {
   }
 }
 
-/** 同 impl 多版本灰度（D-M5-2）：选中适配器后可指定的启用版本清单（含自身，供并行验证 / 切换） */
-function implVersionOptions(adapterId) {
-  const sel = adapters.value.find((a) => a.id === adapterId)
-  if (!sel) return []
-  return adapters.value.filter((a) => a.type === sel.type && a.impl === sel.impl && a.enabled)
-    .map((a) => ({ version: a.version, name: a.name }))
-}
-
-/** 切换适配器实例 → 重置其版本选择（防残留旧实例的同 impl 版本号误绑定） */
+/** 切换适配器实例 → 重置其版本字段（D6'：绑定即实例，version 不再路由，保留字段避免旧值误带） */
 function onAdapterChange(kind) {
   if (kind === 'message') form.messageVersion = null
   else form.authVersion = null
@@ -866,10 +847,10 @@ async function save() {
     { side: 'OUT', bodyType: form.outBodyType, raw: form.outBodyRaw, form: toFormJson(form.outFormRows) }
   ]
   const bindings = [
-    { role: 'MESSAGE', adapterId: form.messageAdapterId, version: form.messageVersion || null },
+    { role: 'MESSAGE', adapterId: form.messageAdapterId, version: null },
     form.ifType === 'OUTBOUND'
-      ? { role: 'AUTH', adapterId: form.authAdapterId, version: form.authVersion || null }
-      : { role: 'CALLBACK_AUTH', adapterId: form.authAdapterId, version: form.authVersion || null }
+      ? { role: 'AUTH', adapterId: form.authAdapterId, version: null }
+      : { role: 'CALLBACK_AUTH', adapterId: form.authAdapterId, version: null }
   ]
   // 透传模式（仅出站接口）：提交空映射规则、清空出站侧参数（后端零映射直通）
   const passthrough = form.ifType === 'OUTBOUND' && form.passthrough
