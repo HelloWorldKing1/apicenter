@@ -39,10 +39,20 @@
           </template>
         </el-table-column>
         <el-table-column prop="path" label="平台侧路径" show-overflow-tooltip />
-        <el-table-column label="供应商接口路径" show-overflow-tooltip>
+        <el-table-column show-overflow-tooltip min-width="200">
+          <template #header>
+            <el-tooltip placement="top"
+                        content="目标地址：出站 = 供应商接口路径（upstreamPath，拼应用服务地址）；入站 = 回调地址（平台投递送达报文给业务收件端的 URL）">
+              <span class="col-head">目标地址
+                <span class="head-hint" style="cursor:help">ⓘ</span>
+              </span>
+            </el-tooltip>
+          </template>
           <template #default="{ row }">
-            <span v-if="row.ifType === 'OUTBOUND'" class="upstream-text">{{ row.upstreamPath }}</span>
-            <span v-else class="upstream-na">—</span>
+            <span v-if="row.ifType === 'OUTBOUND'" class="target-text" :title="'供应商接口路径'"
+                  >{{ row.upstreamPath || '—' }}</span>
+            <span v-else class="target-text" :title="'入站回调地址（送达）'"
+                  >{{ row.callbackUrl || '—' }}</span>
           </template>
         </el-table-column>
         <el-table-column label="协议" width="140">
@@ -1136,7 +1146,7 @@ h4 { margin: 20px 0 10px; color: #303133; }
 .method-GET { color: #3BA776; }
 .method-PUT { color: #4A90D9; }
 .method-DELETE { color: #D9534F; }
-.upstream-text {
+.target-text {
   font-family: 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12px;
   color: #606266;
