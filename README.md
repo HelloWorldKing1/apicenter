@@ -45,6 +45,7 @@ API 三方接口统一调用平台组件 —— 只做 **连接 + 适配 + 可�
 | M0 契约（已评审通过） | [doc/开发文档/](src/main/resources/doc/开发文档/) | 链引擎契约 / 动态映射语义规范 / 通用客户端与对账协议 / 凭证轮换存储方案 |
 | 里程碑计划 | [doc/开发文档/](src/main/resources/doc/开发文档/) | M3 / M4 / M5 开发计划（D-M3-1~4、D-M4-1~6、D-M5-1~3 即编码依据；M3/M4 已实施，M5 已定稿待开工） |
 | 手动验收方案 | [doc/开发文档/](src/main/resources/doc/开发文档/) | M2 / M3 / M4 手动验收测试方案（本地 WireMock stub 随仓库 `src/test/resources/`） |
+| 端到端演示方案 | [端到端闭环演示方案.md](src/main/resources/doc/开发文档/端到端闭环演示方案.md) | 从界面配置到真实供应商（evoLink）/ 真实 XML 闭环的完整演示脚本；每环节给原理 / 设计思路 / 实现方式 |
 | 代码评审记录 | [doc/开发文档/](src/main/resources/doc/开发文档/) | M2 / M3 四路评审问题清单与修复进度 |
 | 踩坑记录 | [技术踩坑记录.md](src/main/resources/doc/开发文档/技术踩坑记录.md) | Spring 7 / Jackson 3 / WireMock 3 API 差异与经验（写代码前先查） |
 

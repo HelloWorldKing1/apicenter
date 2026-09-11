@@ -7,6 +7,7 @@ import com.deepx.apicenter.dto.GroupDtos.GroupRequest;
 import com.deepx.apicenter.dto.InterfaceDtos.BindingDto;
 import com.deepx.apicenter.dto.InterfaceDtos.FieldDefDto;
 import com.deepx.apicenter.dto.InterfaceDtos.InterfaceRequest;
+import com.deepx.apicenter.dto.InterfaceDtos.MappingDto;
 import com.deepx.apicenter.dto.InterfaceDtos.ParamDto;
 import com.deepx.apicenter.engine.OutboundEngine;
 import com.deepx.apicenter.exception.BizException;
@@ -187,9 +188,36 @@ class M2IntegrationTest {
         OutboundRequestRow row = outboundRequestRepository.findByBizId(TEST_APP, "biz-g1").get(0);
         assertThat(row.status()).isEqualTo("SUCCESS");
         assertThat(row.attemptCount()).isEqualTo(1);
+        // 诊断字段（M2 评审技术债 #12 修复回归）：out_payload = 映射 + 协议编码后的出站报文（落库，不再恒 null）
+        assertThat(row.outPayload()).isNotNull();
+        assertThat(row.outPayload()).contains("7494312521977267257").contains("pagesize");
+        // resp_payload = 供应商响应【原始字节】文本：断言保留原样（带空格的 pretty 形态）——
+        // 若被解码后重序列化会变成紧凑 JSON（"total":822），本断言即回归防线
+        assertThat(row.respPayload()).contains("\"total\": 822");
         // 凭证头被附加（Bearer 出站鉴权生效）
         wireMock.verify(postRequestedFor(urlEqualTo("/shop/v1/creatorList"))
                 .withHeader("Authorization", equalTo("Bearer m2-golden-token")));
+    }
+
+    // ---------- G5 诊断字段：out_payload = 映射后出站报文 ----------
+
+    @Test
+    void g5_出站报文落库_反映映射结果() {
+        stubFor(post("/shop/v1/creatorList").willReturn(okJson(GOLDEN_RESPONSE)));
+        long groupId = jdbcTemplate.queryForObject(
+                "SELECT id FROM app_group WHERE app_id = ? LIMIT 1", Long.class, TEST_APP);
+        long ifaceId = interfaceService.create(mappedInterface(groupId));
+        interfaceService.publish(ifaceId);
+
+        ApiResult<?> result = outboundEngine.dispatch("/test/m2/mapped", "POST",
+                "{\"state\":\"PAID\",\"page\":3}".getBytes(StandardCharsets.UTF_8), "biz-g5", "trace-g5");
+        assertThat(result.code()).isZero();
+
+        OutboundRequestRow row = outboundRequestRepository.findByBizId(TEST_APP, "biz-g5").get(0);
+        // out_payload 是【映射后】的出站报文：target 字段名 page_no 出现，source 字段名 page 已被映射掉
+        assertThat(row.outPayload()).isNotNull();
+        assertThat(row.outPayload()).contains("\"page_no\":3");
+        assertThat(row.outPayload()).doesNotContain("\"page\":");
     }
 
     // ---------- G2 上游 4xx → 死信 ----------
@@ -328,6 +356,26 @@ class M2IntegrationTest {
                         new FieldDefDto("RESP", "list", "array", "达人列表", 2)),
                 List.of(
                         new BindingDto("AUTH", inheritAuth ? null : "ADP-101", null),
+                        new BindingDto("MESSAGE", "ADP-201", null)));
+    }
+
+    /** G5：带字段映射（rename page → page_no）的接口，用于断言 out_payload 为「映射后」报文 */
+    private InterfaceRequest mappedInterface(long groupId) {
+        List<ParamDto> params = List.of(
+                new ParamDto("IN", "state", "string", false, "PAID", 1),
+                new ParamDto("IN", "page", "number", false, "3", 2),
+                new ParamDto("OUT", "state", "string", false, null, 1),
+                new ParamDto("OUT", "page_no", "number", false, null, 2));
+        return new InterfaceRequest(
+                "M2-GOLDEN-MAP", "M2 映射用例", "OUTBOUND", "POST", "/test/m2/mapped",
+                "JSON", "JSON", TEST_APP, groupId,
+                "/shop/v1/creatorList", null, null, 3000, 4, "WireMock 映射断言用例", 1,
+                params, List.of(), List.of(
+                        new MappingDto("state", "rename", "state", null, "KEEP", 1),
+                        new MappingDto("page", "rename", "page_no", null, "KEEP", 2)),
+                List.of(),
+                List.of(
+                        new BindingDto("AUTH", "ADP-101", null),
                         new BindingDto("MESSAGE", "ADP-201", null)));
     }
 

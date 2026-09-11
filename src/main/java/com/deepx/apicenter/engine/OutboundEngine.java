@@ -191,8 +191,13 @@ public class OutboundEngine {
         }
 
         // 状态 MAPPING → 调上游（状态列即时更新；节点攒批出口落库）
+        // 诊断字段 out_payload（M0-01 D7 / M0-02「映射结果落 out_payload」）：搭车本次已发生的 UPDATE 写入
+        // 「映射 + 协议编码后的出站报文」（= 真正发给供应商的 body）；不额外增加库往返（远程库敏感）。
+        // GET / DELETE 无请求体（UpstreamInvoker 不带 body）→ 记 null，避免落一个从未发出的 "{}" 造成误读。
+        // 写入走 COALESCE，故语义为「首送映射产物快照」：补偿重放同一记录时不覆盖（重放后的映射产物以
+        // 供应商实际收到的报文为准，可用 WireMock/对端日志核对）。
         chainAppend(startStatus, "MAPPING", attempt, null, trigger, how + "链执行");
-        outboundRequestRepository.updateState(recordId, "MAPPING", null, null, null, null);
+        outboundRequestRepository.updateState(recordId, "MAPPING", outboundBodyText(iface, ctx), null, null, null);
         UpstreamInvoker.beginRetryBudget(iface.maxRetries());
         ResponseEntity<byte[]> resp;
         try {
@@ -240,9 +245,10 @@ public class OutboundEngine {
     /** 2xx：信封适配判业务成败（M0-03 定稿 C2：业务失败也记 SUCCESS、业务码透传）；RESP 过滤仅成功路径（D-M3-3） */
     private ApiResult<?> handleSuccess(long recordId, InterfaceRow iface, byte[] respBody, String trigger, String how, int attempt) {
         UnifiedModel respModel = parseResponse(iface.id(), respBody);
-        String outPayload = modelText(respModel);
         chainAppend("MAPPING", "SUCCESS", attempt, null, trigger, how + " 响应 " + respBody.length + " 字节");
-        outboundRequestRepository.updateState(recordId, "SUCCESS", null, outPayload, null, null);
+        // resp_payload = 供应商响应【原始字节】文本（不落解码后模型）：JSON 场景与原文一致，XML 场景保留原始 XML，
+        // 供监控排查「解码失败/协议选错/RESP 名称写错」时直接比对原文（链失败排查见整体测试方案 §6.6）。
+        outboundRequestRepository.updateState(recordId, "SUCCESS", null, bytesText(respBody), null, null);
         log.info("出站请求 {} 成功（响应 {} 字节）", recordId, respBody.length);
 
         JsonNode envelopeParams = envelopeParamsOf(iface);
@@ -394,13 +400,17 @@ public class OutboundEngine {
                 .toList();
     }
 
-    private String modelText(UnifiedModel model) {
-        try {
-            // D-M3-4 收敛后：UnifiedModel 序列化统一走协议适配器的静态转换，不再内联 toJsonNode
-            return objectMapper.writeValueAsString(JsonProtocolAdapter.fromUnified(model.root(), objectMapper));
-        } catch (Exception e) {
+    /**
+     * 出站诊断字段 out_payload 取值（M0-01 D7）：映射 + 协议编码后的出站报文文本；
+     * GET / DELETE 无请求体 → null（与 UpstreamInvoker 实际行为对齐）；无 body 同样为 null。
+     */
+    private String outboundBodyText(InterfaceRow iface, AdapterContext ctx) {
+        String method = iface.method() == null ? "POST" : iface.method().toUpperCase();
+        if ("GET".equals(method) || "DELETE".equals(method)) {
             return null;
         }
+        byte[] outBody = ctx.outbound().body();
+        return outBody == null ? null : new String(outBody, java.nio.charset.StandardCharsets.UTF_8);
     }
 
     /** UnifiedModel → JsonNode（D-M3-4 收敛后统一走协议适配器的静态转换；失败返回 null） */
