@@ -108,7 +108,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 
 入口：`ApicenterApplication.java`（`@SpringBootApplication` + `@EnableScheduling` + `@EnableResilientMethods`，后者启用 Spring 7 `@Retryable`）。
 
-前端 `frontend/`（Vue3 + Vite + Element Plus，M1 设计 §4）：`src/views/` 六页面（Dashboard / Apps / Groups / Interfaces / Adapters / Monitor）+ `components/ParamTable` 参数编辑 + `components/CredentialEntry` 凭证卡片 + `components/PayloadViewer` 报文美化展示 + `utils/payload.mjs`（JSON/XML 扫描式缩进，只增删空白）+ `api/http.js` 统一信封解包；前端单测 `npm test`（Node 内置 test runner，`src/utils/*.test.mjs`）。原型交互平移自 `doc/API中心原型.html`。管理面 REST 前缀 `/api/admin`（controller/admin 六个 Controller：应用 / 分组 / 接口 / 适配器 / 凭证 / 监控），统一信封 `{code, msg, data}`。Monitor 页 M4 已接真数据（统计卡 / 调用日志 / 对账 UNKNOWN / 死信 / 告警五区块）。
+前端 `frontend/`（Vue3 + Vite + Element Plus，M1 设计 §4）：`src/views/` 六页面（Dashboard / Apps / Groups / Interfaces / Adapters / Monitor）+ `components/ParamTable` 参数编辑 + `components/CredentialEntry` 凭证卡片 + `components/PayloadViewer` 报文美化展示 + `utils/payload.mjs`（JSON/XML 扫描式缩进，只增删空白）+ `api/http.js` 统一信封解包；前端 `npm test` = 单测（Node 内置 test runner，`src/utils/*.test.mjs`）+ 组件 SSR 冒烟（`test/ssr-smoke.mjs`）。原型交互平移自 `doc/API中心原型.html`。管理面 REST 前缀 `/api/admin`（controller/admin 六个 Controller：应用 / 分组 / 接口 / 适配器 / 凭证 / 监控），统一信封 `{code, msg, data}`。Monitor 页 M4 已接真数据（统计卡 / 调用日志 / 对账 UNKNOWN / 死信 / 告警五区块）。
 
 ## 核心状态机与容错（设计 §6）
 
@@ -145,7 +145,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 - **test 端点响应已包装**：`POST /{id}/test` data 变为 `{chainTrace, result}`（D-M5-2 留痕通道 3，强制实时解析）；前端解析相应调整。
 - **应用弹窗内联凭证（v0.2，2026-09-11 落地）**：凭证卡片在「新建/编辑应用」弹窗内，**显示条件** = 该角色选了非 `NoopAuthAdapter` 的适配器（或已有凭证，只读行）；**字段来源** = 所选 adapter 的 impl 元数据中 `kind==='secret'` 字段，未声明时退化为单「密钥 / Token」框（如 `HmacCallbackVerifyAdapter`）；**留空 = 不改动**，单字段→字符串 / 多字段→JSON 提交；新建应用凭证是 `POST /apps` 成功后**串行**写（失败提示后引导补填）；列表凭证角标取 `AppResponse.has*Credential`（E1）。设计文档：`doc/开发文档/应用凭证配置改造方案.md`。
 - **`CredentialRepository.countByStatus` 与 `countLiveRotating` 的区别**：前者含已过期 ROTATING 行，仅用于 `retire` 的 ACTIVE 计数；`prepare` 的「已有待激活轮换」判定必须用 `countLiveRotating`（排除 `rotating_until` 已过期，E2 修复）。
-- **报文展示禁止 parse 重建（v0.3）**：调用日志 / 状态机 / Dashboard 的报文美化走 `utils/payload.mjs` 的**扫描式缩进**（只增删空白）——**不要**改成 `JSON.parse` + `stringify`（19 位数字尾数会被改写、`1.10`→`1.1`、重复键丢失）或 XML `DOMParser`（规范化 CDATA / 实体 / 属性引号）；新增展示点复用 `components/PayloadViewer.vue`，改格式化逻辑后跑 `cd frontend && npm test`。
+- **报文展示禁止 parse 重建（v0.3）**：调用日志 / 状态机 / Dashboard 的报文美化走 `utils/payload.mjs` 的**扫描式缩进**（只增删空白）——**不要**改成 `JSON.parse` + `stringify`（19 位数字尾数会被改写、`1.10`→`1.1`、重复键丢失）或 XML `DOMParser`（规范化 CDATA / 实体 / 属性引号）；新增展示点复用 `components/PayloadViewer.vue`，展示取值统一走 `pickPayloadText(analyzed, mode)`。**`<script setup>` 里的 computed/watcher 在 JS 中必须 `.value`**（只有模板自动解包）——曾因此让抽屉正文恒显占位符「—」，现由 `npm test`（单测 + 组件 SSR 冒烟）拦住；改格式化逻辑或组件绑定后必须跑 `cd frontend && npm test`。
 - **更多 Spring 7 / Jackson 3 / WireMock 3 踩坑**：见 `doc/开发文档/技术踩坑记录.md`（写代码前先查）。
 - **术语口径（2026-09-08 定稿）**：用户可见文案与文档用「**供应商**」表被代理的角色（供应商 5xx/拒绝/超时/返回、依赖供应商幂等）、「**供应商接口路径**」表出站路径；`upstreamPath` / `upstream_path` / `UpstreamInvoker` 为稳定契约与内部标识**不改名**；链路方向叙述（调供应商）与代码内部注释可保留「上游」。勿引入「第三方」作主术语（与平台客户歧义）。
 - 旧 demo 实现仅供参考（git 历史 `ed95446` 及之前），不照搬渠道特化逻辑（PARTNER_A/B、订单字段、高水位同步均不适用于新设计）。

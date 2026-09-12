@@ -79,6 +79,19 @@ export function isXmlLike(text) {
   return /^<([A-Za-z_]|\?[A-Za-z]|!--|!DOCTYPE)/.test(text)
 }
 
+/**
+ * 展示取值：美化模式且有格式化结果 → pretty；否则 raw（供组件直接使用）。
+ * 注意：调用方在 JS 里取 computed 必须 `.value`（模板才会自动解包）——
+ * 2026-09-12 回归：组件内曾写 `view.formatted`（少 `.value`）→ 取到 undefined → 正文恒显空。
+ * 把这条规则提成纯函数并单测，避免同类错误再次静默。
+ * @param {{formatted:boolean, pretty:string, raw:string}} analyzed analyzePayload 结果
+ * @param {'pretty'|'raw'} mode 展示模式
+ */
+export function pickPayloadText(analyzed, mode) {
+  if (!analyzed) return ''
+  return mode === 'pretty' && analyzed.formatted ? analyzed.pretty : analyzed.raw
+}
+
 // ---------- JSON：字符串感知扫描缩进 ----------
 
 /**

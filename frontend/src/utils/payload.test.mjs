@@ -8,7 +8,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { analyzePayload, isJsonLike, isXmlLike, MAX_FORMAT_CHARS } from './payload.mjs'
+import { analyzePayload, isJsonLike, isXmlLike, pickPayloadText, MAX_FORMAT_CHARS } from './payload.mjs'
 
 // ---------- JSON ----------
 
@@ -143,4 +143,34 @@ test('探测函数边界', () => {
   assert.equal(isXmlLike('<!-- c -->'), true)
   assert.equal(isXmlLike('<!DOCTYPE html>'), true)
   assert.equal(isXmlLike('a < b'), false)
+})
+
+// ---------- 展示取值（回归：组件正文曾因少写 .value 恒为空） ----------
+
+test('pickPayloadText：美化 / 原文 / 未格式化回退 / 空态', () => {
+  const json = analyzePayload('{"a":1}')
+  assert.equal(pickPayloadText(json, 'pretty'), '{\n  "a": 1\n}')
+  assert.equal(pickPayloadText(json, 'raw'), '{"a":1}')
+
+  const text = analyzePayload('denied')
+  assert.equal(pickPayloadText(text, 'pretty'), 'denied')      // 未格式化 → 回退原文
+  assert.equal(pickPayloadText(text, 'raw'), 'denied')
+
+  assert.equal(pickPayloadText(analyzePayload(null), 'pretty'), '')
+  assert.equal(pickPayloadText(null, 'pretty'), '')
+})
+
+test('回归：任何非空报文在默认（美化）模式下展示文本必须非空', () => {
+  const samples = [
+    '{"a":1,"seller_id":7494312521977267257}',
+    'denied',
+    '<r><a>1</a></r>',
+    '{"a":1,"b":"半截...[truncated]',
+    'a=1&b=2',
+    '  {"nested":{"deep":[1,2,3]}}  '
+  ]
+  for (const s of samples) {
+    const shown = pickPayloadText(analyzePayload(s), 'pretty')
+    assert.notEqual(shown, '', `展示文本为空：${JSON.stringify(s)}`)
+  }
 })

@@ -20,7 +20,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { analyzePayload } from '@/utils/payload.mjs'
+import { analyzePayload, pickPayloadText } from '@/utils/payload.mjs'
 
 // 报文展示组件（调用日志明细 / 状态机 Tab / 仪表盘最近日志共用）。
 // 格式化约束见 utils/payload.mjs：只增删空白、不改写 token（19 位数字等原样保留），
@@ -34,7 +34,8 @@ const mode = ref('pretty')
 watch(() => props.text, () => { mode.value = 'pretty' })
 
 const view = computed(() => analyzePayload(props.text))
-const shown = computed(() => (mode.value === 'pretty' && view.formatted ? view.pretty : view.raw))
+// 注意：JS 里必须 `.value`（模板会自动解包）——取展示文本的规则已提为纯函数并单测
+const shown = computed(() => pickPayloadText(view.value, mode.value))
 
 async function copy() {
   const text = shown.value
