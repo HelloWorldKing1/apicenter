@@ -15,7 +15,8 @@
       </div>
 
       <el-table :data="apps" v-loading="loading" @row-click="openDetail">
-        <el-table-column prop="appId" label="应用标识" width="180" />
+        <!-- 应用主键即 app_id（app 表无数字 id）：“ID / 应用标识”同一列展示，避免重复列 -->
+        <el-table-column prop="appId" label="ID / 应用标识" width="180" />
         <el-table-column prop="name" label="应用名称" width="160" />
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
@@ -25,12 +26,6 @@
         <el-table-column prop="baseUrl" label="服务地址" show-overflow-tooltip />
         <el-table-column label="分组 / 接口" width="110">
           <template #default="{ row }">{{ row.groupCount }} / {{ row.ifaceCount }}</template>
-        </el-table-column>
-        <el-table-column label="凭证" width="150">
-          <template #default="{ row }">
-            <el-tag size="small" :type="row.hasOutboundCredential ? 'success' : 'info'">出站{{ row.hasOutboundCredential ? '已配' : '缺失' }}</el-tag>
-            <el-tag size="small" class="cred-badge" :type="row.hasCallbackCredential ? 'success' : 'info'">回调{{ row.hasCallbackCredential ? '已配' : '缺失' }}</el-tag>
-          </template>
         </el-table-column>
         <el-table-column label="创建时间" width="170">
           <template #default="{ row }">{{ fmtTime(row.createdAt) }}</template>
@@ -548,5 +543,4 @@ h4 { margin: 20px 0 10px; color: #303133; }
 .cred-hint { font-size: 12px; color: #909399; margin: -4px 0 10px; }
 .adapter-pick { display: flex; width: 100%; }
 .adapter-pick .el-select { flex: 1; margin-right: 8px; }
-.cred-badge { margin-left: 4px; }
 </style>

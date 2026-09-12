@@ -24,6 +24,16 @@
       </div>
 
       <el-table :data="ifaces" v-loading="loading" @row-click="openDetail">
+        <el-table-column prop="id" width="90">
+          <template #header>
+            <el-tooltip placement="top"
+                        content="接口主键 ID：接口监控 / 调用日志里的「接口ID」即此值（用它在监控页定位本接口）">
+              <span class="col-head">ID
+                <span class="head-hint" style="cursor:help">ⓘ</span>
+              </span>
+            </el-tooltip>
+          </template>
+        </el-table-column>
         <el-table-column prop="code" label="标识" width="180" />
         <el-table-column prop="name" label="名称" width="180" show-overflow-tooltip />
         <el-table-column label="类型" width="90">
@@ -58,7 +68,12 @@
         <el-table-column label="协议" width="140">
           <template #default="{ row }">{{ row.protocolIn }}→{{ row.protocolOut }}</template>
         </el-table-column>
-        <el-table-column prop="appName" label="应用" width="130" show-overflow-tooltip />
+        <el-table-column label="应用" width="190" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ row.appName }}</span>
+            <span class="app-id-hint">{{ row.appId }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
             <el-tag size="small" :type="row.status === 'PUBLISHED' ? 'success' : row.status === 'OFFLINE' ? 'info' : 'warning'">
@@ -1051,6 +1066,10 @@ h4 { margin: 20px 0 10px; color: #303133; }
 .detail-actions { margin-top: 20px; display: flex; gap: 8px; }
 
 /* ---------- Postman 风格（签名元素：请求地址栏） ---------- */
+.app-id-hint { color: #909399; font-size: 12px; margin-left: 6px; }
+/* 表头 tooltip 提示（ID / 目标地址列共用；此前只写了类名没写样式） */
+.col-head { display: inline-flex; align-items: center; gap: 2px; }
+.head-hint { color: #c0c4cc; font-size: 12px; }
 .method-text { font-weight: 700; font-size: 12px; }
 .method-POST { color: #FF6C37; }
 .method-GET { color: #3BA776; }
