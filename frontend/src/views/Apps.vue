@@ -15,8 +15,8 @@
       </div>
 
       <el-table :data="apps" v-loading="loading" @row-click="openDetail">
-        <!-- 应用主键即 app_id（app 表无数字 id）：“ID / 应用标识”同一列展示，避免重复列 -->
-        <el-table-column prop="appId" label="ID / 应用标识" width="180" />
+        <!-- 应用主键即 app_id（app 表无数字 id），列表按 ID 展示 -->
+        <el-table-column prop="appId" label="ID" width="180" />
         <el-table-column prop="name" label="应用名称" width="160" />
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
