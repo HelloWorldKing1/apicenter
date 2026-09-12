@@ -33,6 +33,9 @@ public class InterfaceRepository {
         this.jdbc = jdbc;
     }
 
+    /** 列表硬上限（见 findAll 注释） */
+    private static final int LIST_LIMIT = 2000;
+
     // ---------- 主表 ----------
 
     public List<InterfaceRow> findAll(String appId, Long groupId, String ifType, String status, String keyword) {
@@ -61,7 +64,9 @@ public class InterfaceRepository {
             args.add(like);
             args.add(like);
         }
-        sql.append("ORDER BY i.created_at DESC");
+        // 列表硬上限（2026-09-12）：不做服务端分页（前端需全量做下拉 / 客户端分页），
+        // 加保护上限防接口数量失控拖垮首屏；超过请用 appId/keyword 过滤（v1.1 分页）。
+        sql.append("ORDER BY i.created_at DESC LIMIT ").append(LIST_LIMIT);
         return jdbc.query(sql.toString(), InterfaceRow.MAPPER, args.toArray());
     }
 

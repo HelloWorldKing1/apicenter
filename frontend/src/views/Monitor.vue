@@ -245,9 +245,9 @@
         <PayloadViewer :text="detail.row.reqHeaders" headers />
         <h4 class="side-title">请求体</h4>
         <PayloadViewer :text="detail.row.reqBody" :content-type="contentTypeOf(detail.row.reqHeaders)"
-                       :context="logContext(detail.row)" />
+                       :context="callLogContext(detail.row)" />
         <h4 class="side-title">响应体</h4>
-        <PayloadViewer :text="detail.row.respBody" :context="logContext(detail.row)" />
+        <PayloadViewer :text="detail.row.respBody" :context="callLogContext(detail.row)" />
       </template>
 
       <template v-else-if="detail.kind === 'dead' && detail.row">
@@ -260,9 +260,9 @@
           </el-descriptions-item>
         </el-descriptions>
         <h4 class="side-title">死因 reason</h4>
-        <pre class="mono-block">{{ detail.row.reason || '—' }}</pre>
+        <CodeBlock :text="detail.row.reason" />
         <h4 class="side-title">报文快照 payload（重放依据）</h4>
-        <PayloadViewer :text="detail.row.payload" :context="deadContext(detail.row)" />
+        <PayloadViewer :text="detail.row.payload" :context="deadLetterContext(detail.row)" />
       </template>
 
       <template v-else-if="detail.kind === 'queue' && detail.row">
@@ -295,12 +295,12 @@
             </div>
           </el-timeline-item>
         </el-timeline>
-        <h4 class="side-title">入站报文 in_payload（预览，<4000 字）</h4>
-        <PayloadViewer :text="detail.row.inPayloadPreview" :context="queueContext(detail.row)" />
+        <h4 class="side-title">入站报文 in_payload（预览，最长 4000 字）</h4>
+        <PayloadViewer :text="detail.row.inPayloadPreview" :context="outboundContext(detail.row)" />
         <h4 class="side-title">出站报文 out_payload（预览）</h4>
-        <PayloadViewer :text="detail.row.outPayloadPreview" :context="queueContext(detail.row)" />
+        <PayloadViewer :text="detail.row.outPayloadPreview" :context="outboundContext(detail.row)" />
         <h4 class="side-title">响应 resp_payload（预览）</h4>
-        <PayloadViewer :text="detail.row.respPayloadPreview" :context="queueContext(detail.row)" />
+        <PayloadViewer :text="detail.row.respPayloadPreview" :context="outboundContext(detail.row)" />
         <h4 class="side-title">对账审计时间线（MANUAL / TTL）</h4>
         <el-table v-if="detail.row.audits && detail.row.audits.length" :data="detail.row.audits" size="small" max-height="220">
           <el-table-column label="时间" width="160">
@@ -383,8 +383,10 @@ import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/compon
 import { CanvasRenderer } from 'echarts/renderers'
 import http from '@/api/http'
 import PayloadViewer from '@/components/PayloadViewer.vue'
+import CodeBlock from '@/components/CodeBlock.vue'
 import { contentTypeOf } from '@/utils/payload.mjs'
 import { readDrawerWidth, saveDrawerWidth } from '@/utils/prefs.mjs'
+import { callLogContext, deadLetterContext, outboundContext } from '@/utils/logContext.mjs'
 
 echarts.use([BarChart, LineChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
@@ -429,7 +431,7 @@ async function loadDicts() {
     const [apps, ifaces] = await Promise.all([http.get('/apps'), http.get('/interfaces')])
     appOptions.value = apps
     ifaceOptions.value = ifaces
-  } catch { /* 忽略 */ }
+  } catch (e) { console.warn('[monitor] 忽略的失败', e?.message || e) }
 }
 
 function onAppChange() {
@@ -451,7 +453,7 @@ async function loadOverview() {
     cards.value[1].sub = '今日终态（成功 / 死信）口径'
     cards.value[2].value = `${d.compensating} / ${d.pendingRedelivery}`
     cards.value[3].value = `${d.deadLetterBacklog} / ${d.unknown}`
-  } catch { /* 占位 */ }
+  } catch (e) { console.warn('[monitor] 占位数据加载失败', e?.message || e) }
 }
 
 // ---------- Tab 总览 迷你趋势 ----------
@@ -482,7 +484,7 @@ async function loadOverviewTrend() {
         { name: 'DEAD+UNKNOWN', type: 'line', data: buckets.map(b => b.outDead + b.outUnknown), itemStyle: { color: '#F56C6C' } }
       ]
     }, true)
-  } catch { /* 忽略 */ }
+  } catch (e) { console.warn('[monitor] 忽略的失败', e?.message || e) }
 }
 
 // ---------- Tab 调用日志 ----------
@@ -510,7 +512,7 @@ async function loadLogs(page = 1) {
     })
     logs.value = d.list
     logTotal.value = d.total
-  } catch { /* 保持 */ }
+  } catch (e) { console.warn('[monitor] 加载失败（保持现有数据）', e?.message || e) }
 }
 
 // ---------- Tab 状态机与对账 ----------
@@ -528,7 +530,7 @@ async function loadQueue(page = 1) {
     })
     queueRows.value = d.list
     queueTotal.value = d.total
-  } catch { /* 保持 */ }
+  } catch (e) { console.warn('[monitor] 加载失败（保持现有数据）', e?.message || e) }
 }
 
 async function openQueueDetail(row) {
@@ -570,7 +572,7 @@ async function loadDeadLetters(page = 1) {
     })
     deadLetters.value = d.list
     deadTotal.value = d.total
-  } catch { /* 保持 */ }
+  } catch (e) { console.warn('[monitor] 加载失败（保持现有数据）', e?.message || e) }
 }
 
 async function replayDeadLetter(row) {
@@ -597,12 +599,12 @@ async function loadAlerts(page = 1) {
     const d = await http.get('/monitor/alerts', { params: { page, pageSize: 20 } })
     alerts.value = d.list
     alertTotal.value = d.total
-  } catch { /* 保持 */ }
+  } catch (e) { console.warn('[monitor] 加载失败（保持现有数据）', e?.message || e) }
 }
 async function loadRules() {
   try {
     rules.value = await http.get('/monitor/alert-rules')
-  } catch { /* 保持 */ }
+  } catch (e) { console.warn('[monitor] 加载失败（保持现有数据）', e?.message || e) }
 }
 function openRuleModal(rule) {
   ruleForm.value = rule
@@ -647,14 +649,20 @@ function onDetailResizeEnd(size) {
   saveDrawerWidth('drawer.monitor', detailSize.value)
 }
 
-// ---------- 「复制含上下文」前缀：便于直接贴工单 ----------
-const logContext = (row) => `调用日志 #${row.id} ${row.direction} ${row.method} ${row.url}\n`
-  + `traceId=${row.traceId} app=${row.appId} interface=${row.interfaceId} status=${row.statusCode} ${row.latencyMs}ms @${row.createdAt}`
-const deadContext = (row) => `死信 #${row.id} ${row.bizType} ref=${row.refId} 状态=${row.status} @${row.createdAt}`
-const queueContext = (row) => `出站记录 #${row.id} 状态=${row.status} bizId=${row.bizId} traceId=${row.traceId}`
-
-function openLogDetail(row) {
+/**
+ * 调用日志明细：列表接口已瘦身（不带 req_headers / req_body / resp_body，2026-09-12），
+ * 打开抽屉时按 id 拉详情；拉取失败时先展示列表行（头部字段仍在），并给出提示。
+ */
+async function openLogDetail(row) {
   detail.value = { visible: true, kind: 'log', title: `调用日志 #${row.id}`, row }
+  try {
+    const full = await http.get(`/monitor/call-logs/${row.id}`)
+    if (detail.value.visible && detail.value.kind === 'log' && detail.value.row?.id === row.id) {
+      detail.value = { ...detail.value, row: full }
+    }
+  } catch (e) {
+    console.warn('[monitor] 调用日志详情加载失败', row.id, e?.message || e)
+  }
 }
 function openDeadDetail(row) {
   detail.value = { visible: true, kind: 'dead', title: `死信 #${row.id}`, row }
@@ -712,9 +720,4 @@ onBeforeUnmount(() => {
 .chain-main { display: flex; align-items: baseline; gap: 6px; }
 .chain-meta { color: #a8abb2; font-size: 12px; margin-left: auto; padding-right: 6px; }
 .chain-sub { color: #909399; font-size: 12px; line-height: 1.5; word-break: break-all; }
-.mono-block {
-  background: #F7F8FA; border: 1px solid #EBEEF5; border-radius: 6px; padding: 10px;
-  font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 12px;
-  max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-all;
-}
 </style>

@@ -168,9 +168,9 @@
         <PayloadViewer :text="logDrawer.row.reqHeaders" headers />
         <h4 class="side-title">请求体</h4>
         <PayloadViewer :text="logDrawer.row.reqBody" :content-type="contentTypeOf(logDrawer.row.reqHeaders)"
-                       :context="logContext(logDrawer.row)" />
+                       :context="callLogContext(logDrawer.row)" />
         <h4 class="side-title">响应体</h4>
-        <PayloadViewer :text="logDrawer.row.respBody" :context="logContext(logDrawer.row)" />
+        <PayloadViewer :text="logDrawer.row.respBody" :context="callLogContext(logDrawer.row)" />
         <el-button size="small" @click="goMonitor({ tab: 'logs', traceId: logDrawer.row.trace })">在监控中追踪该 traceId</el-button>
       </template>
     </el-drawer>
@@ -198,6 +198,7 @@ import http from '@/api/http'
 import PayloadViewer from '@/components/PayloadViewer.vue'
 import { contentTypeOf } from '@/utils/payload.mjs'
 import { readDrawerWidth, saveDrawerWidth } from '@/utils/prefs.mjs'
+import { callLogContext } from '@/utils/logContext.mjs'
 
 echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
@@ -258,13 +259,13 @@ async function loadCards() {
     cards.value[2].value = ov.todayCalls
     cards.value[2].sub = `成功 ${ov.todaySuccess} · 死信 ${ov.todayDeadLetter}`
     cards.value[3].value = ov.successRate + '%'
-  } catch { /* 后端未启动保持占位 */ }
+  } catch (e) { console.warn('[dashboard] 概览加载失败（保持占位）', e?.message || e) }
 }
 
 async function loadOverviewOnly() {
   try {
     overview.value = await http.get('/monitor/overview')
-  } catch { /* 忽略瞬时失败 */ }
+  } catch (e) { console.warn('[dashboard] 忽略的瞬时失败', e?.message || e) }
 }
 
 async function loadStats() {
@@ -277,7 +278,7 @@ async function loadStats() {
     await nextTick()
     renderTraffic()
     renderLatency()
-  } catch { /* 保持现有 */ } finally { trendLoading.value = false }
+  } catch (e) { console.warn('[dashboard] 趋势加载失败', e?.message || e) } finally { trendLoading.value = false }
 }
 
 function onRangeChange() {
@@ -288,7 +289,7 @@ function onRangeChange() {
 async function loadTop() {
   try {
     topList.value = await http.get('/monitor/stats/top-interfaces', { params: { range: range.value, limit: 8 } })
-  } catch { /* 保持现有 */ }
+  } catch (e) { console.warn('[dashboard] 加载失败（保持现有）', e?.message || e) }
 }
 
 async function loadRecent() {
@@ -297,9 +298,10 @@ async function loadRecent() {
     recentLogs.value = (d.list || []).map(r => ({
       id: r.id, time: r.createdAt, dir: r.direction, iface: r.interfaceId,
       app: r.appId, url: r.url, method: r.method, code: r.statusCode, ms: r.latencyMs,
-      trace: r.traceId, reqHeaders: r.reqHeaders, reqBody: r.reqBody, respBody: r.respBody
+      trace: r.traceId
+      // headers / body 列表不再返回（瘦身）：打开抽屉时按 id 取详情
     }))
-  } catch { /* 保持现有 */ }
+  } catch (e) { console.warn('[dashboard] 加载失败（保持现有）', e?.message || e) }
 }
 
 // 抽屉宽度记忆（拖拽后持久化，刷新保留）
@@ -309,12 +311,20 @@ function onLogDrawerResizeEnd(size) {
   saveDrawerWidth('drawer.dashboard', logDrawerSize.value)
 }
 
-// 「复制含上下文」前缀（Dashboard 行字段已映射为 dir/method/iface/app/code/ms/trace）
-const logContext = (row) => `调用日志 #${row.id} ${row.dir} ${row.method} ${row.url}\n`
-  + `traceId=${row.trace} app=${row.app} interface=${row.iface} status=${row.code} ${row.ms}ms`
-
-function openLogDetail(row) {
+/**
+ * 调用日志明细：列表已瘦身（不带 headers / body，2026-09-12）→ 打开抽屉时按 id 拉详情。
+ * 详情字段与列表行同名（reqHeaders / reqBody / respBody），直接覆盖即可。
+ */
+async function openLogDetail(row) {
   logDrawer.value = { visible: true, row }
+  try {
+    const full = await http.get(`/monitor/call-logs/${row.id}`)
+    if (logDrawer.value.visible && logDrawer.value.row?.id === row.id) {
+      logDrawer.value = { ...logDrawer.value, row: { ...row, ...full } }
+    }
+  } catch (e) {
+    console.warn('[dashboard] 调用日志详情加载失败', row.id, e?.message || e)
+  }
 }
 
 // ---------- 图表 ----------
@@ -381,10 +391,5 @@ function renderLatency() {
 .rate-bad { color: #F56C6C; font-weight: 600; }
 .tip { color: #909399; font-size: 12px; margin-top: 8px; }
 .side-title { margin: 10px 0 6px; color: #606266; font-size: 13px; }
-.mono-block {
-  background: #F7F8FA; border: 1px solid #EBEEF5; border-radius: 6px;
-  padding: 10px; font-family: 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 12px; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-all;
-}
 .data-notes { margin: 0; padding-left: 18px; color: #606266; font-size: 13px; line-height: 1.9; }
 </style>

@@ -85,6 +85,14 @@ public class CircuitBreakerRegistry {
         log.info("熔断状态[{}] interface={} app={} state={}", context, interfaceId, appId, state);
     }
 
+    /**
+     * 接口删除时清理该接口的熔断器（2026-09-12）：否则 Map 随「建接口→删接口」长期增长，
+     * 残留状态语义也不干净。
+     */
+    public void evict(long interfaceId) {
+        breakers.remove(interfaceId);
+    }
+
     /** 测试支撑：全部复位（集成测试 @BeforeEach，防 5xx 用例累计失败跨用例开闸） */
     public void resetAll() {
         breakers.values().forEach(CircuitBreaker::reset);

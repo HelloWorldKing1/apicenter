@@ -232,7 +232,9 @@ public class MonitorService {
 
     /** 时间窗归一：1h（5min 桶）/ 24h（30min 桶，默认）/ 7d（2h 桶） */
     private StatWindow statWindow(String range) {
-        LocalDateTime to = LocalDateTime.now().withNano(0);
+        // 上界不截断到秒（2026-09-12 修复）：created_at 是 DATETIME(0)，若 to 截断到整秒，
+        // 「本秒刚写入」的 call_log 会因 created_at < to 为假而落在窗口外（统计/TOP 偶发少一条）。
+        LocalDateTime to = LocalDateTime.now();
         if ("1h".equals(range)) {
             return new StatWindow(to.minusHours(1), to, 5);
         }

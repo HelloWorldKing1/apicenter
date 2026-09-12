@@ -41,8 +41,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 经真实链路：engine.dispatch → 链执行 → UpstreamInvoker（WireMock 上游）。worker 拉长（用例手动驱动）。
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
+        "app.api-center.retry-worker-fixed-delay-ms=3600000",
         "app.api-center.alert-worker-fixed-delay-ms=3600000",
-        "app.api-center.retry-worker-fixed-delay-ms=3600000"
+        // 首跑延迟置大：用例手动驱动 scan()，避免「启动首跑」与造数/断言竞态（2026-09-12）
+        "app.api-center.retry-worker-initial-delay-ms=3600000",
+        "app.api-center.alert-worker-initial-delay-ms=3600000"
 })
 class StateChainIntegrationTest {
 

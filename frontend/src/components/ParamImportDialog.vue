@@ -83,7 +83,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { extractParams } from '@/utils/paramImport.mjs'
 import { formatForm, formatJson } from '@/utils/payload.mjs'
 
@@ -123,6 +123,9 @@ function onInput() {
   clearTimeout(timer)
   timer = setTimeout(analyzeNow, 300)
 }
+
+// 卸载时清掉防抖（否则弹窗关闭后仍会跑一次分析）
+onBeforeUnmount(() => clearTimeout(timer))
 
 watch(() => props.modelValue, (open) => {
   if (!open) return

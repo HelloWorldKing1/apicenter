@@ -8,6 +8,13 @@ const http = axios.create({
   timeout: 10000
 })
 
+/**
+ * 长耗时端点的单请求超时（2026-09-12）：
+ * 接口自测 `POST /interfaces/{id}/test` 会走完整链路（读超时可达 3s × 最大重试 4 次 + 退避），
+ * 全局 10s 会在后端仍在执行时先报「网络错误」。调用方显式传 `LONG_RUNNING_TIMEOUT` 覆盖。
+ */
+export const LONG_RUNNING_TIMEOUT = 30000
+
 http.interceptors.response.use(
   (resp) => {
     const body = resp.data

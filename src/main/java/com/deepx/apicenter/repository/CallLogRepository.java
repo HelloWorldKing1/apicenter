@@ -18,6 +18,10 @@ import java.util.stream.Collectors;
 @Repository
 public class CallLogRepository {
 
+    /** 列表投影列（不含 body） */
+    private static final String LIST_COLUMNS =
+            "id, trace_id, direction, interface_id, app_id, url, method, status_code, latency_ms, created_at";
+
     private final JdbcTemplate jdbc;
 
     public CallLogRepository(JdbcTemplate jdbc) {
@@ -79,13 +83,21 @@ public class CallLogRepository {
                                        Integer statusMin, Integer statusMax,
                                        LocalDateTime timeFrom, LocalDateTime timeTo, String keyword,
                                        int offset, int limit) {
-        StringBuilder sql = new StringBuilder("SELECT * FROM call_log WHERE 1=1");
+        // 列表只投影元数据列（req_body/resp_body 为 LONGTEXT，列表用不到——详情走 findById，2026-09-12 瘦身）
+        StringBuilder sql = new StringBuilder("SELECT " + LIST_COLUMNS + " FROM call_log WHERE 1=1");
         List<Object> args = new ArrayList<>();
         appendFilters(sql, args, traceId, interfaceId, direction, appId, statusMin, statusMax, timeFrom, timeTo, keyword);
         sql.append(" ORDER BY id DESC LIMIT ").append(Math.max(1, limit))
                 .append(" OFFSET ").append(Math.max(0, offset));
         return jdbc.queryForList(sql.toString(), args.toArray()).stream()
                 .map(CallLogRepository::toView).toList();
+    }
+
+    /** 详情：按 id 取单条（含 req_body / resp_body 全量） */
+    public java.util.Optional<CallLogView> findById(long id) {
+        return jdbc.queryForList("SELECT * FROM call_log WHERE id = ?", id).stream()
+                .map(CallLogRepository::toView)
+                .findFirst();
     }
 
     public long count(String traceId, Long interfaceId, String direction, String appId,

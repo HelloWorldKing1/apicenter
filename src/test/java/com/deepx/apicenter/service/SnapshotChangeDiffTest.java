@@ -108,15 +108,16 @@ class SnapshotChangeDiffTest {
 
     @Test
     void 参数sample与body内容改动_产生摘要() {
+        // 注意：文本块里 JSON 字符串内的引号要写 \\"，只写 \" 会生成非法 JSON（快照解析直接抛错）
         String oldJ = """
                 {"main":{"code":"I","method":"POST","path":"/m"},
                  "params":[{"side":"IN","name":"p","type":"string","required":true,"sample":"a"}],
-                 "bodies":[{"side":"IN","bodyType":"form","raw":null,"form":"[[\"k\",\"v\"]]"}]}
+                 "bodies":[{"side":"IN","bodyType":"form","raw":null,"form":"[[\\"k\\",\\"v\\"]]"}]}
                 """;
         String newJ = """
                 {"main":{"code":"I","method":"POST","path":"/m"},
                  "params":[{"side":"IN","name":"p","type":"string","required":true,"sample":"b"}],
-                 "bodies":[{"side":"IN","bodyType":"form","raw":null,"form":"[[\"k\",\"v2\"]]"}]}
+                 "bodies":[{"side":"IN","bodyType":"form","raw":null,"form":"[[\\"k\\",\\"v2\\"]]"}]}
                 """;
         SnapshotChangeDiff.DiffResult r = SnapshotChangeDiff.build(oldJ, newJ, null);
         assertThat(r.summary()).contains("参数 1→1（修改 1 条）");
@@ -134,15 +135,25 @@ class SnapshotChangeDiffTest {
 
     @Test
     void 主字段补全与长值截断() {
+        // 变更 5 项（code/name/ifType/groupId/desc）：摘要按设计只列前 3 项 + 「等 N 项字段」，
+        // 完整字段差异落 detail JSON（版本历史「变更详情」用）——「补全」指 detail，不指摘要。
         String longV = "x".repeat(120);
         String oldJ = "{\"main\":{\"code\":\"A\",\"name\":\"old\",\"ifType\":\"OUTBOUND\",\"method\":\"POST\",\"path\":\"/a\",\"groupId\":1,\"desc\":\"" + longV + "\"}}";
         String newJ = "{\"main\":{\"code\":\"B\",\"name\":\"new\",\"ifType\":\"INBOUND\",\"method\":\"POST\",\"path\":\"/a\",\"groupId\":2,\"desc\":\"" + longV + "x\"}}";
         SnapshotChangeDiff.DiffResult r = SnapshotChangeDiff.build(oldJ, newJ, null);
         assertThat(r.summary()).contains("接口标识 A→B");
         assertThat(r.summary()).contains("接口类型 OUTBOUND→INBOUND");
-        assertThat(r.summary()).contains("分组 1→2");
-        // 长值截断 + …，且不超上限
-        assertThat(r.summary().length()).isLessThan(900);
-        assertThat(r.summary()).contains("…");
+        assertThat(r.summary()).contains("等 5 项字段");
+        assertThat(r.summary()).doesNotContain("分组 1→2");
+        // detail 必须补全未进摘要的字段
+        assertThat(r.detailJson()).contains("\"field\":\"groupId\"").contains("\"old\":\"1\"").contains("\"new\":\"2\"");
+        assertThat(r.detailJson()).contains("\"field\":\"desc\"");
+
+        // 长值截断：让长值落在摘要展示的前 3 项内才会出现「…」，且总长受 SUMMARY_MAX 约束
+        String longNameOld = "{\"main\":{\"code\":\"A\",\"name\":\"" + longV + "\"}}";
+        String longNameNew = "{\"main\":{\"code\":\"A\",\"name\":\"" + longV + "y\"}}";
+        SnapshotChangeDiff.DiffResult truncated = SnapshotChangeDiff.build(longNameOld, longNameNew, null);
+        assertThat(truncated.summary()).contains("…");
+        assertThat(truncated.summary().length()).isLessThan(900);
     }
 }

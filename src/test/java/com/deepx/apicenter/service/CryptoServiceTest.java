@@ -36,10 +36,16 @@ class CryptoServiceTest {
     }
 
     @Test
-    void 指纹为尾四位() {
+    void 指纹为尾四位_短值整串遮显() {
         CryptoService svc = new CryptoService(new CryptoProperties(TEST_KEY));
         assertThat(svc.fingerprint("fastmoss-test-token")).isEqualTo("oken");
-        assertThat(svc.fingerprint("abc")).isEqualTo("abc"); // 短于 4 位原样
+        // 2026-09-12 修复：短值（≤8）不再回显明文——原实现对 ≤4 字符直接返回原文，
+        // 供应商密钥若是短值，管理面会显示完整密钥（违背「永不回显明文」）。
+        assertThat(svc.fingerprint("abc")).isEqualTo("****");
+        assertThat(svc.fingerprint("12345678")).isEqualTo("****");
+        assertThat(svc.fingerprint("123456789")).isEqualTo("6789");
+        assertThat(svc.fingerprint("")).isEmpty();
+        assertThat(svc.fingerprint(null)).isEmpty();
     }
 
     @Test

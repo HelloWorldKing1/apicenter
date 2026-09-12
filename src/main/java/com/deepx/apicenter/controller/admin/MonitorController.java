@@ -16,8 +16,10 @@ import com.deepx.apicenter.service.MonitorService.OutboundDetail;
 import com.deepx.apicenter.service.MonitorService.TopInterface;
 import com.deepx.apicenter.service.MonitorService.Trend;
 import jakarta.validation.Valid;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -26,6 +28,7 @@ import java.util.List;
  * 监控管理端点（M4 交付，设计 §4「接口监控」模块）：统计卡 / 调用日志 / UNKNOWN 对账 / 死信重放 /
  * 告警事件与规则。管理面前缀 /api/admin（统一信封 {code, msg, data}）。
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/admin/monitor")
 public class MonitorController {
@@ -33,11 +36,17 @@ public class MonitorController {
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 100;
 
+    /** 关键字检索（url LIKE '%kw%'，无法走索引）的默认时间窗 */
+    private static final Duration KEYWORD_DEFAULT_WINDOW = Duration.ofHours(24);
+    /** 关键字检索允许的最大时间窗（超出按 7 天截断，避免全表扫描） */
+    private static final Duration KEYWORD_MAX_WINDOW = Duration.ofDays(7);
+
     private final MonitorService monitorService;
     private final OutboundRequestRepository outboundRequestRepository;
     private final DeadLetterRepository deadLetterRepository;
     private final AlertEventRepository alertEventRepository;
     private final AlertRuleRepository alertRuleRepository;
+    private final com.deepx.apicenter.service.AlertService alertService;
     private final CallLogRepository callLogRepository;
 
     public MonitorController(MonitorService monitorService,
@@ -45,13 +54,15 @@ public class MonitorController {
                              DeadLetterRepository deadLetterRepository,
                              AlertEventRepository alertEventRepository,
                              AlertRuleRepository alertRuleRepository,
-                             CallLogRepository callLogRepository) {
+                             CallLogRepository callLogRepository,
+                             com.deepx.apicenter.service.AlertService alertService) {
         this.monitorService = monitorService;
         this.outboundRequestRepository = outboundRequestRepository;
         this.deadLetterRepository = deadLetterRepository;
         this.alertEventRepository = alertEventRepository;
         this.alertRuleRepository = alertRuleRepository;
         this.callLogRepository = callLogRepository;
+        this.alertService = alertService;
     }
 
     // ---------- 统计卡（D-M4-5） ----------
@@ -92,12 +103,40 @@ public class MonitorController {
                         "statusGroup 仅支持 2xx/4xx/5xx");
             }
         }
+        // 关键字走 `url LIKE '%kw%'`（索引无效）→ 强制有界时间窗：缺省近 24h，最长 7 天（2026-09-12）
+        LocalDateTime[] window = boundedWindow(parseTime(timeFrom), parseTime(timeTo),
+                keyword != null && !keyword.isBlank());
         return ApiResult.ok(PagedResponse.of(
                 callLogRepository.findPaged(traceId, interfaceId, direction, appId, min, max,
-                        parseTime(timeFrom), parseTime(timeTo), keyword, offset, size),
+                        window[0], window[1], keyword, offset, size),
                 callLogRepository.count(traceId, interfaceId, direction, appId, min, max,
-                        parseTime(timeFrom), parseTime(timeTo), keyword),
+                        window[0], window[1], keyword),
                 page, size));
+    }
+
+    /** 调用日志详情（含 req_headers / req_body / resp_body 全量；列表已瘦身不再带 body） */
+    @GetMapping("/call-logs/{id}")
+    public ApiResult<CallLogRepository.CallLogView> callLogDetail(@PathVariable long id) {
+        return ApiResult.ok(callLogRepository.findById(id)
+                .orElseThrow(() -> com.deepx.apicenter.exception.BizException.fieldInvalid(
+                        "调用日志不存在：" + id)));
+    }
+
+    /**
+     * 关键字检索的时间窗约束：未传 → 近 24h；跨度超 7 天 → 截断为近 7 天（保留 end）。
+     * 仅 affecting keyword 查询，其他过滤仍按调用方传入的时间窗。
+     */
+    private LocalDateTime[] boundedWindow(LocalDateTime from, LocalDateTime to, boolean keywordPresent) {
+        if (!keywordPresent) {
+            return new LocalDateTime[]{from, to};
+        }
+        LocalDateTime end = to != null ? to : LocalDateTime.now();
+        LocalDateTime start = from != null ? from : end.minus(KEYWORD_DEFAULT_WINDOW);
+        if (Duration.between(start, end).compareTo(KEYWORD_MAX_WINDOW) > 0) {
+            log.warn("调用日志关键字检索时间窗超过 7 天，已按近 7 天截断（url LIKE 无法走索引）");
+            start = end.minus(KEYWORD_MAX_WINDOW);
+        }
+        return new LocalDateTime[]{start, end};
     }
 
     /** 时间参数解析：ISO 本地时间（yyyy-MM-ddTHH:mm:ss）或带空格的日期时间 */
@@ -225,6 +264,7 @@ public class MonitorController {
     @DeleteMapping("/alert-rules/{id}")
     public ApiResult<Void> deleteAlertRule(@PathVariable long id) {
         alertRuleRepository.delete(id);
+        alertService.evictRule(id);   // 清理该规则的冷却记录（2026-09-12）
         return ApiResult.ok();
     }
 

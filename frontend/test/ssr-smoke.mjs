@@ -11,6 +11,7 @@ import { createSSRApp, h } from 'vue'
 import { renderToString } from 'vue/server-renderer'
 import PayloadViewer from '../src/components/PayloadViewer.vue'
 import ParamImportDialog from '../src/components/ParamImportDialog.vue'
+import InterfaceParamsTab from '../src/components/InterfaceParamsTab.vue'
 
 function decode(html) {
   return html
@@ -37,10 +38,18 @@ const ElStub = {
 }
 const EL_COMPONENTS = ['el-tag', 'el-button', 'el-radio-group', 'el-radio-button',
   'el-dropdown', 'el-dropdown-menu', 'el-dropdown-item', 'el-dialog', 'el-input',
-  'el-table', 'el-table-column', 'el-switch']
+  'el-table', 'el-table-column', 'el-switch', 'el-select', 'el-option', 'el-input-number']
 
 const longJson = '{"items":[' + Array.from({ length: 80 }, (_, i) => `{"id":${i}}`).join(',') + ']}'
 const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/wFvpM0AAAAASUVORK5CYII='
+
+/** 请求参数 tab 的表单夹具（拆分出的 InterfaceParamsTab 直接编辑该对象） */
+const paramsForm = {
+  ifType: 'OUTBOUND', passthrough: false,
+  inParams: [], outParams: [],
+  inBodyType: 'json', inBodyRaw: '', inFormRows: [],
+  outBodyType: 'none', outBodyRaw: '', outFormRows: []
+}
 
 const CASES = [
   // [标签, props, 断言]
@@ -60,13 +69,20 @@ const CASES = [
   ['空值占位', { text: null }, { text: ['—'] }],
   // 参数快速导入弹窗（P2 姊妹功能）：确认 setup 不炸、选项与空态正常渲染
   ['参数导入弹窗（空态）', { __component: 'ParamImportDialog', modelValue: true, side: 'IN', sideLabel: '入站侧' },
-    { text: ['等待粘贴', '覆盖同名并追加', '全部必填', '从本侧请求体带入', '将导入 0 条'] }]
+    { text: ['等待粘贴', '覆盖同名并追加', '全部必填', '从本侧请求体带入', '将导入 0 条'] }],
+  // 请求参数 tab（2026-09-12 从 Interfaces.vue 拆出）：两侧面板 + 快速导入入口 + Body 控制
+  ['请求参数 Tab（拆分后）', { __component: 'InterfaceParamsTab', form: paramsForm },
+    { text: ['入站侧', '出站侧', '来源 → 平台', '平台 → 目标', '快速导入参数', '透传（出站 = 入站原样）', '暂无参数'] }],
+  ['请求参数 Tab（透传模式提示）',
+    { __component: 'InterfaceParamsTab', form: { ...paramsForm, passthrough: true } },
+    { text: ['透传模式：出站报文 = 入站报文原样转发'] }]
 ]
 
 async function main() {
   let failed = 0
   for (const [label, props, expect] of CASES) {
-    const component = props.__component === 'ParamImportDialog' ? ParamImportDialog : PayloadViewer
+    const COMPONENTS = { ParamImportDialog, InterfaceParamsTab }
+    const component = COMPONENTS[props.__component] || PayloadViewer
     const app = createSSRApp({ render: () => h(component, props) })
     EL_COMPONENTS.forEach((name) => app.component(name, ElStub))
     const rawHtml = await renderToString(app)

@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
 
 import {
   analyzeHeaders, analyzePayload, contentTypeOf, detectBinary, FOLD_LINES, formatForm, formatHeaders,
-  highlightEnabled, isFormLike, isJsonLike, isXmlLike, pickPayloadText, splitTokenLines,
+  highlightEnabled, isFormLike, isJsonLike, isXmlLike, pickPayloadText, RENDER_MAX_LINES, splitTokenLines,
   tokenize, tokenizeJson, tokenizeXml, HIGHLIGHT_MAX_CHARS, MAX_FORMAT_CHARS
 } from './payload.mjs'
 
@@ -306,7 +306,8 @@ test('highlightEnabled：超上限不高亮（仍可缩进）', () => {
   assert.equal(highlightEnabled(''), false)
 })
 
-test('常量口径：折叠行数与渲染上限有序', () => {
+test('常量口径：折叠行数与渲染上限有序（RENDER_MAX_LINES 已从 20000 下调到 2000 防 DOM 膨胀）', () => {
   assert.ok(FOLD_LINES > 0 && FOLD_LINES < 1000)
   assert.ok(MAX_FORMAT_CHARS > HIGHLIGHT_MAX_CHARS)
+  assert.equal(RENDER_MAX_LINES, 2000)
 })

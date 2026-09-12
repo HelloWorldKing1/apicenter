@@ -128,6 +128,15 @@ public class GatewayGuard {
         return false;
     }
 
+    /**
+     * 应用删除时清理该应用的限流 / 配额计数（2026-09-12）：
+     * 两个 Map 以 appId 为键且**永不回收**，删应用后会留下孤儿条目。
+     */
+    public void evict(String appId) {
+        qpsWindows.remove(appId);
+        dailyCounters.remove(appId);
+    }
+
     /** 测试支撑：清空限流 / 配额计数 */
     public void reset() {
         qpsWindows.clear();

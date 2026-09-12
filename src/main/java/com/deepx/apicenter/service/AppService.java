@@ -28,17 +28,23 @@ public class AppService {
     private final AdapterRepository adapterRepository;
     private final CredentialService credentialService;
     private final CredentialRepository credentialRepository;
+    private final com.deepx.apicenter.service.GatewayGuard gatewayGuard;
+    private final com.deepx.apicenter.service.AlertService alertService;
     private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     public AppService(AppRepository appRepository,
                       AdapterRepository adapterRepository,
                       CredentialService credentialService,
                       CredentialRepository credentialRepository,
+                      com.deepx.apicenter.service.GatewayGuard gatewayGuard,
+                      com.deepx.apicenter.service.AlertService alertService,
                       org.springframework.context.ApplicationEventPublisher eventPublisher) {
         this.appRepository = appRepository;
         this.adapterRepository = adapterRepository;
         this.credentialService = credentialService;
         this.credentialRepository = credentialRepository;
+        this.gatewayGuard = gatewayGuard;
+        this.alertService = alertService;
         this.eventPublisher = eventPublisher;
     }
 
@@ -138,6 +144,8 @@ public class AppService {
             throw BizException.fieldInvalid("应用下存在接口，禁止删除（可先将接口下线或移除）");
         }
         appRepository.deleteCascade(appId);
+        gatewayGuard.evict(appId);          // 内存态清理（2026-09-12）
+        alertService.evictApp(appId);
         eventPublisher.publishEvent(ConfigChangedEvent.appChanged());
     }
 

@@ -29,8 +29,11 @@ export const HIGHLIGHT_MAX_CHARS = 64 * 1024
 /** 默认折叠展示行数（超过时提供「展开全部」） */
 export const FOLD_LINES = 60
 
-/** 「展开全部」的渲染行数硬上限（超过提示用复制看全文） */
-export const RENDER_MAX_LINES = 20000
+/**
+ * 「展开全部」的渲染行数硬上限（超过提示用复制看全文）。
+ * 2026-09-12 下调 20000 → 2000：每行还会切成多个高亮 span，2 万行可产生十万级 DOM 节点导致卡顿。
+ */
+export const RENDER_MAX_LINES = 2000
 
 /** 两种截断后缀：SensitiveDataMasker（落库）/ MonitorService.preview（出站记录预览） */
 const TRUNCATION_SUFFIXES = ['...[truncated]', '…[truncated]']
@@ -442,6 +445,7 @@ const IMAGE_MAGICS = [
  * @returns {{binary:boolean, note:string, imagePreview:string|null}}
  */
 export function detectBinary(text, truncated) {
+  // eslint-disable-next-line no-control-regex -- 二进制探测就是要有意匹配控制字符
   const ctrl = (text.match(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g) || []).length
   // 真正的二进制：含 NUL 或控制字符占比 > 5%（Base64 文本本身不含控制字符，故另按魔数判定）
   const hardBinary = text.includes('\u0000') || ctrl / Math.max(1, text.length) > 0.05
@@ -466,8 +470,19 @@ export function detectBinary(text, truncated) {
 function decodeBase64Head(text) {
   try {
     const clean = text.replace(/\s/g, '').slice(0, 512)
-    const bin = typeof atob === 'function' ? atob(clean) : Buffer.from(clean, 'base64').toString('binary')
-    return Array.from(bin.slice(0, 16), (c) => c.charCodeAt(0))
+    if (typeof atob === 'function') {
+      return Array.from(atob(clean).slice(0, 16), (c) => c.charCodeAt(0))
+    }
+    // 无 atob 的环境（少数 Node 运行时/构建期）：只解前 4 个字符判定魔数，避免引入 Buffer 依赖
+    const table = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+    const bytes = []
+    for (let i = 0; i + 1 < clean.length && bytes.length < 4; i += 2) {
+      const a = table.indexOf(clean[i])
+      const b = table.indexOf(clean[i + 1])
+      if (a < 0 || b < 0) break
+      bytes.push((a << 2) | (b >> 4))
+    }
+    return bytes.length ? bytes : null
   } catch (e) {
     return null
   }
@@ -489,6 +504,9 @@ export function tokenize(text, lang) {
   if (lang === 'xml') return tokenizeXml(text)
   return [{ type: 'plain', text }]
 }
+
+/** JSON 结构符号（避免转义密集的字符类，也便于阅读与 lint） */
+const JSON_PUNCT = new Set(['{', '}', '[', ']', ':', ','])
 
 /** JSON token：key / string / number / literal / punct / plain */
 export function tokenizeJson(text) {
@@ -536,7 +554,7 @@ export function tokenizeJson(text) {
       continue
     }
     let j = i + 1
-    while (j < n && /[{}\[\]:,]/.test(text[j])) j++
+    while (j < n && JSON_PUNCT.has(text[j])) j++
     push('punct', text.slice(i, j))
     i = j
   }

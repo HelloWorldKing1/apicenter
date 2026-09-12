@@ -43,7 +43,7 @@ public class InboundDeliveryRepository {
             ps.setString(6, row.deliveryStatus());
             ps.setInt(7, row.attemptCount());
             ps.setInt(8, row.maxAttempts());
-            ps.setTimestamp(9, row.nextRetryAt() == null ? null : java.sql.Timestamp.valueOf(row.nextRetryAt()));
+            ps.setTimestamp(9, SqlTimes.ts(row.nextRetryAt()));   // 截断到秒：防 DATETIME 四舍五入到下一秒
             ps.setString(10, row.ackToPartner());
             ps.setString(11, row.traceId());
             return ps;
@@ -69,7 +69,7 @@ public class InboundDeliveryRepository {
                 UPDATE inbound_delivery
                 SET delivery_status = ?, next_retry_at = ?
                 WHERE id = ?
-                """, status, nextRetryAt == null ? null : java.sql.Timestamp.valueOf(nextRetryAt), id);
+                """, status, SqlTimes.ts(nextRetryAt), id);
     }
 
     /** 条件认领重放（评审遗漏 6 修复）：仅 PENDING 才 attempt+1——并发双扫（调度 + 手动 scan）时
@@ -87,7 +87,7 @@ public class InboundDeliveryRepository {
                 SELECT * FROM inbound_delivery
                 WHERE delivery_status = 'PENDING' AND (next_retry_at IS NULL OR next_retry_at <= ?)
                 ORDER BY next_retry_at LIMIT 100
-                """, InboundDeliveryRow.MAPPER, java.sql.Timestamp.valueOf(now));
+                """, InboundDeliveryRow.MAPPER, SqlTimes.ts(now));
     }
 
     /** 接口的运行数据条数（删除守卫：存在运行数据仅允许下线，M3 补查 inbound_delivery） */

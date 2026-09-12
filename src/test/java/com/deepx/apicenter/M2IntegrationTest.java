@@ -56,7 +56,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 @SpringBootTest(properties = {
         "app.api-center.retry-worker-fixed-delay-ms=3600000",
-        "app.api-center.alert-worker-fixed-delay-ms=3600000"
+        "app.api-center.alert-worker-fixed-delay-ms=3600000",
+        // 首跑延迟置大：用例手动驱动 scan()，避免「启动首跑」与造数/断言竞态（2026-09-12）
+        "app.api-center.retry-worker-initial-delay-ms=3600000",
+        "app.api-center.alert-worker-initial-delay-ms=3600000"
 })
 class M2IntegrationTest {
 

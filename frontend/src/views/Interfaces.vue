@@ -153,73 +153,8 @@
       <el-tabs v-model="mainTab" class="main-tabs">
         <!-- ===== Tab 1 请求参数（入站 / 出站，每侧 Params / Body 双子 tab，照原型） ===== -->
         <el-tab-pane label="请求参数" name="params">
-          <div v-for="side in ['IN', 'OUT']" :key="side" class="side-block">
-            <div class="side-head">
-              <span class="side-name">{{ side === 'IN' ? '入站侧' : '出站侧' }}</span>
-              <span class="side-desc">{{ side === 'IN' ? '来源 → 平台' : (form.ifType === 'INBOUND' ? '送达报文（必填）· 平台 → 调用方' : '平台 → 目标') }}</span>
-              <div class="subtabs">
-                <button type="button" class="subtab" :class="{ active: reqTab[side] === 'params' }"
-                        @click="reqTab[side] = 'params'">Params</button>
-                <button type="button" class="subtab" :class="{ active: reqTab[side] === 'body' }"
-                        @click="reqTab[side] = 'body'">Body</button>
-              </div>
-            </div>
-
-            <!-- 透传模式开关（仅出站接口的出站侧；透传 = 后端不做字段映射，出站报文原样转发） -->
-            <div v-if="side === 'OUT' && form.ifType === 'OUTBOUND'" class="passthrough-bar">
-              <span class="side-desc">转发方式</span>
-              <el-radio-group v-model="form.passthrough" size="small">
-                <el-radio-button :value="true">透传（出站 = 入站原样）</el-radio-button>
-                <el-radio-button :value="false">自定义映射</el-radio-button>
-              </el-radio-group>
-            </div>
-
-            <!-- 透传模式：出站侧编辑区整体隐藏（仅出站接口生效，入站回调的送达报文不受影响） -->
-            <div v-if="side === 'OUT' && form.ifType === 'OUTBOUND' && form.passthrough" class="empty-hint">
-              透传模式：出站报文 = 入站报文原样转发，无需配置出站侧参数；字段映射不生效
-            </div>
-            <template v-else>
-            <!-- Params 子面板 -->
-            <div v-if="reqTab[side] === 'params'">
-              <div class="params-toolbar">
-                <el-button size="small" @click="openImport(side)">⇪ 快速导入参数</el-button>
-                <span class="side-desc">粘贴 JSON 自动推断参数名 / 类型 / 必填 / 示例（也支持 form-urlencoded）</span>
-                <span class="pi-spacer" />
-                <el-button v-if="importUndo && importUndo.side === side" size="small" text type="primary"
-                           @click="undoImport">撤销导入</el-button>
-              </div>
-              <ParamTable v-if="side === 'IN'" v-model="form.inParams" />
-              <ParamTable v-else v-model="form.outParams" />
-            </div>
-
-            <!-- Body 子面板 -->
-            <div v-else>
-              <div class="body-types">
-                <button v-for="t in BODY_TYPES" :key="t" type="button" class="subtab"
-                        :class="{ active: sideBody(side).type === t }" @click="sideBody(side).type = t">{{ t }}</button>
-              </div>
-              <div v-if="sideBody(side).type === 'none'" class="empty-hint">无请求体</div>
-              <textarea v-else-if="['json','xml'].includes(sideBody(side).type)" v-model="sideBody(side).raw"
-                        class="raw-editor" :placeholder="RAW_PLACEHOLDER[sideBody(side).type]"></textarea>
-              <template v-else>
-                <el-table :data="sideBody(side).formRows" size="small" class="kv-table">
-                  <el-table-column label="键" min-width="40%">
-                    <template #default="{ row }"><el-input v-model="row.key" size="small" placeholder="键" /></template>
-                  </el-table-column>
-                  <el-table-column label="值">
-                    <template #default="{ row }"><el-input v-model="row.value" size="small" placeholder="值" /></template>
-                  </el-table-column>
-                  <el-table-column width="50">
-                    <template #default="{ $index }">
-                      <el-button link type="danger" @click="sideBody(side).formRows.splice($index, 1)">×</el-button>
-                    </template>
-                  </el-table-column>
-                </el-table>
-                <el-button size="small" class="add-btn" @click="sideBody(side).formRows.push({ key: '', value: '' })">＋ 添加</el-button>
-              </template>
-            </div>
-            </template>
-          </div>
+          <!-- 请求参数编辑（入站 / 出站两侧 + 快速导入）已拆分为子组件（2026-09-12 巨型单文件治理） -->
+          <InterfaceParamsTab :form="form" />
         </el-tab-pane>
 
         <!-- ===== Tab 2 字段映射（入站 → 出站，下拉 + 中文操作，照原型） ===== -->
@@ -535,12 +470,6 @@
       </template>
     </el-dialog>
 
-    <!-- 请求参数快速导入（2026-09-12）：JSON → 参数表，含校验 / 美化 / 预览 / 撤销 -->
-    <ParamImportDialog v-model="importDialog.visible" :side="importDialog.side"
-                       :side-label="importDialog.side === 'IN' ? '入站侧' : '出站侧'"
-                       :existing-names="sideParams(importDialog.side).map((p) => p.name).filter(Boolean)"
-                       :body-raw="sideBodyRaw(importDialog.side)"
-                       @import="applyImport" />
   </div>
 </template>
 
@@ -548,18 +477,11 @@
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute } from 'vue-router'
-import http from '@/api/http'
-import ParamTable from '@/components/ParamTable.vue'
-import ParamImportDialog from '@/components/ParamImportDialog.vue'
+import http, { LONG_RUNNING_TIMEOUT } from '@/api/http'
+import InterfaceParamsTab from '@/components/InterfaceParamsTab.vue'
 
 const route = useRoute()
 
-const BODY_TYPES = ['none', 'form-data', 'x-www-form-urlencoded', 'json', 'xml']
-/** raw 编辑器占位示例（属性内嵌多行字符串含双引号会破坏模板解析，提为常量） */
-const RAW_PLACEHOLDER = {
-  json: '{\n  "key": "value"\n}',
-  xml: '<root></root>'
-}
 /** 映射操作与空值策略的中文标签（照原型 MAP_OPS / MAP_NULL） */
 const MAP_OPS = { rename: '重命名', typeCast: '类型转换', enumMap: '枚举映射', default: '默认值', condition: '条件', aggregate: '聚合' }
 const MAP_NULL = { KEEP: '保留原值', NULL: '置空', DEFAULT: '默认值', ERROR: '报错' }
@@ -627,51 +549,8 @@ function onFilterAppChange() {
 // ---------- 表单 ----------
 const dialog = reactive({ visible: false, isEdit: false, editId: 0 })
 const mainTab = ref('params')
-const reqTab = reactive({ IN: 'params', OUT: 'params' })
 const form = reactive(emptyForm())
 
-// ---------- 请求参数快速导入（D1–D6 按评审推荐：覆盖同名并追加 + 一次撤销快照） ----------
-const importDialog = reactive({ visible: false, side: 'IN' })
-const importUndo = ref(null)   // { side, rows }：导入前快照，仅保留最近一次
-
-/** 某侧参数数组（真实引用，ParamTable 原地编辑同一数组） */
-function sideParams(side) {
-  return side === 'IN' ? form.inParams : form.outParams
-}
-/** 某侧请求体模板（「从本侧请求体带入」的数据源） */
-function sideBodyRaw(side) {
-  return side === 'IN' ? form.inBodyRaw : form.outBodyRaw
-}
-function openImport(side) {
-  importDialog.side = side
-  importDialog.visible = true
-  importUndo.value = null
-}
-function applyImport({ params, mergeMode }) {
-  const side = importDialog.side
-  const target = sideParams(side)
-  importUndo.value = { side, rows: target.map((r) => ({ ...r })) }
-  const rows = params.map((p, i) => ({ name: p.name, type: p.type, required: p.required, sample: p.sample, sortOrder: i }))
-  if (mergeMode === 'replace') {
-    target.splice(0, target.length, ...rows)
-  } else {
-    // 覆盖同名并追加（同名行原地更新，其余追加）
-    rows.forEach((row) => {
-      const hit = target.find((r) => r.name === row.name)
-      if (hit) Object.assign(hit, { type: row.type, required: row.required, sample: row.sample })
-      else target.push(row)
-    })
-  }
-  target.forEach((r, i) => { r.sortOrder = i })
-  ElMessage.success(`已导入 ${rows.length} 条参数（${side === 'IN' ? '入站侧' : '出站侧'}）`)
-}
-function undoImport() {
-  if (!importUndo.value) return
-  const target = sideParams(importUndo.value.side)
-  target.splice(0, target.length, ...importUndo.value.rows)
-  importUndo.value = null
-  ElMessage.success('已撤销导入')
-}
 
 function emptyForm() {
   return {
@@ -724,29 +603,6 @@ const targetField = computed({
 const inParamNames = computed(() => form.inParams.map((p) => p.name).filter(Boolean))
 const outParamNames = computed(() => form.outParams.map((p) => p.name).filter(Boolean))
 
-/**
- * 每侧 Body 状态（类型 / raw / form 键值行）。
- * 注意：必须用 getter/setter 代理写回 form——普通对象字面量会导致
- * 模板内点击赋值只落在临时对象上（类型切换、raw 输入均失效）。
- */
-function sideBody(side) {
-  const key = side === 'IN' ? 'in' : 'out'
-  return {
-    get type() {
-      return form[key + 'BodyType']
-    },
-    set type(v) {
-      form[key + 'BodyType'] = v
-    },
-    get raw() {
-      return form[key + 'BodyRaw']
-    },
-    set raw(v) {
-      form[key + 'BodyRaw'] = v
-    },
-    formRows: form[key + 'FormRows'] // 数组引用，行级增删直接生效
-  }
-}
 
 /** 协议联动（原型 protoSame） */
 function onProtocolInChange() {
@@ -757,8 +613,6 @@ function onProtocolInChange() {
 
 function openCreate() {
   Object.assign(form, emptyForm())
-  reqTab.IN = 'params'
-  reqTab.OUT = 'params'
   mainTab.value = 'params'
   dialog.isEdit = false
   dialog.visible = true
@@ -789,8 +643,6 @@ async function openEdit(row) {
     authVersion: (d.bindings?.find((b) => b.role === 'AUTH') || d.bindings?.find((b) => b.role === 'CALLBACK_AUTH'))?.version || null,
     changeNote: ''
   })
-  reqTab.IN = 'params'
-  reqTab.OUT = 'params'
   mainTab.value = 'params'
   dialog.isEdit = true
   dialog.editId = d.id
@@ -1006,7 +858,7 @@ async function sendTest() {
   try {
     // 发 JSON 对象（axios 序列化为 application/json，后端 byte[] 原样收）——避免字符串被表单编码
     const obj = JSON.parse(test.body)
-    const result = await http.post(`/interfaces/${detail.row.id}/test`, obj)
+    const result = await http.post(`/interfaces/${detail.row.id}/test`, obj, { timeout: LONG_RUNNING_TIMEOUT })
     test.isError = false
     test.resp = JSON.stringify({ code: 0, msg: 'ok', data: result }, null, 2)
   } catch (e) {
@@ -1144,7 +996,7 @@ async function sendCallbackTest() {
   cbTest.resp = ''
   try {
     const obj = JSON.parse(cbTest.body)
-    const result = await http.post(`/interfaces/${detail.row.id}/test-callback`, obj)
+    const result = await http.post(`/interfaces/${detail.row.id}/test-callback`, obj, { timeout: LONG_RUNNING_TIMEOUT })
     cbTest.isError = false
     cbTest.resp = JSON.stringify(result, null, 2)
   } catch (e) {
@@ -1189,8 +1041,6 @@ const chainSteps = computed(() => {
 </script>
 
 <style scoped>
-.params-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-.pi-spacer { flex: 1; }
 .toolbar { display: flex; justify-content: space-between; margin-bottom: 14px; }
 .toolbar-filters { display: flex; gap: 10px; flex-wrap: wrap; }
 .muted { color: #c0c4cc; font-size: 12px; }
@@ -1279,64 +1129,9 @@ h4 { margin: 20px 0 10px; color: #303133; }
 /* ---------- 分区 tab ---------- */
 .main-tabs { margin-top: 4px; }
 
-.side-block {
-  border: 1px solid #e8eaf0;
-  border-radius: 6px;
-  padding: 10px 12px;
-  margin-bottom: 12px;
-}
-.passthrough-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-  padding: 6px 10px;
-  background: #f5f6fa;
-  border-radius: 4px;
-}
-.side-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-.side-name { font-weight: 600; font-size: 14px; color: #303133; }
-.side-desc { font-size: 12px; color: #909399; }
-.subtabs { margin-left: auto; display: flex; gap: 4px; }
-.subtab {
-  border: 1px solid #dcdfe6;
-  background: #fff;
-  color: #606266;
-  font-size: 12px;
-  padding: 4px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-.subtab.active {
-  background: #1F2739;
-  border-color: #1F2739;
-  color: #fff;
-}
 
-.body-types { display: flex; gap: 4px; margin-bottom: 10px; }
 
-.raw-editor {
-  width: 100%;
-  min-height: 140px;
-  box-sizing: border-box;
-  background: #282C34;
-  color: #abb2bf;
-  border: none;
-  border-radius: 6px;
-  padding: 12px;
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 13px;
-  line-height: 1.6;
-  resize: vertical;
-}
-.raw-editor:focus { outline: 1px solid #4A90D9; }
 
-.kv-table { margin-bottom: 8px; }
 
 .empty-hint {
   text-align: center;

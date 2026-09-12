@@ -2,6 +2,7 @@ package com.deepx.apicenter.worker;
 
 import com.deepx.apicenter.repository.CallLogRepository;
 import com.deepx.apicenter.repository.CallLogRepository.CallLogEntry;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -32,12 +33,14 @@ public class CallLogWriter {
     private final CallLogRepository callLogRepository;
     private final BlockingQueue<CallLogEntry> queue = new ArrayBlockingQueue<>(QUEUE_CAPACITY);
     private final AtomicLong dropped = new AtomicLong();
+    /** 丢弃计数（Prometheus apicenter_calllog_dropped_total）——原实现只建了计数器没自增，指标恒 0（2026-09-12 修复） */
+    private final Counter droppedCounter;
     private final Thread worker;
     private volatile boolean running = true;
 
     public CallLogWriter(CallLogRepository callLogRepository, MeterRegistry meterRegistry) {
         this.callLogRepository = callLogRepository;
-        meterRegistry.counter("apicenter.calllog.dropped");
+        this.droppedCounter = meterRegistry.counter("apicenter.calllog.dropped");
         worker = new Thread(this::drainLoop, "call-log-writer");
         worker.setDaemon(true);
         worker.start();
@@ -47,6 +50,7 @@ public class CallLogWriter {
     public void offer(CallLogEntry entry) {
         if (!queue.offer(entry)) {
             long total = dropped.incrementAndGet();
+            droppedCounter.increment();
             log.warn("call_log 写入队列已满，丢弃第 {} 条（traceId={}）", total, entry.traceId());
         }
     }
@@ -78,7 +82,7 @@ public class CallLogWriter {
         }
         // 退出前尽力冲刷
         if (!batch.isEmpty()) {
-            flushQuietly(batch);
+            flushQuietly(batch, "消费线程退出");
         }
     }
 
@@ -90,11 +94,11 @@ public class CallLogWriter {
         }
     }
 
-    private void flushQuietly(List<CallLogEntry> batch) {
+    private void flushQuietly(List<CallLogEntry> batch, String scene) {
         try {
             callLogRepository.insertBatch(new ArrayList<>(batch));
         } catch (Exception e) {
-            log.warn("停机冲刷 call_log 余量失败，丢弃 {} 条", batch.size());
+            log.warn("{}：冲刷 call_log 余量失败，丢弃 {} 条", scene, batch.size());
         }
     }
 
@@ -106,7 +110,7 @@ public class CallLogWriter {
         List<CallLogEntry> rest = new ArrayList<>(queue.size());
         queue.drainTo(rest);
         if (!rest.isEmpty()) {
-            flushQuietly(rest);
+            flushQuietly(rest, "停机");
         }
     }
 }

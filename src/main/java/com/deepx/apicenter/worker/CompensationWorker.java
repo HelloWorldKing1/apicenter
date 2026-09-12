@@ -45,7 +45,10 @@ public class CompensationWorker {
         this.monitorService = monitorService;
     }
 
-    @Scheduled(fixedDelayString = "${app.api-center.retry-worker-fixed-delay-ms:3000}")
+    // initialDelay 可配（2026-09-12）：默认 0 = 启动后立即跑一轮（保持现状）；
+    // 集成测试置大（如 1h），让用例完全手动驱动 scan()，消除「启动首跑 vs 用例造数」竞态。
+    @Scheduled(fixedDelayString = "${app.api-center.retry-worker-fixed-delay-ms:3000}",
+            initialDelayString = "${app.api-center.retry-worker-initial-delay-ms:0}")
     public void scan() {
         scanOutbound();
         scanInbound();

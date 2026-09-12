@@ -26,7 +26,6 @@ export const MAX_IMPORT_DEPTH = 6
 const SAMPLE_MAX = 120
 
 const TRUNCATION_SUFFIXES = ['...[truncated]', '…[truncated]']
-const ESCAPE_KEY = /[.[\]\s]/
 
 /**
  * 解析粘贴内容 → 参数行。
@@ -42,8 +41,9 @@ export function extractParams(text, options = {}) {
     allRequired: options.allRequired !== false,   // 默认全部必填
     expand: options.expand !== false,             // 默认展开嵌套
     arraySample: options.arraySample !== false,   // 默认取数组首个元素
-    maxParams: options.maxParams || MAX_IMPORT_PARAMS,
-    maxDepth: options.maxDepth || MAX_IMPORT_DEPTH
+    // ?? 语义：显式传 0 时不被默认值覆盖（原 `||` 会让 0/NaN 静默回退默认，2026-09-12 修正）
+    maxParams: options.maxParams ?? MAX_IMPORT_PARAMS,
+    maxDepth: options.maxDepth ?? MAX_IMPORT_DEPTH
   }
   const source = text == null ? '' : String(text)
   const result = {
@@ -70,19 +70,18 @@ export function extractParams(text, options = {}) {
   }
 
   // form-urlencoded（D5：顺带支持；无 `{`/`[` 开头且形如 k=v）
-  if (!/^[{\[]/.test(trimmed) && isFormLike(trimmed, true)) {
+  if (!/^[{[]/.test(trimmed) && isFormLike(trimmed, true)) {
     result.format = 'form'
     result.ok = true
-    result.params = fromForm(trimmed, opts)
+    result.params = fromForm(trimmed, opts, result.warnings)
     result.stats.count = result.params.length
     if (result.truncated) result.warnings.push('内容疑似被截断，已按可见部分解析')
     return result
   }
 
   // ---- 语法校验（JSON.parse 仅用于校验 / 定位） ----
-  let parsed
   try {
-    parsed = JSON.parse(trimmed)
+    JSON.parse(trimmed)   // 只做语法校验（取值一律走 token 切片，避免数字精度丢失）
   } catch (e) {
     result.error = locateJsonError(String(e.message || e), trimmed)
     return result
@@ -240,7 +239,7 @@ function pushParam(ctx, param) {
 
 // ---------- form-urlencoded ----------
 
-function fromForm(text, opts) {
+function fromForm(text, opts, warnings) {
   const params = []
   const seen = new Map()
   text.split('&').filter(Boolean).slice(0, opts.maxParams).forEach((pair) => {
@@ -250,8 +249,15 @@ function fromForm(text, opts) {
     const name = safeDecode(rawKey)
     const value = safeDecode(rawValue)
     const param = { name, type: guessScalarType(value), required: true, sample: value }
-    if (seen.has(name)) params[seen.get(name)] = param
-    else { seen.set(name, params.length); params.push(param) }
+    if (seen.has(name)) {
+      params[seen.get(name)] = param     // 与 JSON 路径同口径：重复键后者生效
+      if (!warnings.includes('存在重复参数名，已按「后者生效」保留')) {
+        warnings.push('存在重复参数名，已按「后者生效」保留')
+      }
+    } else {
+      seen.set(name, params.length)
+      params.push(param)
+    }
   })
   return params
 }
@@ -354,9 +360,6 @@ export function scanStructureIssue(text) {
   const stack = []
   let inString = false
   let escape = false
-  let line = 1
-  let column = 0
-  let lastLineStart = 0
   const posOf = (index) => {
     const before = text.slice(0, index)
     const ln = before.split('\n').length
@@ -364,8 +367,6 @@ export function scanStructureIssue(text) {
   }
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]
-    if (ch === '\n') { line++; lastLineStart = i + 1 }
-    column = i - lastLineStart + 1
     if (inString) {
       if (escape) escape = false
       else if (ch === '\\') escape = true
@@ -423,4 +424,40 @@ export function locateError(message, text) {
   }
   const snippet = (text.split('\n')[line - 1] || '').slice(0, 160)
   return { message: message.replace(/^JSON\.parse:\s*/, ''), line, column, snippet }
+}
+
+// ---------- 写回参数表（原在 Interfaces.vue 内联，2026-09-12 提为纯函数以便单测） ----------
+
+/**
+ * 把导入结果合并进目标参数数组（原地修改，保持 ParamTable 引用的实时性）。
+ * @param {Array} target 目标数组（form.inParams / form.outParams）
+ * @param {Array} rows 导入行 [{name,type,required,sample}]
+ * @param {'merge'|'replace'} mode merge = 覆盖同名并追加（默认）；replace = 清空后导入
+ * @returns {{overwritten:number, added:number, total:number}}
+ */
+export function mergeParams(target, rows, mode = 'merge') {
+  const list = Array.isArray(target) ? target : []
+  const incoming = (rows || []).map((r, i) => ({
+    name: r.name, type: r.type || 'string', required: !!r.required, sample: r.sample ?? '', sortOrder: i
+  }))
+  let overwritten = 0
+  let added = 0
+  if (mode === 'replace') {
+    list.splice(0, list.length, ...incoming)
+    added = incoming.length
+  } else {
+    incoming.forEach((row) => {
+      const hit = list.find((r) => r.name === row.name)
+      if (hit) {
+        // 同名：只在类型/必填/示例变化时覆盖，保留原有 sortOrder（避免整表跳动）
+        Object.assign(hit, { type: row.type, required: row.required, sample: row.sample })
+        overwritten++
+      } else {
+        list.push(row)
+        added++
+      }
+    })
+  }
+  list.forEach((r, i) => { r.sortOrder = i })
+  return { overwritten, added, total: incoming.length }
 }

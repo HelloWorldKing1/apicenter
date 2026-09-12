@@ -22,6 +22,12 @@ public class AppRepository {
             FROM app a
             """;
 
+    /**
+     * 列表硬上限（2026-09-12）：管理面列表当前不做服务端分页（前端需全量下拉），
+     * 加保护上限防「应用数量失控 → 列表 + 凭证角标 IN 查询」拖垮首屏；超过请走搜索过滤（v1.1 分页）。
+     */
+    private static final int LIST_LIMIT = 2000;
+
     private final JdbcTemplate jdbc;
 
     public AppRepository(JdbcTemplate jdbc) {
@@ -45,7 +51,7 @@ public class AppRepository {
         if (!where.isEmpty()) {
             sql.append(" WHERE ").append(String.join(" AND ", where));
         }
-        sql.append(" ORDER BY a.created_at DESC");
+        sql.append(" ORDER BY a.created_at DESC LIMIT ").append(LIST_LIMIT);
         return jdbc.query(sql.toString(), AppRow.MAPPER, args.toArray());
     }
 

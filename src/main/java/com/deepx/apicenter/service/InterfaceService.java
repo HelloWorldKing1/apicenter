@@ -49,6 +49,7 @@ public class InterfaceService {
     private static final Set<String> PARAM_OPS = Set.of("typeCast", "enumMap", "condition", "aggregate");
     private static final Set<String> ROLES = Set.of("MESSAGE", "AUTH", "CALLBACK_AUTH");
 
+    private final com.deepx.apicenter.engine.CircuitBreakerRegistry circuitBreakerRegistry;
     private final InterfaceRepository interfaceRepository;
     private final AppRepository appRepository;
     private final GroupRepository groupRepository;
@@ -69,7 +70,9 @@ public class InterfaceService {
                             SnapshotRepository snapshotRepository,
                             SnapshotSerializer snapshotSerializer,
                             ApplicationEventPublisher eventPublisher,
-                            JdbcTemplate jdbcTemplate) {
+                            JdbcTemplate jdbcTemplate,
+                       com.deepx.apicenter.engine.CircuitBreakerRegistry circuitBreakerRegistry) {
+        this.circuitBreakerRegistry = circuitBreakerRegistry;
         this.interfaceRepository = interfaceRepository;
         this.appRepository = appRepository;
         this.groupRepository = groupRepository;
@@ -332,6 +335,7 @@ public class InterfaceService {
         // 调用日志保留、引用置 NULL（schema.sql 约定：可观测数据不丢）
         jdbcTemplate.update("UPDATE call_log SET interface_id = NULL WHERE interface_id = ?", id);
         interfaceRepository.deleteCascade(id);
+        circuitBreakerRegistry.evict(id);   // 内存态清理（2026-09-12）
         eventPublisher.publishEvent(ConfigChangedEvent.interfaceChanged(id));
     }
 

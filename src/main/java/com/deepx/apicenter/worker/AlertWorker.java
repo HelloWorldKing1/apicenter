@@ -67,7 +67,9 @@ public class AlertWorker {
         }
     }
 
-    @Scheduled(fixedDelayString = "${app.api-center.alert-worker-fixed-delay-ms:30000}")
+    // initialDelay 可配（2026-09-12）：见 CompensationWorker 同款说明（测试置大以手动驱动）
+    @Scheduled(fixedDelayString = "${app.api-center.alert-worker-fixed-delay-ms:30000}",
+            initialDelayString = "${app.api-center.alert-worker-initial-delay-ms:0}")
     public void scan() {
         refreshRules();
         // 积压三元组（监控页与 apicenter.backlog Gauge 共用一份数据，避免重复聚合）

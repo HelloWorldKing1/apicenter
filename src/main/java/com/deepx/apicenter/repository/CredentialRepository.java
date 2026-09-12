@@ -2,7 +2,12 @@ package com.deepx.apicenter.repository;
 
 import com.deepx.apicenter.model.CredentialRow;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
+
+import java.sql.PreparedStatement;
+import java.sql.Statement;
 
 import java.time.LocalDateTime;
 import java.util.Collections;
@@ -57,10 +62,14 @@ public class CredentialRepository {
                 """, CredentialRow.MAPPER, appId, kind);
     }
 
-    public int countByStatus(String appId, String kind, String status) {
+    /**
+     * ACTIVE 条数（语义化命名：原 countByStatus 会让 prepare 之类误用含过期行的口径——E2 缺陷根因）。
+     * 需要「未过期 ROTATING 条数」请用 {@link #countLiveRotating}。
+     */
+    public int countActive(String appId, String kind) {
         Integer n = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM app_credential WHERE app_id = ? AND kind = ? AND status = ?",
-                Integer.class, appId, kind, status);
+                "SELECT COUNT(*) FROM app_credential WHERE app_id = ? AND kind = ? AND status = 'ACTIVE'",
+                Integer.class, appId, kind);
         return n == null ? 0 : n;
     }
 
@@ -109,6 +118,31 @@ public class CredentialRepository {
                 INSERT INTO app_credential (app_id, kind, credential, status, rotating_until)
                 VALUES (?, ?, ?, ?, ?)
                 """, row.appId(), row.kind(), row.credential(), row.status(), row.rotatingUntil());
+    }
+
+    /**
+     * 插入并回填自增 id（prepare 生成凭证需要返回真实 id 供前端「生成后立即激活」；
+     * 原实现固定返回 id=-1，前端拿不到可操作目标——2026-09-12 修复）。
+     */
+    public long insertAndReturnId(CredentialRow row) {
+        KeyHolder keyHolder = new GeneratedKeyHolder();
+        jdbc.update(con -> {
+            PreparedStatement ps = con.prepareStatement("""
+                    INSERT INTO app_credential (app_id, kind, credential, status, rotating_until)
+                    VALUES (?, ?, ?, ?, ?)
+                    """, Statement.RETURN_GENERATED_KEYS);
+            ps.setString(1, row.appId());
+            ps.setString(2, row.kind());
+            ps.setString(3, row.credential());
+            ps.setString(4, row.status());
+            ps.setTimestamp(5, SqlTimes.ts(row.rotatingUntil()));
+            return ps;
+        }, keyHolder);
+        Number key = keyHolder.getKey();
+        if (key == null) {
+            throw new IllegalStateException("凭证插入未返回主键");
+        }
+        return key.longValue();
     }
 
     /** 状态流转：可同时更新 retired_at / rotating_until（传 null 表示不改） */

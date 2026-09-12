@@ -63,7 +63,7 @@ import {
   analyzeHeaders, analyzePayload, FOLD_LINES, highlightEnabled, MAX_FORMAT_CHARS,
   pickPayloadText, RENDER_MAX_LINES, splitTokenLines, tokenize, WORKER_FORMAT_LIMIT
 } from '@/utils/payload.mjs'
-import { readPref, savePref } from '@/utils/prefs.mjs'
+import { readBoolPref, savePref } from '@/utils/prefs.mjs'
 
 // 报文查看器（调用日志明细 / 状态机 Tab / 仪表盘最近日志 / 死信 payload 共用）。
 // 格式化约定见 utils/payload.mjs：只增删空白、不改写 token；截断报文也能缩进；可切「原文」核对。
@@ -81,8 +81,8 @@ const props = defineProps({
 const EMPTY_LINE = [{ type: 'plain', text: '\u200b' }]
 
 const mode = ref('pretty')
-const wrap = ref(readPref('payload.wrap', false) === true || readPref('payload.wrap', false) === '1')
-const gutter = ref(readPref('payload.gutter', false) === true || readPref('payload.gutter', false) === '1')
+const wrap = ref(readBoolPref('payload.wrap'))
+const gutter = ref(readBoolPref('payload.gutter'))
 const fullscreen = ref(false)
 const expanded = ref(false)
 

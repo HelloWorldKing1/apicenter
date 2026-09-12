@@ -62,8 +62,7 @@ public class OutboundRequestRepository {
             ps.setString(7, row.status());
             ps.setInt(8, row.attemptCount());
             ps.setInt(9, row.maxAttempts());
-            ps.setTimestamp(10, row.nextRetryAt() == null ? null
-                    : java.sql.Timestamp.valueOf(row.nextRetryAt()));
+            ps.setTimestamp(10, SqlTimes.ts(row.nextRetryAt()));   // 截断到秒：防 DATETIME 四舍五入到下一秒
             ps.setString(11, row.errorCode());
             ps.setString(12, row.traceId());
             return ps;
@@ -141,7 +140,7 @@ public class OutboundRequestRepository {
                     next_retry_at = ?, error_code = COALESCE(?, error_code)
                 WHERE id = ?
                 """, status, outPayload, respPayload,
-                nextRetryAt == null ? null : java.sql.Timestamp.valueOf(nextRetryAt),
+                SqlTimes.ts(nextRetryAt),
                 errorCode, id);
     }
 
@@ -224,7 +223,7 @@ public class OutboundRequestRepository {
                 UPDATE outbound_request
                 SET status = 'COMPENSATING', attempt_count = 0, next_retry_at = ?
                 WHERE id = ? AND status = 'UNKNOWN'
-                """, nextRetryAt == null ? null : java.sql.Timestamp.valueOf(nextRetryAt), id);
+                """, SqlTimes.ts(nextRetryAt), id);
         if (updated > 0) {
             Map<String, Object> cur = jdbc.queryForMap("""
                     SELECT trace_id, error_code,
@@ -244,7 +243,7 @@ public class OutboundRequestRepository {
                 SELECT * FROM outbound_request
                 WHERE status = 'COMPENSATING' AND (next_retry_at IS NULL OR next_retry_at <= ?)
                 ORDER BY next_retry_at LIMIT 100
-                """, OutboundRequestRow.MAPPER, java.sql.Timestamp.valueOf(now));
+                """, OutboundRequestRow.MAPPER, SqlTimes.ts(now));
     }
 
     /** 对账 TTL 扫描（M4 交付，D-M4-2）：UNKNOWN 持续超 unknown_ttl 的记录 → 自动降级 COMPENSATING */

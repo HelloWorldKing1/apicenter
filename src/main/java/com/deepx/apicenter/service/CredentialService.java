@@ -78,9 +78,9 @@ public class CredentialService {
             throw BizException.fieldInvalid("该类型已有待激活的轮换凭证，请先激活或废弃");
         }
         String plaintext = randomSecret();
-        credentialRepository.insert(new CredentialRow(0, appId, req.kind(),
+        long id = credentialRepository.insertAndReturnId(new CredentialRow(0, appId, req.kind(),
                 cryptoService.encrypt(plaintext), "ROTATING", null, null, null, null));
-        return new CredentialIssuedView(-1, req.kind(), plaintext);
+        return new CredentialIssuedView(id, req.kind(), plaintext);
     }
 
     /**
@@ -156,7 +156,7 @@ public class CredentialService {
             throw BizException.fieldInvalid("凭证不属于该应用");
         }
         credentialRepository.updateStatus(id, "RETIRED", LocalDateTime.now(), null);
-        if (credentialRepository.countByStatus(appId, target.kind(), "ACTIVE") == 0) {
+        if (credentialRepository.countActive(appId, target.kind()) == 0) {
             return "该类型已无有效凭证，出站签名/回调验签将不可用，请立即补发";
         }
         return null;

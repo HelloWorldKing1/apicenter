@@ -21,6 +21,8 @@ app:
       enabled: false
     # 补偿 worker 扫描间隔（设计 §6.3：按 (status, next_retry_at) 扫描 COMPENSATING / PENDING 记录）
     retry-worker-fixed-delay-ms: 3000
+    # 补偿 worker 首跑延迟（默认 0 = 启动后立即扫一轮；集成测试置大以手动驱动 scan()，消除启动竞态）
+    retry-worker-initial-delay-ms: 0
     # 进入平台的请求体大小上限（M0-03 §1.3，默认 1MB，超限 40002；出站请求与入站回调双向生效）
     max-body-bytes: 1048576
     # 回调地址允许内网 / 回环地址（SSRF 防护开关，M3 交付；开发 / 测试依赖本地 WireMock 为 true，
@@ -41,6 +43,8 @@ app:
     # M4 告警（D-M4-5）：worker 评估间隔 / 规则命中冷却 / 验签连续失败内置告警阈值（5 分钟窗口）；
     # 通知渠道（邮件 / IM）首期仅随事件记录，SMTP / webhook 对接 v1.1
     alert-worker-fixed-delay-ms: 30000
+    # 告警 worker 首跑延迟（同补偿 worker：测试置大以隔离启动竞态）
+    alert-worker-initial-delay-ms: 0
     alert-cooldown-minutes: 5
     verify-fail-alert-threshold: 10
     # M4 接入层防护（D-M4-6）：来源地址取 X-Forwarded-For 首值的开关——

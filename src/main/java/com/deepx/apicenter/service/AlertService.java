@@ -155,6 +155,19 @@ public class AlertService {
         return Math.round(value * 10) / 10.0;
     }
 
+    /**
+     * 应用删除时清理验签失败窗口（2026-09-12）：键为 appId，原实现只在窗口过期时自清，
+     * 删应用后会残留孤儿条目。
+     */
+    public void evictApp(String appId) {
+        verifyFailWindows.remove(appId);
+    }
+
+    /** 告警规则删除时清理其冷却记录（2026-09-12）：lastFiredAt 的键含 ruleId，规则删除后残留。 */
+    public void evictRule(long ruleId) {
+        lastFiredAt.keySet().removeIf(key -> key.endsWith("#" + ruleId));
+    }
+
     /** 测试支撑：清空冷却与验签计数 */
     public void reset() {
         lastFiredAt.clear();

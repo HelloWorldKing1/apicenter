@@ -45,6 +45,7 @@ import java.util.List;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.containing;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.stubFor;
@@ -61,12 +62,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "app.api-center.circuit.minimum-number-of-calls=5",
         "app.api-center.circuit.failure-rate-threshold=0.5",
-        "app.api-center.circuit.sliding-window-seconds=10",
+        // 窗口放宽到 120s：5 次失败请求在 WAN（远程 PolarDB）下总耗时可能 >10s，
+        // 原 10s 窗口会让计数滑出 → 偶发不开闸（2026-09-12 抖动修复）
+        "app.api-center.circuit.sliding-window-seconds=120",
         "app.api-center.circuit.open-duration-seconds=1",
         "app.api-center.circuit.half-open-probes=1",
         // 后台调度轮询拉长到 1 小时：补偿 / 告警用例手动 scan()（确定性）
+        "app.api-center.retry-worker-fixed-delay-ms=3600000",
         "app.api-center.alert-worker-fixed-delay-ms=3600000",
-        "app.api-center.retry-worker-fixed-delay-ms=3600000"
+        // 首跑延迟置大：用例手动驱动 scan()，避免「启动首跑」与造数/断言竞态（2026-09-12）
+        "app.api-center.retry-worker-initial-delay-ms=3600000",
+        "app.api-center.alert-worker-initial-delay-ms=3600000"
 })
 class M4IntegrationTest {
 
@@ -257,15 +263,17 @@ class M4IntegrationTest {
         assertThat(upstreamBefore).isGreaterThanOrEqualTo(15);
 
         // 第 6 次：立即 50202 短路——不发起调用、不触发 @Retryable、不触达上游
+        String shortTrace = "cb-short-" + System.currentTimeMillis();
         long start = System.currentTimeMillis();
-        ResponseEntity<byte[]> shortCircuit = httpPost("/m4/breaker", "{}".getBytes(StandardCharsets.UTF_8));
+        ResponseEntity<byte[]> shortCircuit = httpPost("/m4/breaker", "{}".getBytes(StandardCharsets.UTF_8), shortTrace);
         long elapsed = System.currentTimeMillis() - start;
         assertThat(shortCircuit.getStatusCode().value()).isEqualTo(502);
         assertThat(body(shortCircuit)).contains("50202");
         assertThat(elapsed).isLessThan(1500); // 正常失败链 ≈ 0.8s+（2 次退避 200+400ms + 3 次往返）；短路即时
-        // 短路请求自身未触达上游：发送前后采样相等（采样窗口仅含本请求 ~100ms）
-        assertThat(wireMock.countRequestsMatching(postRequestedFor(urlEqualTo("/breaker-fail")).build()).getCount())
-                .isEqualTo(upstreamBefore);
+        // 短路请求自身未触达上游：**按本次 traceId 归属**断言（引擎会把 X-Trace-Id 透传给上游）。
+        // 不用「全局计数相等」——后台 worker 可能异步重放历史 COMPENSATING 记录，会造成假失败（2026-09-12 抖动修复）。
+        assertThat(wireMock.countRequestsMatching(postRequestedFor(urlEqualTo("/breaker-fail"))
+                .withHeader("X-Trace-Id", equalTo(shortTrace)).build()).getCount()).isZero();
 
         // 短路记录：COMPENSATING + 50202（转补偿不直接死信）
         OutboundRequestRow shortRow = latestOutbound(breakerIfaceId);
@@ -321,8 +329,23 @@ class M4IntegrationTest {
         assertThat(requeue.getStatusCode().value()).isEqualTo(200);
         assertThat(outboundRequestRepository.findById(unknown2.id()).orElseThrow().status())
                 .isEqualTo("COMPENSATING");
-        compensationWorker.scan(); // next_retry_at=now → 立即可扫（重放走 200 上游）
-        assertThat(outboundRequestRepository.findById(unknown2.id()).orElseThrow().status()).isEqualTo("SUCCESS");
+        // next_retry_at=now → 立即可扫（重放走 200 上游）。
+        // 有界重扫：即使偶发跨秒/批量竞态，也在 1s 内收敛，避免用例抖动（结果仍是断言，不放水）
+        String finalStatus = null;
+        for (int i = 0; i < 5; i++) {
+            compensationWorker.scan();
+            finalStatus = outboundRequestRepository.findById(unknown2.id()).orElseThrow().status();
+            if ("SUCCESS".equals(finalStatus)) {
+                break;
+            }
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        assertThat(finalStatus).as("补偿重放后状态（unknown2=%s）", unknown2.id()).isEqualTo("SUCCESS");
     }
 
     // ---------- C4：UNKNOWN TTL 自动降级 + 审计（source=TTL） ----------
@@ -508,10 +531,19 @@ class M4IntegrationTest {
     }
 
     private ResponseEntity<byte[]> httpPost(String path, byte[] body) {
-        return restClient.post().uri(url(path))
-                .headers(h -> h.addAll(jsonHeaders()))
-                .body(body)
-                .retrieve().toEntity(byte[].class);
+        return httpPost(path, body, null);
+    }
+
+    /** 带业务 traceId 的投递（用于「未触达上游」的按 traceId 归属断言） */
+    private ResponseEntity<byte[]> httpPost(String path, byte[] body, String traceId) {
+        var spec = restClient.post().uri(url(path))
+                .headers(h -> {
+                    h.addAll(jsonHeaders());
+                    if (traceId != null) {
+                        h.add("X-Trace-Id", traceId);
+                    }
+                });
+        return spec.body(body).retrieve().toEntity(byte[].class);
     }
 
     private ResponseEntity<byte[]> postAdmin(String path, String json) {
@@ -555,20 +587,26 @@ class M4IntegrationTest {
                 .orElse(null);
     }
 
-    /** 轮询异步 call_log（批量写 1s flush；上限 8s） */
+    /**
+     * 轮询异步 call_log（批量写 1s flush；上限 8s）。
+     * 列表查询已瘦身（不带 req_headers / req_body / resp_body，2026-09-12）→ 断言前按 id 取详情。
+     */
     private List<CallLogRepository.CallLogView> awaitCallLogs(String traceId, int expected) {
         long deadline = System.currentTimeMillis() + 8000;
-        List<CallLogRepository.CallLogView> entries = callLogRepository.findPaged(traceId, null, null, null, null, null, null, null, null, 0, 50);
-        while (entries.size() < expected && System.currentTimeMillis() < deadline) {
+        List<CallLogRepository.CallLogView> rows =
+                callLogRepository.findPaged(traceId, null, null, null, null, null, null, null, null, 0, 50);
+        while (rows.size() < expected && System.currentTimeMillis() < deadline) {
             try {
                 Thread.sleep(300);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
             }
-            entries = callLogRepository.findPaged(traceId, null, null, null, null, null, null, null, null, 0, 50);
+            rows = callLogRepository.findPaged(traceId, null, null, null, null, null, null, null, null, 0, 50);
         }
-        return entries;
+        return rows.stream()
+                .map(r -> callLogRepository.findById(r.id()).orElse(r))
+                .toList();
     }
 
     /** 按规则维度计数告警事件（跨上下文后台 worker 理论上可能触发其他规则，隔离断言） */

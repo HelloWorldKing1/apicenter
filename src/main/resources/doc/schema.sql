@@ -337,6 +337,9 @@ ALTER TABLE outbound_request ADD KEY idx_outreq_updated (updated_at);
 --   实现：MySQL 8.0.13+ / PolarDB MySQL 8.0 函数唯一索引。
 --   ⚠ 实施前先验证 PolarDB 兼容性：不兼容则跳过并保持应用层保证 + 文档明示
 --   （M5 手动验收阶段三含验证步骤）；MySQL 5.7 无函数索引不支持。
+--   ✅ 实测结论（2026-09-12，开发实例 `SELECT VERSION()` = 5.7.28-log）：**不支持函数索引** →
+--      正式降级为「应用层保证」（CredentialService.prepare 的 synchronized + activate/update 的 CAS 流转），
+--      多实例并发下每 (app_id, kind) 仍可能出现双 ACTIVE/ROTATING（v1.1 分布式锁或升级 MySQL 8 后补索引）。
 -- ALTER TABLE app_credential ADD UNIQUE KEY uk_credential_live
 --   ((app_id), (kind), (IF(status IN ('ACTIVE','ROTATING'), status, NULL)));
 -- ============================================================

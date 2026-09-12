@@ -8,7 +8,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { extractParams, locateJsonError, scanStructureIssue, MAX_IMPORT_PARAMS } from './paramImport.mjs'
+import { extractParams, locateJsonError, mergeParams, scanStructureIssue, MAX_IMPORT_PARAMS } from './paramImport.mjs'
 
 const SAMPLE = `{
   "filter": { "seller_id": 7494312521977267257, "orderby": [{"field":"units_sold","order":"desc"}] },
@@ -171,4 +171,59 @@ test('locateJsonError / scanStructureIssue：正确定位未闭合与不匹配',
   assert.equal(scanStructureIssue('{"a":1}garbage').message, '顶层结构已结束但后面还有多余内容')
   const e = locateJsonError('Unexpected token } in JSON at position 12', '{\n  "a": 1,\n}')
   assert.equal(e.line, 3)
+})
+
+// ---------- 写回合并（原为 Interfaces.vue 内联逻辑，2026-09-12 提为纯函数） ----------
+
+test('mergeParams：覆盖同名并追加（保留既有行顺序，示例/类型/必填同步）', () => {
+  const target = [
+    { name: 'page', type: 'string', required: false, sample: 'old', sortOrder: 0 },
+    { name: 'keep', type: 'string', required: false, sample: 'k', sortOrder: 1 }
+  ]
+  const stat = mergeParams(target, [
+    { name: 'page', type: 'number', required: true, sample: '1' },
+    { name: 'debug', type: 'boolean', required: true, sample: 'false' }
+  ], 'merge')
+  assert.deepEqual(stat, { overwritten: 1, added: 1, total: 2 })
+  assert.deepEqual(target.map((r) => `${r.name}|${r.type}|${r.required}|${r.sample}|${r.sortOrder}`), [
+    'page|number|true|1|0',
+    'keep|string|false|k|1',
+    'debug|boolean|true|false|2'
+  ])
+})
+
+test('mergeParams：replace 清空重建，sortOrder 与导入顺序一致', () => {
+  const target = [{ name: 'a', type: 'string', required: false, sample: '', sortOrder: 0 }]
+  const stat = mergeParams(target, [
+    { name: 'x', type: 'number', required: true, sample: '1' },
+    { name: 'y', type: 'string', required: false, sample: '"s"' }
+  ], 'replace')
+  assert.deepEqual(stat, { overwritten: 0, added: 2, total: 2 })
+  assert.deepEqual(target.map((r) => `${r.name}:${r.sortOrder}`), ['x:0', 'y:1'])
+  // replace 时不受原有行影响
+  assert.equal(target.some((r) => r.name === 'a'), false)
+})
+
+test('mergeParams：空导入不改动目标；缺省字段按 string / 非必填 / 空示例兜底', () => {
+  const target = [{ name: 'a', type: 'string', required: true, sample: 'v', sortOrder: 0 }]
+  mergeParams(target, [], 'merge')
+  assert.equal(target.length, 1)
+
+  mergeParams(target, [{ name: 'b' }], 'merge')
+  assert.deepEqual(
+    { type: target[1].type, required: target[1].required, sample: target[1].sample },
+    { type: 'string', required: false, sample: '' }
+  )
+})
+
+test('form 重复参数名：后者生效并给 warning（与 JSON 路径同口径）', () => {
+  const r = extractParams('a=1&a=2&b=x')
+  assert.deepEqual(r.params.map((p) => `${p.name}=${p.sample}`), ['a=2', 'b=x'])
+  assert.ok(r.warnings.some((w) => w.includes('重复参数名')))
+})
+
+test('maxParams 显式传 0 生效（?? 语义，替换原 || 的静默回退）', () => {
+  assert.equal(extractParams('{"a":1,"b":2}', { maxParams: 0 }).params.length, 0)
+  assert.equal(extractParams('a=1&b=2', { maxParams: 0 }).params.length, 0)
+  assert.equal(extractParams('{"a":1,"b":2}', {}).params.length, 2)
 })

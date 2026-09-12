@@ -125,7 +125,7 @@ function openEdit(row) {
   let params = {}
   try {
     params = JSON.parse(row.params || '{}')
-  } catch { /* 忽略非法历史数据 */ }
+  } catch (e) { console.warn('[adapters] 忽略非法历史 params', e?.message || e) }
   paramsModel.value = { impl: row.impl, params }
   dialog.isEdit = true
   dialog.editId = row.id

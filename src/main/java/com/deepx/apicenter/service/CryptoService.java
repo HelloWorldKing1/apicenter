@@ -69,10 +69,16 @@ public class CryptoService {
         }
     }
 
-    /** 指纹：尾 4 位，用于管理面遮显回显（M0-04 §3.2） */
+    /**
+     * 指纹：尾 4 位，用于管理面遮显回显（M0-04 §3.2）。
+     * 短值（≤8）整串遮显——原实现对 ≤4 字符**直接返回明文**，会让管理面回显完整密钥（2026-09-12 修复）。
+     */
     public String fingerprint(String plaintext) {
-        if (plaintext == null || plaintext.length() <= 4) {
-            return plaintext;
+        if (plaintext == null || plaintext.isEmpty()) {
+            return "";
+        }
+        if (plaintext.length() <= 8) {
+            return "****";
         }
         return plaintext.substring(plaintext.length() - 4);
     }
