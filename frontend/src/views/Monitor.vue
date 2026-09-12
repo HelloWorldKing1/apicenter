@@ -231,7 +231,7 @@
     </el-card>
 
     <!-- ===== 日志/死信详情抽屉 ===== -->
-    <el-drawer v-model="detail.visible" size="600px" :title="detail.title">
+    <el-drawer v-model="detail.visible" size="720px" resizable :title="detail.title">
       <template v-if="detail.kind === 'log' && detail.row">
         <el-descriptions :column="1" size="small" border style="margin-bottom: 8px">
           <el-descriptions-item label="方向/方法">{{ detail.row.direction }} · {{ detail.row.method }}</el-descriptions-item>
@@ -243,9 +243,9 @@
         <h4 class="side-title">请求头（已脱敏）</h4>
         <pre class="mono-block">{{ detail.row.reqHeaders || '—' }}</pre>
         <h4 class="side-title">请求体</h4>
-        <pre class="mono-block">{{ detail.row.reqBody || '—' }}</pre>
+        <PayloadViewer :text="detail.row.reqBody" />
         <h4 class="side-title">响应体</h4>
-        <pre class="mono-block">{{ detail.row.respBody || '—' }}</pre>
+        <PayloadViewer :text="detail.row.respBody" />
       </template>
 
       <template v-else-if="detail.kind === 'dead' && detail.row">
@@ -294,11 +294,11 @@
           </el-timeline-item>
         </el-timeline>
         <h4 class="side-title">入站报文 in_payload（预览，<4000 字）</h4>
-        <pre class="mono-block">{{ detail.row.inPayloadPreview || '—' }}</pre>
+        <PayloadViewer :text="detail.row.inPayloadPreview" />
         <h4 class="side-title">出站报文 out_payload（预览）</h4>
-        <pre class="mono-block">{{ detail.row.outPayloadPreview || '—' }}</pre>
+        <PayloadViewer :text="detail.row.outPayloadPreview" />
         <h4 class="side-title">响应 resp_payload（预览）</h4>
-        <pre class="mono-block">{{ detail.row.respPayloadPreview || '—' }}</pre>
+        <PayloadViewer :text="detail.row.respPayloadPreview" />
         <h4 class="side-title">对账审计时间线（MANUAL / TTL）</h4>
         <el-table v-if="detail.row.audits && detail.row.audits.length" :data="detail.row.audits" size="small" max-height="220">
           <el-table-column label="时间" width="160">
@@ -380,6 +380,7 @@ import { BarChart, LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import http from '@/api/http'
+import PayloadViewer from '@/components/PayloadViewer.vue'
 
 echarts.use([BarChart, LineChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 

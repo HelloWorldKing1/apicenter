@@ -151,8 +151,8 @@
       <div class="tip">点击行查看脱敏请求/响应明细；完整检索见「接口监控」。</div>
     </el-card>
 
-    <!-- ===== 日志详情抽屉（脱敏后原文，落库即脱敏 + 4096 截断） ===== -->
-    <el-drawer v-model="logDrawer.visible" size="560px" :title="`调用日志 #${logDrawer.row?.id || ''}`">
+    <!-- ===== 日志详情抽屉（脱敏后原文，落库即脱敏 + 4096 截断；JSON/XML 可美化） ===== -->
+    <el-drawer v-model="logDrawer.visible" size="720px" resizable :title="`调用日志 #${logDrawer.row?.id || ''}`">
       <template v-if="logDrawer.row">
         <el-descriptions :column="1" size="small" border style="margin-bottom: 12px">
           <el-descriptions-item label="方向">{{ logDrawer.row.dir }} · {{ logDrawer.row.method }}</el-descriptions-item>
@@ -166,9 +166,9 @@
         <h4 class="side-title">请求头（已脱敏）</h4>
         <pre class="mono-block">{{ logDrawer.row.reqHeaders || '—' }}</pre>
         <h4 class="side-title">请求体</h4>
-        <pre class="mono-block">{{ logDrawer.row.reqBody || '—' }}</pre>
+        <PayloadViewer :text="logDrawer.row.reqBody" />
         <h4 class="side-title">响应体</h4>
-        <pre class="mono-block">{{ logDrawer.row.respBody || '—' }}</pre>
+        <PayloadViewer :text="logDrawer.row.respBody" />
         <el-button size="small" @click="goMonitor({ tab: 'logs', traceId: logDrawer.row.trace })">在监控中追踪该 traceId</el-button>
       </template>
     </el-drawer>
@@ -193,6 +193,7 @@ import { LineChart, BarChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import http from '@/api/http'
+import PayloadViewer from '@/components/PayloadViewer.vue'
 
 echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
