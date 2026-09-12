@@ -231,7 +231,8 @@
     </el-card>
 
     <!-- ===== 日志/死信详情抽屉 ===== -->
-    <el-drawer v-model="detail.visible" size="720px" resizable :title="detail.title">
+    <el-drawer v-model="detail.visible" :size="detailSize + 'px'" resizable
+               @resize-end="onDetailResizeEnd" :title="detail.title">
       <template v-if="detail.kind === 'log' && detail.row">
         <el-descriptions :column="1" size="small" border style="margin-bottom: 8px">
           <el-descriptions-item label="方向/方法">{{ detail.row.direction }} · {{ detail.row.method }}</el-descriptions-item>
@@ -241,11 +242,12 @@
           <el-descriptions-item label="traceId">{{ detail.row.traceId }}</el-descriptions-item>
         </el-descriptions>
         <h4 class="side-title">请求头（已脱敏）</h4>
-        <pre class="mono-block">{{ detail.row.reqHeaders || '—' }}</pre>
+        <PayloadViewer :text="detail.row.reqHeaders" headers />
         <h4 class="side-title">请求体</h4>
-        <PayloadViewer :text="detail.row.reqBody" />
+        <PayloadViewer :text="detail.row.reqBody" :content-type="contentTypeOf(detail.row.reqHeaders)"
+                       :context="logContext(detail.row)" />
         <h4 class="side-title">响应体</h4>
-        <PayloadViewer :text="detail.row.respBody" />
+        <PayloadViewer :text="detail.row.respBody" :context="logContext(detail.row)" />
       </template>
 
       <template v-else-if="detail.kind === 'dead' && detail.row">
@@ -260,7 +262,7 @@
         <h4 class="side-title">死因 reason</h4>
         <pre class="mono-block">{{ detail.row.reason || '—' }}</pre>
         <h4 class="side-title">报文快照 payload（重放依据）</h4>
-        <pre class="mono-block">{{ detail.row.payload || '—' }}</pre>
+        <PayloadViewer :text="detail.row.payload" :context="deadContext(detail.row)" />
       </template>
 
       <template v-else-if="detail.kind === 'queue' && detail.row">
@@ -294,11 +296,11 @@
           </el-timeline-item>
         </el-timeline>
         <h4 class="side-title">入站报文 in_payload（预览，<4000 字）</h4>
-        <PayloadViewer :text="detail.row.inPayloadPreview" />
+        <PayloadViewer :text="detail.row.inPayloadPreview" :context="queueContext(detail.row)" />
         <h4 class="side-title">出站报文 out_payload（预览）</h4>
-        <PayloadViewer :text="detail.row.outPayloadPreview" />
+        <PayloadViewer :text="detail.row.outPayloadPreview" :context="queueContext(detail.row)" />
         <h4 class="side-title">响应 resp_payload（预览）</h4>
-        <PayloadViewer :text="detail.row.respPayloadPreview" />
+        <PayloadViewer :text="detail.row.respPayloadPreview" :context="queueContext(detail.row)" />
         <h4 class="side-title">对账审计时间线（MANUAL / TTL）</h4>
         <el-table v-if="detail.row.audits && detail.row.audits.length" :data="detail.row.audits" size="small" max-height="220">
           <el-table-column label="时间" width="160">
@@ -381,6 +383,8 @@ import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/compon
 import { CanvasRenderer } from 'echarts/renderers'
 import http from '@/api/http'
 import PayloadViewer from '@/components/PayloadViewer.vue'
+import { contentTypeOf } from '@/utils/payload.mjs'
+import { readDrawerWidth, saveDrawerWidth } from '@/utils/prefs.mjs'
 
 echarts.use([BarChart, LineChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
@@ -635,6 +639,19 @@ async function deleteRule(rule) {
 
 // ---------- 详情抽屉 ----------
 const detail = ref({ visible: false, kind: '', title: '', row: null })
+
+// ---------- 抽屉宽度记忆（拖拽后持久化，刷新保留） ----------
+const detailSize = ref(readDrawerWidth('drawer.monitor', 720))
+function onDetailResizeEnd(size) {
+  detailSize.value = Math.round(size)
+  saveDrawerWidth('drawer.monitor', detailSize.value)
+}
+
+// ---------- 「复制含上下文」前缀：便于直接贴工单 ----------
+const logContext = (row) => `调用日志 #${row.id} ${row.direction} ${row.method} ${row.url}\n`
+  + `traceId=${row.traceId} app=${row.appId} interface=${row.interfaceId} status=${row.statusCode} ${row.latencyMs}ms @${row.createdAt}`
+const deadContext = (row) => `死信 #${row.id} ${row.bizType} ref=${row.refId} 状态=${row.status} @${row.createdAt}`
+const queueContext = (row) => `出站记录 #${row.id} 状态=${row.status} bizId=${row.bizId} traceId=${row.traceId}`
 
 function openLogDetail(row) {
   detail.value = { visible: true, kind: 'log', title: `调用日志 #${row.id}`, row }

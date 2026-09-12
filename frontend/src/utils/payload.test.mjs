@@ -8,7 +8,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { analyzePayload, isJsonLike, isXmlLike, pickPayloadText, MAX_FORMAT_CHARS } from './payload.mjs'
+import {
+  analyzeHeaders, analyzePayload, contentTypeOf, detectBinary, FOLD_LINES, formatForm, formatHeaders,
+  highlightEnabled, isFormLike, isJsonLike, isXmlLike, pickPayloadText, splitTokenLines,
+  tokenize, tokenizeJson, tokenizeXml, HIGHLIGHT_MAX_CHARS, MAX_FORMAT_CHARS
+} from './payload.mjs'
 
 // ---------- JSON ----------
 
@@ -111,16 +115,21 @@ test('XML：含 ">" 的属性值与 DOCTYPE 内部子集不被截断', () => {
 
 // ---------- 降级与探测 ----------
 
-test('非 JSON/XML 一律降级为原文（form-urlencoded / 纯文本 / 二进制乱码）', () => {
+test('其他类型降级：form 拆行、纯文本原样、二进制只保留原文', () => {
+  // P2：form-urlencoded 也美化（拆行），不再是纯文本
   const form = analyzePayload('a=1&b=2')
-  assert.equal(form.lang, 'text')
-  assert.equal(form.formatted, false)
-  assert.equal(form.pretty, form.raw)
+  assert.equal(form.lang, 'form')
+  assert.equal(form.formatted, true)
+  assert.equal(form.pretty, 'a = 1\n  b = 2')
 
   const text = analyzePayload('供应商返回：ok')
+  assert.equal(text.lang, 'text')
   assert.equal(text.formatted, false)
+  assert.equal(text.pretty, text.raw)
 
+  // P2：二进制识别后仅提示，不铺屏、原文可复制
   const binary = analyzePayload('\u0000\u0001PK\u0003\u0004')
+  assert.equal(binary.lang, 'binary')
   assert.equal(binary.formatted, false)
   assert.equal(binary.pretty, binary.raw)
 })
@@ -173,4 +182,131 @@ test('回归：任何非空报文在默认（美化）模式下展示文本必�
     const shown = pickPayloadText(analyzePayload(s), 'pretty')
     assert.notEqual(shown, '', `展示文本为空：${JSON.stringify(s)}`)
   }
+})
+
+// ---------- P2：Content-Type 提示 ----------
+
+test('Content-Type 提示参与探测：json / xml / form-urlencoded', () => {
+  assert.equal(analyzePayload('{"a":1}', 'application/json; charset=utf-8').lang, 'json')
+  assert.equal(analyzePayload('<r><a>1</a></r>', 'text/xml').lang, 'xml')
+  // form 无 `&` 的单键值：无提示不美化（避免把普通句子误判），有提示才拆行
+  assert.equal(analyzePayload('a=1').lang, 'text')
+  assert.equal(analyzePayload('a=1', 'application/x-www-form-urlencoded').lang, 'form')
+})
+
+test('contentTypeOf：从脱敏头串取 Content-Type（去参数 / 小写 / 取不到为空）', () => {
+  const headers = 'Accept: application/json | Content-Type: application/json; charset=utf-8 | X-Trace-Id: t'
+  assert.equal(contentTypeOf(headers), 'application/json')
+  assert.equal(contentTypeOf('X-A: 1 | X-B: 2'), '')
+  assert.equal(contentTypeOf(null), '')
+})
+
+// ---------- P2：form-urlencoded ----------
+
+test('form：探测从严、拆行保序、值做百分号解码', () => {
+  assert.equal(isFormLike('a=1&b=2', false), true)
+  assert.equal(isFormLike('a=1', false), false)
+  assert.equal(isFormLike('a=1', true), true)
+  assert.equal(isFormLike('订单 a=b 已受理', false), false)
+
+  assert.equal(formatForm('name=%E5%BC%A0%E4%B8%89&age=18'), 'name = 张三\n  age = 18')
+  const r = analyzePayload('a=1&b=2')
+  assert.equal(r.lang, 'form')
+  assert.equal(r.formatted, true)
+  assert.equal(r.pretty, 'a = 1\n  b = 2')
+})
+
+// ---------- P2：HTTP 头串拆行 ----------
+
+test('headers：按「 | + 头名:」拆行；值内含 " | " 不误拆', () => {
+  const raw = 'Accept: application/json | Content-Type: application/json | X-Note: a | b | X-Trace-Id: tt'
+  assert.equal(formatHeaders(raw),
+    'Accept: application/json\nContent-Type: application/json\nX-Note: a | b\nX-Trace-Id: tt')
+
+  const view = analyzeHeaders(raw)
+  assert.equal(view.lang, 'headers')
+  assert.equal(view.formatted, true)
+  assert.equal(view.pretty.split('\n').length, 4)
+
+  const single = analyzeHeaders('Accept: application/json')
+  assert.equal(single.formatted, false)   // 单行头串无需美化，不显示切换
+})
+
+// ---------- P2：二进制识别 ----------
+
+test('二进制：控制字符 / NUL 判为 binary；长纯文本与长 token 不误判', () => {
+  assert.equal(detectBinary('\u0000\u0001PK\u0003\u0004abc', false).binary, true)
+  assert.equal(detectBinary('abcdefghij'.repeat(20), false).binary, false)          // 长纯文本
+  assert.equal(detectBinary('sk-' + 'a1B2c3D4'.repeat(12), false).binary, false)    // 长 token
+  const bin = analyzePayload('\u0000\u0001PK\u0003\u0004abc')
+  assert.equal(bin.lang, 'binary')
+  assert.equal(bin.formatted, false)
+  assert.ok(bin.note.includes('二进制'))
+})
+
+test('Base64 图片：完整内容给内联预览，截断内容只提示不预览', () => {
+  const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/wFvpM0AAAAASUVORK5CYII='
+  const full = analyzePayload(pngBase64)
+  assert.equal(full.lang, 'binary')
+  assert.ok(full.note.includes('PNG'))
+  assert.ok(full.imagePreview.startsWith('data:image/png;base64,'))
+
+  const cut = analyzePayload(pngBase64 + '...[truncated]')
+  assert.equal(cut.imagePreview, null)
+  assert.ok(cut.note.includes('不提供预览'))
+})
+
+// ---------- P2：语法高亮 tokenizer（无损） ----------
+
+const LOSSLESS_SAMPLES = [
+  ['json', '{\n  "a": 1,\n  "s": "含 { } , : \\" 引号",\n  "n": [1, 2.5, -3e4],\n  "b": true,\n  "z": null\n}'],
+  ['xml', '<?xml version="1.0"?>\n<r a="1" b=\'2\'>\n  <item>文本 &amp; 符号</item>\n  <!--注释-->\n  <![CDATA[<raw> & data]]>\n  <self x="a>b"/>\n</r>']
+]
+
+test('tokenizer 无损：token 文本拼接后与输入逐字节相同', () => {
+  for (const [lang, text] of LOSSLESS_SAMPLES) {
+    const tokens = tokenize(text, lang)
+    assert.equal(tokens.map((t) => t.text).join(''), text, `${lang} token 拼接不一致`)
+  }
+})
+
+test('JSON token 类型：key 与 string 区分、数字/literal/punct 正确', () => {
+  const tokens = tokenizeJson('{"a": "b", "n": 7494312521977267257, "ok": true}')
+  const types = tokens.filter((t) => t.type !== 'plain' && t.type !== 'punct')
+  assert.deepEqual(
+    types.map((t) => `${t.type}:${t.text}`),
+    ['key:"a"', 'string:"b"', 'key:"n"', 'number:7494312521977267257', 'key:"ok"', 'literal:true']
+  )
+})
+
+test('XML token 类型：tag/attr/attrvalue/comment/cdata/pi/doctype/text', () => {
+  const tokens = tokenizeXml('<?xml version="1.0"?><!DOCTYPE r [<!ENTITY x "y">]><r a="1"><!--c--><![CDATA[d]]>t</r>')
+  const types = new Set(tokens.map((t) => t.type))
+  for (const t of ['pi', 'doctype', 'tag', 'attr', 'attrvalue', 'comment', 'cdata', 'text', 'punct']) {
+    assert.ok(types.has(t), `缺少 token 类型 ${t}`)
+  }
+  assert.ok(tokens.some((t) => t.type === 'tag' && t.text === 'r'))
+  assert.ok(tokens.some((t) => t.type === 'attr' && t.text === 'a'))
+  assert.ok(tokens.some((t) => t.type === 'attrvalue' && t.text === '"1"'))
+})
+
+test('splitTokenLines：按行切分（含跨行 CDATA），行拼接 = 原文去换行', () => {
+  const lines = splitTokenLines(tokenize('a\nbb\n\nc', 'text'))
+  assert.equal(lines.length, 4)
+  assert.deepEqual(lines.map((l) => l.map((t) => t.text).join('')), ['a', 'bb', '', 'c'])
+
+  const xml = '<r><![CDATA[line1\nline2]]></r>'
+  const xmlLines = splitTokenLines(tokenize(xml, 'xml'))
+  assert.equal(xmlLines.map((l) => l.map((t) => t.text).join('')).join('\n'), xml)
+})
+
+test('highlightEnabled：超上限不高亮（仍可缩进）', () => {
+  assert.equal(highlightEnabled('x'.repeat(HIGHLIGHT_MAX_CHARS)), true)
+  assert.equal(highlightEnabled('x'.repeat(HIGHLIGHT_MAX_CHARS + 1)), false)
+  assert.equal(highlightEnabled(''), false)
+})
+
+test('常量口径：折叠行数与渲染上限有序', () => {
+  assert.ok(FOLD_LINES > 0 && FOLD_LINES < 1000)
+  assert.ok(MAX_FORMAT_CHARS > HIGHLIGHT_MAX_CHARS)
 })

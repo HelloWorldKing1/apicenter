@@ -152,7 +152,8 @@
     </el-card>
 
     <!-- ===== 日志详情抽屉（脱敏后原文，落库即脱敏 + 4096 截断；JSON/XML 可美化） ===== -->
-    <el-drawer v-model="logDrawer.visible" size="720px" resizable :title="`调用日志 #${logDrawer.row?.id || ''}`">
+    <el-drawer v-model="logDrawer.visible" :size="logDrawerSize + 'px'" resizable
+               @resize-end="onLogDrawerResizeEnd" :title="`调用日志 #${logDrawer.row?.id || ''}`">
       <template v-if="logDrawer.row">
         <el-descriptions :column="1" size="small" border style="margin-bottom: 12px">
           <el-descriptions-item label="方向">{{ logDrawer.row.dir }} · {{ logDrawer.row.method }}</el-descriptions-item>
@@ -164,11 +165,12 @@
           <el-descriptions-item label="traceId">{{ logDrawer.row.trace }}</el-descriptions-item>
         </el-descriptions>
         <h4 class="side-title">请求头（已脱敏）</h4>
-        <pre class="mono-block">{{ logDrawer.row.reqHeaders || '—' }}</pre>
+        <PayloadViewer :text="logDrawer.row.reqHeaders" headers />
         <h4 class="side-title">请求体</h4>
-        <PayloadViewer :text="logDrawer.row.reqBody" />
+        <PayloadViewer :text="logDrawer.row.reqBody" :content-type="contentTypeOf(logDrawer.row.reqHeaders)"
+                       :context="logContext(logDrawer.row)" />
         <h4 class="side-title">响应体</h4>
-        <PayloadViewer :text="logDrawer.row.respBody" />
+        <PayloadViewer :text="logDrawer.row.respBody" :context="logContext(logDrawer.row)" />
         <el-button size="small" @click="goMonitor({ tab: 'logs', traceId: logDrawer.row.trace })">在监控中追踪该 traceId</el-button>
       </template>
     </el-drawer>
@@ -194,6 +196,8 @@ import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/compon
 import { CanvasRenderer } from 'echarts/renderers'
 import http from '@/api/http'
 import PayloadViewer from '@/components/PayloadViewer.vue'
+import { contentTypeOf } from '@/utils/payload.mjs'
+import { readDrawerWidth, saveDrawerWidth } from '@/utils/prefs.mjs'
 
 echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
@@ -297,6 +301,17 @@ async function loadRecent() {
     }))
   } catch { /* 保持现有 */ }
 }
+
+// 抽屉宽度记忆（拖拽后持久化，刷新保留）
+const logDrawerSize = ref(readDrawerWidth('drawer.dashboard', 720))
+function onLogDrawerResizeEnd(size) {
+  logDrawerSize.value = Math.round(size)
+  saveDrawerWidth('drawer.dashboard', logDrawerSize.value)
+}
+
+// 「复制含上下文」前缀（Dashboard 行字段已映射为 dir/method/iface/app/code/ms/trace）
+const logContext = (row) => `调用日志 #${row.id} ${row.dir} ${row.method} ${row.url}\n`
+  + `traceId=${row.trace} app=${row.app} interface=${row.iface} status=${row.code} ${row.ms}ms`
 
 function openLogDetail(row) {
   logDrawer.value = { visible: true, row }
