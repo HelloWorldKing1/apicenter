@@ -48,7 +48,7 @@
 | **接口（Interface）** | 一条具体的对接定义，平台侧路径（全局唯一）即路由键 | 两种类型：**出站中转**（OUTBOUND）/ **入站回调**（INBOUND），互斥 |
 | **适配器（Adapter）** | 可插拔的三类能力：**鉴权 / 协议 / 报文** | 鉴权、报文可绑定到应用（默认）或接口（覆盖）；协议按接口协议自动推导，不参与绑定 |
 | **字段映射（Mapping）** | 接口级配置的运行时字段转换规则（非编译期） | 6 种操作：`rename / typeCast / enumMap / default / condition / aggregate` |
-| **凭证（Credential）** | 出站供应商签名凭证（OUTBOUND）与回调验签凭证（CALLBACK） | 分类独立；AES-256-GCM 加密存储，支持轮换（ACTIVE / ROTATING / RETIRED） |
+| **凭证（Credential）** | 出站供应商签名凭证（OUTBOUND）与回调验签凭证（CALLBACK） | 分类独立；AES-256-GCM 加密存储，支持轮换（ACTIVE / ROTATING / RETIRED）；**界面入口：新建/编辑应用弹窗内联凭证卡片**（选适配器 → 就地填字段），高级轮换（生成/激活/收尾）在应用详情凭证区 |
 
 > **术语口径**：用户可见文案与文档统一用「**供应商**」指被代理的角色、「**供应商接口路径**」指出站目标路径；代码内部标识 `upstreamPath` / `upstream_path` / `UpstreamInvoker` 为稳定契约，不改名。勿用「第三方」作主术语（与平台客户歧义）。
 
@@ -202,7 +202,7 @@ sequenceDiagram
 | 模块 | 端点前缀 | 主要能力 |
 |---|---|---|
 | **应用管理** | `/api/admin/apps` | 应用 CRUD、启停（enable / disable / cancel）、应用级默认适配器绑定、限流配额与 IP 名单 |
-| **凭证管理** | `/api/admin/apps/{appId}/credentials` | 出站 / 回调凭证生成、更新、激活、重置、即时失效、轮换收尾；明文永不回显（仅指纹） |
+| **凭证管理** | `/api/admin/apps/{appId}/credentials` | 出站 / 回调凭证生成、更新、激活、重置、即时失效、轮换收尾；明文永不回显（仅指纹）。界面主入口在**应用弹窗凭证卡片**（随应用保存串行提交），详情抽屉保留高级轮换 |
 | **分组管理** | `/api/admin/groups` | 分组 CRUD（应用下的归类单元） |
 | **接口管理** | `/api/admin/interfaces` | 接口全量配置（主表 + 5 子表）、发布 / 下线、测试接口、模拟回调、复制、版本历史 / 回滚 |
 | **适配器** | `/api/admin/adapters` | 适配器实例 CRUD、启停、`impls` 元数据（前端据此动态渲染参数表单） |
