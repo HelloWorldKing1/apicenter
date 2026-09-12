@@ -3,14 +3,19 @@ package com.deepx.apicenter.service;
 import com.deepx.apicenter.config.ConfigChangedEvent;
 import com.deepx.apicenter.dto.AppDtos.AppRequest;
 import com.deepx.apicenter.dto.AppDtos.AppResponse;
+import com.deepx.apicenter.dto.CredentialDtos.CredentialView;
 import com.deepx.apicenter.exception.BizException;
 import com.deepx.apicenter.model.AppRow;
 import com.deepx.apicenter.repository.AdapterRepository;
 import com.deepx.apicenter.repository.AppRepository;
+import com.deepx.apicenter.repository.CredentialRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 应用管理：CRUD + 生命周期状态机（DRAFT → ENABLED → DISABLED → CANCELLED，设计 §1.1）。
@@ -22,15 +27,18 @@ public class AppService {
     private final AppRepository appRepository;
     private final AdapterRepository adapterRepository;
     private final CredentialService credentialService;
+    private final CredentialRepository credentialRepository;
     private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     public AppService(AppRepository appRepository,
                       AdapterRepository adapterRepository,
                       CredentialService credentialService,
+                      CredentialRepository credentialRepository,
                       org.springframework.context.ApplicationEventPublisher eventPublisher) {
         this.appRepository = appRepository;
         this.adapterRepository = adapterRepository;
         this.credentialService = credentialService;
+        this.credentialRepository = credentialRepository;
         this.eventPublisher = eventPublisher;
     }
 
@@ -39,20 +47,24 @@ public class AppService {
     }
 
     public List<AppResponse> list(String keyword, String status) {
-        return appRepository.findAll(keyword, status).stream().map(AppResponse::from).toList();
+        List<AppRow> rows = appRepository.findAll(keyword, status);
+        // E1：列表凭证角标（一次 IN 查询，避免逐行查询）
+        Map<String, Set<String>> activeKinds = credentialRepository.findActiveKinds(
+                rows.stream().map(AppRow::appId).toList());
+        return rows.stream()
+                .map(r -> AppResponse.from(r, activeKinds.getOrDefault(r.appId(), Set.of())))
+                .toList();
     }
 
     public AppResponse detail(String appId) {
         AppRow row = appRepository.findById(appId).orElseThrow(() -> BizException.appNotFound(appId));
-        AppResponse base = AppResponse.from(row);
         // 详情附带凭证遮显列表（指纹 + 状态，永不回显明文）
-        return new AppResponse(
-                base.appId(), base.name(), base.contact(),
-                base.authAdapterId(), base.callbackAuthAdapterId(), base.defaultMessageAdapterId(),
-                base.baseUrl(), base.ipWhitelist(), base.ipBlacklist(),
-                base.qpsLimit(), base.dailyQuota(), base.status(), base.desc(),
-                base.createdAt(), base.updatedAt(), base.groupCount(), base.ifaceCount(),
-                credentialService.listViews(appId));
+        List<CredentialView> credentials = credentialService.listViews(appId);
+        Set<String> activeKinds = credentials.stream()
+                .filter(c -> "ACTIVE".equals(c.status()))
+                .map(CredentialView::kind)
+                .collect(Collectors.toSet());
+        return AppResponse.from(row, activeKinds, credentials);
     }
 
     @Transactional

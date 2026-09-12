@@ -34,7 +34,7 @@
           <el-input v-else-if="f.kind === 'codeMap'" v-model="modelValue.params[f.key]" type="textarea"
                     :rows="3" :placeholder="f.hint || '供应商码→平台码，逗号分隔'" />
           <el-input v-else-if="f.kind === 'secret'" disabled
-                    :placeholder="f.hint || '凭证值请到「应用管理 → 点击应用 → 凭证」中维护'" />
+                    :placeholder="f.hint || '凭证值请在「应用管理 → 新建/编辑应用 → 凭证卡片」中维护'" />
           <el-input v-else v-model="modelValue.params[f.key]" :placeholder="f.hint || '请输入'" />
         </div>
       </el-form-item>

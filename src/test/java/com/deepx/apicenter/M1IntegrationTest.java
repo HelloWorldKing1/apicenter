@@ -3,7 +3,9 @@ package com.deepx.apicenter;
 import com.deepx.apicenter.dto.AdapterDtos.AdapterRequest;
 import com.deepx.apicenter.dto.AppDtos.AppRequest;
 import com.deepx.apicenter.dto.AppDtos.AppResponse;
+import com.deepx.apicenter.dto.CredentialDtos.CredentialIssuedView;
 import com.deepx.apicenter.dto.CredentialDtos.CredentialView;
+import com.deepx.apicenter.dto.CredentialDtos.PrepareRequest;
 import com.deepx.apicenter.dto.CredentialDtos.ResetRequest;
 import com.deepx.apicenter.dto.CredentialDtos.UpdateRequest;
 import com.deepx.apicenter.dto.GroupDtos.GroupRequest;
@@ -277,6 +279,43 @@ class M1IntegrationTest {
         long activeId = views.stream().filter(v -> "ACTIVE".equals(v.status())).findFirst().orElseThrow().id();
         String warning = credentialService.retire(TEST_APP, activeId);
         assertThat(warning).contains("立即补发");
+    }
+
+    // ---------- E1/E2（应用凭证配置改造方案 v0.1 落地项，2026-09-11） ----------
+
+    @Test
+    void 应用凭证角标_列表与详情按ACTIVE存在性标记() {
+        setupTestApp();
+        AppResponse before = appService.detail(TEST_APP);
+        assertThat(before.hasOutboundCredential()).isFalse();
+        assertThat(before.hasCallbackCredential()).isFalse();
+
+        credentialService.update(TEST_APP, new UpdateRequest("CALLBACK", "cb-secret-abcd"));
+        AppResponse after = appService.detail(TEST_APP);
+        assertThat(after.hasCallbackCredential()).isTrue();
+        assertThat(after.hasOutboundCredential()).isFalse();
+
+        // 列表路径同样带角标（一次 IN 查询批量取），且列表不带子表
+        AppResponse row = appService.list(null, null).stream()
+                .filter(a -> TEST_APP.equals(a.appId())).findFirst().orElseThrow();
+        assertThat(row.hasCallbackCredential()).isTrue();
+        assertThat(row.hasOutboundCredential()).isFalse();
+        assertThat(row.credentials()).isEmpty();
+    }
+
+    @Test
+    void 过期ROTATING不再阻塞新一轮prepare() {
+        setupTestApp();
+        credentialService.update(TEST_APP, new UpdateRequest("OUTBOUND", "live-secret-0001"));
+        credentialService.prepare(TEST_APP, new PrepareRequest("OUTBOUND"));
+        // 把待激活行改成「已过期」（等价于 24h 并存窗口已过、读取路径惰性视为 RETIRED）
+        int n = jdbcTemplate.update("UPDATE app_credential SET rotating_until = NOW() - INTERVAL 1 HOUR "
+                + "WHERE app_id = ? AND kind = 'OUTBOUND' AND status = 'ROTATING'", TEST_APP);
+        assertThat(n).isEqualTo(1);
+
+        // E2：过期 ROTATING 不再阻塞（原实现用 countByStatus 会把过期行也算进去 → 400）
+        CredentialIssuedView issued = credentialService.prepare(TEST_APP, new PrepareRequest("OUTBOUND"));
+        assertThat(issued.plaintext()).isNotBlank();
     }
 
     // ---------- 删除守卫（存在运行数据仅允许下线） ----------

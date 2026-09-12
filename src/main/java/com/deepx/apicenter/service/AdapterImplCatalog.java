@@ -22,7 +22,7 @@ public class AdapterImplCatalog {
             new ImplMeta("NoopAuthAdapter", "auth", "无鉴权", List.of()),
             new ImplMeta("ApiKeyAuthAdapter", "auth", "API Key", List.of(
                     f("headerName", "密钥 Header 名", "select", true, List.of("X-API-Key", "X-App-Id", "X-Auth-Token", "api-key"), null),
-                    f("apiKey", "API Key", "secret", false, null, "凭证值在「应用管理 → 点击应用 → 凭证」中维护"))),
+                    f("apiKey", "API Key", "secret", false, null, "凭证值在「应用管理 → 新建/编辑应用 → 凭证卡片」中维护"))),
             new ImplMeta("HmacAuthAdapter", "auth", "HMAC 签名", List.of(
                     f("signatureAlgorithm", "签名算法", "select", true, List.of("HMAC-SHA256", "HMAC-SHA1", "HMAC-SHA512"), null),
                     f("signatureHeader", "签名 Header 名", "select", true, List.of("X-Signature", "X-Hub-Signature-256"), null),
@@ -36,19 +36,19 @@ public class AdapterImplCatalog {
                     f("timestampToleranceSeconds", "时间戳容差(秒)", "number", true, List.of(), "如 300，超时拒绝"),
                     f("replayProtection", "防重放", "switch", false, null, "开启后同签名在容差窗口内只接受一次"))),
             new ImplMeta("BearerTokenAuthAdapter", "auth", "Bearer Token", List.of(
-                    f("token", "Token", "secret", false, null, "凭证值在「应用管理 → 点击应用 → 凭证」中维护"),
+                    f("token", "Token", "secret", false, null, "凭证值在「应用管理 → 新建/编辑应用 → 凭证卡片」中维护"),
                     f("headerName", "Token Header 名", "select", true, List.of("Authorization", "X-Auth-Token", "X-Access-Token"), null),
                     f("prefix", "前缀", "select", true, List.of("Bearer", "Token"), null))),
             new ImplMeta("CloudSignatureAdapter", "auth", "云厂商签名", List.of(
                     f("scheme", "签名规范", "select", true, List.of("TC3-HMAC-SHA256", "AWS4-HMAC-SHA256", "ACS3-HMAC-SHA256"), null),
-                    f("secretId", "SecretId", "secret", false, null, "凭证值在「应用管理 → 点击应用 → 凭证」中维护"),
-                    f("secretKey", "SecretKey", "secret", false, null, "凭证值在「应用管理 → 点击应用 → 凭证」中维护"),
+                    f("secretId", "SecretId", "secret", false, null, "凭证值在「应用管理 → 新建/编辑应用 → 凭证卡片」中维护"),
+                    f("secretKey", "SecretKey", "secret", false, null, "凭证值在「应用管理 → 新建/编辑应用 → 凭证卡片」中维护"),
                     f("service", "服务名", "text", true, null, "如 cvm / sts"),
                     f("region", "地域", "text", false, null, "如 ap-guangzhou / us-east-1"),
                     f("signedHeaders", "签名 Header 列表", "text", false, null, "逗号分隔，如 content-type;host"))),
             new ImplMeta("CloudCallbackSignatureAdapter", "auth", "云厂商回调验签", List.of(
                     f("scheme", "回调验签规范", "select", true, List.of("TENCENT-EVENT", "AWS-SNS", "ALIYUN-CALLBACK"), null),
-                    f("token", "回调 Token", "secret", false, null, "凭证值在「应用管理 → 点击应用 → 凭证」中维护"),
+                    f("token", "回调 Token", "secret", false, null, "凭证值在「应用管理 → 新建/编辑应用 → 凭证卡片」中维护"),
                     f("certificate", "验签证书", "text", false, null, "AWS SNS 的 X509 证书内容，仅 AWS-SNS 需要"))),
             // ---------- 协议 protocol ----------
             new ImplMeta("JsonProtocolAdapter", "protocol", "JSON 编解码", List.of(

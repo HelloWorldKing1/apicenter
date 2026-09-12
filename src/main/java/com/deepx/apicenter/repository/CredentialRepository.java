@@ -5,8 +5,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * app_credential 表数据访问（M0-04 凭证轮换存储方案）。
@@ -57,6 +62,38 @@ public class CredentialRepository {
                 "SELECT COUNT(*) FROM app_credential WHERE app_id = ? AND kind = ? AND status = ?",
                 Integer.class, appId, kind, status);
         return n == null ? 0 : n;
+    }
+
+    /**
+     * 未过期的 ROTATING 条数（E2，2026-09-11）：rotating_until 已过期的 ROTATING 在读取路径已惰性视为 RETIRED，
+     * 不应再阻塞新轮换——原用 countByStatus 会把过期行也算进去，使 prepare 永久报「已有待激活的轮换凭证」。
+     */
+    public int countLiveRotating(String appId, String kind) {
+        Integer n = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM app_credential
+                WHERE app_id = ? AND kind = ? AND status = 'ROTATING'
+                  AND (rotating_until IS NULL OR rotating_until > NOW())
+                """, Integer.class, appId, kind);
+        return n == null ? 0 : n;
+    }
+
+    /**
+     * 批量查「存在 ACTIVE 凭证」的 app → kinds（E1，2026-09-11）：应用列表凭证角标用，一次 IN 查询避免 N+1。
+     */
+    public Map<String, Set<String>> findActiveKinds(List<String> appIds) {
+        if (appIds == null || appIds.isEmpty()) {
+            return Map.of();
+        }
+        String placeholders = String.join(",", Collections.nCopies(appIds.size(), "?"));
+        Map<String, Set<String>> result = new HashMap<>();
+        jdbc.query("SELECT app_id, kind FROM app_credential WHERE status = 'ACTIVE' AND app_id IN ("
+                        + placeholders + ")",
+                // 显式声明为 RowCallbackHandler：否则与 ResultSetExtractor 重载二义
+                (org.springframework.jdbc.core.RowCallbackHandler) rs ->
+                        result.computeIfAbsent(rs.getString("app_id"), k -> new HashSet<>())
+                                .add(rs.getString("kind")),
+                appIds.toArray());
+        return result;
     }
 
     /** 是否存在明文未加密的凭证（单测断言用：库中不得出现明文） */

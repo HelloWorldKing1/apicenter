@@ -73,7 +73,8 @@ public class CredentialService {
     public synchronized CredentialIssuedView prepare(String appId, PrepareRequest req) {
         requireApp(appId);
         validateKind(req.kind());
-        if (credentialRepository.countByStatus(appId, req.kind(), "ROTATING") > 0) {
+        // E2（2026-09-11）：只统计未过期的 ROTATING——过期行读取路径已惰性视为 RETIRED，不应再阻塞新轮换
+        if (credentialRepository.countLiveRotating(appId, req.kind()) > 0) {
             throw BizException.fieldInvalid("该类型已有待激活的轮换凭证，请先激活或废弃");
         }
         String plaintext = randomSecret();
