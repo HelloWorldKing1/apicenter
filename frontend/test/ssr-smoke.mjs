@@ -10,6 +10,7 @@
 import { createSSRApp, h } from 'vue'
 import { renderToString } from 'vue/server-renderer'
 import PayloadViewer from '../src/components/PayloadViewer.vue'
+import ParamImportDialog from '../src/components/ParamImportDialog.vue'
 
 function decode(html) {
   return html
@@ -29,11 +30,14 @@ function textOf(rawHtml) {
 const ElStub = {
   name: 'ElStub',
   setup(props, { slots }) {
-    return () => h('span', { class: 'el-stub' }, slots.default ? slots.default() : [])
+    // 传一个空 scope：el-table-column 之类的作用域插槽会解构 { row }，不传会直接抛错
+    return () => h('span', { class: 'el-stub' },
+      slots.default ? slots.default({ row: {}, column: {}, $index: 0 }) : [])
   }
 }
 const EL_COMPONENTS = ['el-tag', 'el-button', 'el-radio-group', 'el-radio-button',
-  'el-dropdown', 'el-dropdown-menu', 'el-dropdown-item']
+  'el-dropdown', 'el-dropdown-menu', 'el-dropdown-item', 'el-dialog', 'el-input',
+  'el-table', 'el-table-column', 'el-switch']
 
 const longJson = '{"items":[' + Array.from({ length: 80 }, (_, i) => `{"id":${i}}`).join(',') + ']}'
 const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/wFvpM0AAAAASUVORK5CYII='
@@ -53,13 +57,17 @@ const CASES = [
   ['二进制提示', { text: '\u0000\u0001PK\u0003\u0004' }, { text: ['二进制内容'] }],
   ['Base64 图片（完整 → 内联预览）', { text: pngBase64 }, { html: ['data:image/png;base64'], text: ['PNG 图片'] }],
   ['长报文折叠', { text: longJson }, { text: ['展开全部（共'] }],
-  ['空值占位', { text: null }, { text: ['—'] }]
+  ['空值占位', { text: null }, { text: ['—'] }],
+  // 参数快速导入弹窗（P2 姊妹功能）：确认 setup 不炸、选项与空态正常渲染
+  ['参数导入弹窗（空态）', { __component: 'ParamImportDialog', modelValue: true, side: 'IN', sideLabel: '入站侧' },
+    { text: ['等待粘贴', '覆盖同名并追加', '全部必填', '从本侧请求体带入', '将导入 0 条'] }]
 ]
 
 async function main() {
   let failed = 0
   for (const [label, props, expect] of CASES) {
-    const app = createSSRApp({ render: () => h(PayloadViewer, props) })
+    const component = props.__component === 'ParamImportDialog' ? ParamImportDialog : PayloadViewer
+    const app = createSSRApp({ render: () => h(component, props) })
     EL_COMPONENTS.forEach((name) => app.component(name, ElStub))
     const rawHtml = await renderToString(app)
     const html = decode(rawHtml)

@@ -181,6 +181,13 @@
             <template v-else>
             <!-- Params 子面板 -->
             <div v-if="reqTab[side] === 'params'">
+              <div class="params-toolbar">
+                <el-button size="small" @click="openImport(side)">⇪ 快速导入参数</el-button>
+                <span class="side-desc">粘贴 JSON 自动推断参数名 / 类型 / 必填 / 示例（也支持 form-urlencoded）</span>
+                <span class="pi-spacer" />
+                <el-button v-if="importUndo && importUndo.side === side" size="small" text type="primary"
+                           @click="undoImport">撤销导入</el-button>
+              </div>
               <ParamTable v-if="side === 'IN'" v-model="form.inParams" />
               <ParamTable v-else v-model="form.outParams" />
             </div>
@@ -527,6 +534,13 @@
         <el-button type="primary" :loading="cp.saving" @click="submitCopy">复制为草稿</el-button>
       </template>
     </el-dialog>
+
+    <!-- 请求参数快速导入（2026-09-12）：JSON → 参数表，含校验 / 美化 / 预览 / 撤销 -->
+    <ParamImportDialog v-model="importDialog.visible" :side="importDialog.side"
+                       :side-label="importDialog.side === 'IN' ? '入站侧' : '出站侧'"
+                       :existing-names="sideParams(importDialog.side).map((p) => p.name).filter(Boolean)"
+                       :body-raw="sideBodyRaw(importDialog.side)"
+                       @import="applyImport" />
   </div>
 </template>
 
@@ -536,6 +550,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute } from 'vue-router'
 import http from '@/api/http'
 import ParamTable from '@/components/ParamTable.vue'
+import ParamImportDialog from '@/components/ParamImportDialog.vue'
 
 const route = useRoute()
 
@@ -614,6 +629,49 @@ const dialog = reactive({ visible: false, isEdit: false, editId: 0 })
 const mainTab = ref('params')
 const reqTab = reactive({ IN: 'params', OUT: 'params' })
 const form = reactive(emptyForm())
+
+// ---------- 请求参数快速导入（D1–D6 按评审推荐：覆盖同名并追加 + 一次撤销快照） ----------
+const importDialog = reactive({ visible: false, side: 'IN' })
+const importUndo = ref(null)   // { side, rows }：导入前快照，仅保留最近一次
+
+/** 某侧参数数组（真实引用，ParamTable 原地编辑同一数组） */
+function sideParams(side) {
+  return side === 'IN' ? form.inParams : form.outParams
+}
+/** 某侧请求体模板（「从本侧请求体带入」的数据源） */
+function sideBodyRaw(side) {
+  return side === 'IN' ? form.inBodyRaw : form.outBodyRaw
+}
+function openImport(side) {
+  importDialog.side = side
+  importDialog.visible = true
+  importUndo.value = null
+}
+function applyImport({ params, mergeMode }) {
+  const side = importDialog.side
+  const target = sideParams(side)
+  importUndo.value = { side, rows: target.map((r) => ({ ...r })) }
+  const rows = params.map((p, i) => ({ name: p.name, type: p.type, required: p.required, sample: p.sample, sortOrder: i }))
+  if (mergeMode === 'replace') {
+    target.splice(0, target.length, ...rows)
+  } else {
+    // 覆盖同名并追加（同名行原地更新，其余追加）
+    rows.forEach((row) => {
+      const hit = target.find((r) => r.name === row.name)
+      if (hit) Object.assign(hit, { type: row.type, required: row.required, sample: row.sample })
+      else target.push(row)
+    })
+  }
+  target.forEach((r, i) => { r.sortOrder = i })
+  ElMessage.success(`已导入 ${rows.length} 条参数（${side === 'IN' ? '入站侧' : '出站侧'}）`)
+}
+function undoImport() {
+  if (!importUndo.value) return
+  const target = sideParams(importUndo.value.side)
+  target.splice(0, target.length, ...importUndo.value.rows)
+  importUndo.value = null
+  ElMessage.success('已撤销导入')
+}
 
 function emptyForm() {
   return {
@@ -1131,6 +1189,8 @@ const chainSteps = computed(() => {
 </script>
 
 <style scoped>
+.params-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.pi-spacer { flex: 1; }
 .toolbar { display: flex; justify-content: space-between; margin-bottom: 14px; }
 .toolbar-filters { display: flex; gap: 10px; flex-wrap: wrap; }
 .muted { color: #c0c4cc; font-size: 12px; }
