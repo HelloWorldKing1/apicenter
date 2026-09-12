@@ -19,7 +19,8 @@
 | M0 契约设计 | **已评审通过 v1.0（2026-09-02）**：`doc/开发文档/` M0-01/02/03/04（确认点全部通过） |
 | 旧 demo 代码 | 已删除（commit `ad55cea`），git 历史可查 |
 | 数据库 | MySQL PolarDB 已按新 schema 建库（连接信息见 application.yaml）；M4 DDL（两表 + idx_outreq_updated 索引）已于 2026-09-04 应用到开发库 |
-| 工程代码 | **M1 + M2 + M3 + M4 已落地并测试通过；M5.1/M5.2 已落地（全库 174 个 @Test 基准）；M5 后状态链已落地（全库归属 180 = M1 22 / M2 23 / M3 62 / M4 57 / M5 10 + StateChainIntegrationTest 6；2026-09-08）**。M4 = 熔断器三态 + UNKNOWN 人工对账 + TTL 降级 + 死信重放 + GatewayGuard 防护 + call_log 脱敏与 traceId 贯穿 + 指标告警。M5.1 = 接口版本快照与回滚（config_json 序列化 / 回滚复用全量替换 + 乐观锁；版本 v1.0 起每次配置变更 / 回滚 +0.1 步进、历史只增不回退 / 版本查询端点）；M5.2 = 适配器绑定即实例 + 解析时机上移（绑定/映射/参数烘焙进缓存链，凭证保持实时）+ ConfigChangedEvent 事件失效 + test 端点 chainTrace + D6'（2026-09-08 定稿：adapter.name 全表唯一；同 (impl, version) 允许多启用；version 不再路由）+ 前端版本历史/变更说明。测试归属：M1 22 / M2 23 / M3 62 / M4 57 / **M5 10**（M5IntegrationTest 7 + SnapshotSerializerTest 3）+ 状态链 6 |
+| 工程代码 | **M1 + M2 + M3 + M4 已落地并测试通过；M5.1/M5.2 已落地；M5 后状态链已落地（全库 192 @Test 基准，2026-09-11）**。M4 = 熔断器三态 + UNKNOWN 人工对账 + TTL 降级 + 死信重放 + GatewayGuard 防护 + call_log 脱敏与 traceId 贯穿 + 指标告警。M5.1 = 接口版本快照与回滚（config_json 序列化 / 回滚复用全量替换 + 乐观锁；版本 v1.0 起每次配置变更 / 回滚 +0.1 步进、历史只增不回退 / 版本查询端点）；M5.2 = 适配器绑定即实例 + 解析时机上移（绑定/映射/参数烘焙进缓存链，凭证保持实时）+ ConfigChangedEvent 事件失效 + test 端点 chainTrace + D6'（2026-09-08 定稿：adapter.name 全表唯一；同 (impl, version) 允许多启用；version 不再路由）+ 前端版本历史/变更说明。 |
+| 应用凭证内联 + 报文美化（2026-09-11） | 已落地：① 应用弹窗内联凭证卡片（方案 A，D1–D5 已拍板，见《应用凭证配置改造方案.md》v0.2）+ 列表凭证角标 + E2 修复（过期 ROTATING 不再阻塞 prepare）；② 调用日志 / 状态机 Tab / Dashboard 抽屉报文 JSON·XML 缩进美化（只增删空白，19 位数字等 token 逐字节不变，见《接口监控设计方案》§8）；③ 前端零依赖单测 `cd frontend && npm test`（Node 内置 test runner，报文格式化 12 例） |
 | 里程碑计划 | **M4 手动验收（方案已细化，2026-09-05）待完成；M5.3 压测执行 + M5 手动验收待排期**——M5 开发计划已评审定稿（2026-09-04 一轮 + 09-07 二轮），D-M5-1~3 即编码依据，总盘 9 人日 |
 | 未拍板决策 | 无（M0 全部评审通过；M4/M5 计划均已评审定稿） |
 
@@ -107,7 +108,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 
 入口：`ApicenterApplication.java`（`@SpringBootApplication` + `@EnableScheduling` + `@EnableResilientMethods`，后者启用 Spring 7 `@Retryable`）。
 
-前端 `frontend/`（Vue3 + Vite + Element Plus，M1 设计 §4）：`src/views/` 六页面（Dashboard / Apps / Groups / Interfaces / Adapters / Monitor）+ `components/ParamTable` 参数编辑 + `components/CredentialEntry` 凭证卡片 + `api/http.js` 统一信封解包；原型交互平移自 `doc/API中心原型.html`。管理面 REST 前缀 `/api/admin`（controller/admin 六个 Controller：应用 / 分组 / 接口 / 适配器 / 凭证 / 监控），统一信封 `{code, msg, data}`。Monitor 页 M4 已接真数据（统计卡 / 调用日志 / 对账 UNKNOWN / 死信 / 告警五区块）。
+前端 `frontend/`（Vue3 + Vite + Element Plus，M1 设计 §4）：`src/views/` 六页面（Dashboard / Apps / Groups / Interfaces / Adapters / Monitor）+ `components/ParamTable` 参数编辑 + `components/CredentialEntry` 凭证卡片 + `components/PayloadViewer` 报文美化展示 + `utils/payload.mjs`（JSON/XML 扫描式缩进，只增删空白）+ `api/http.js` 统一信封解包；前端单测 `npm test`（Node 内置 test runner，`src/utils/*.test.mjs`）。原型交互平移自 `doc/API中心原型.html`。管理面 REST 前缀 `/api/admin`（controller/admin 六个 Controller：应用 / 分组 / 接口 / 适配器 / 凭证 / 监控），统一信封 `{code, msg, data}`。Monitor 页 M4 已接真数据（统计卡 / 调用日志 / 对账 UNKNOWN / 死信 / 告警五区块）。
 
 ## 核心状态机与容错（设计 §6）
 
@@ -144,6 +145,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 - **test 端点响应已包装**：`POST /{id}/test` data 变为 `{chainTrace, result}`（D-M5-2 留痕通道 3，强制实时解析）；前端解析相应调整。
 - **应用弹窗内联凭证（v0.2，2026-09-11 落地）**：凭证卡片在「新建/编辑应用」弹窗内，**显示条件** = 该角色选了非 `NoopAuthAdapter` 的适配器（或已有凭证，只读行）；**字段来源** = 所选 adapter 的 impl 元数据中 `kind==='secret'` 字段，未声明时退化为单「密钥 / Token」框（如 `HmacCallbackVerifyAdapter`）；**留空 = 不改动**，单字段→字符串 / 多字段→JSON 提交；新建应用凭证是 `POST /apps` 成功后**串行**写（失败提示后引导补填）；列表凭证角标取 `AppResponse.has*Credential`（E1）。设计文档：`doc/开发文档/应用凭证配置改造方案.md`。
 - **`CredentialRepository.countByStatus` 与 `countLiveRotating` 的区别**：前者含已过期 ROTATING 行，仅用于 `retire` 的 ACTIVE 计数；`prepare` 的「已有待激活轮换」判定必须用 `countLiveRotating`（排除 `rotating_until` 已过期，E2 修复）。
+- **报文展示禁止 parse 重建（v0.3）**：调用日志 / 状态机 / Dashboard 的报文美化走 `utils/payload.mjs` 的**扫描式缩进**（只增删空白）——**不要**改成 `JSON.parse` + `stringify`（19 位数字尾数会被改写、`1.10`→`1.1`、重复键丢失）或 XML `DOMParser`（规范化 CDATA / 实体 / 属性引号）；新增展示点复用 `components/PayloadViewer.vue`，改格式化逻辑后跑 `cd frontend && npm test`。
 - **更多 Spring 7 / Jackson 3 / WireMock 3 踩坑**：见 `doc/开发文档/技术踩坑记录.md`（写代码前先查）。
 - **术语口径（2026-09-08 定稿）**：用户可见文案与文档用「**供应商**」表被代理的角色（供应商 5xx/拒绝/超时/返回、依赖供应商幂等）、「**供应商接口路径**」表出站路径；`upstreamPath` / `upstream_path` / `UpstreamInvoker` 为稳定契约与内部标识**不改名**；链路方向叙述（调供应商）与代码内部注释可保留「上游」。勿引入「第三方」作主术语（与平台客户歧义）。
 - 旧 demo 实现仅供参考（git 历史 `ed95446` 及之前），不照搬渠道特化逻辑（PARTNER_A/B、订单字段、高水位同步均不适用于新设计）。
