@@ -13,6 +13,6 @@ html, body, #app {
   padding: 0;
   height: 100%;
   font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
-  background: #f5f6fa;
+  background: #f5f6f8;   /* 原型 --bg */
 }
 </style>
