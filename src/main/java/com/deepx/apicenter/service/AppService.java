@@ -91,7 +91,7 @@ public class AppService {
         validateAdapterRefs(req.authAdapterId(), req.callbackAuthAdapterId(), req.defaultMessageAdapterId());
         // 状态字段不在编辑范围（生命周期走操作端点），沿用当前状态
         appRepository.update(new AppRow(
-                appId, req.name(), req.contact(),
+                null, appId, req.name(), req.contact(),
                 req.authAdapterId(), req.callbackAuthAdapterId(), req.defaultMessageAdapterId(),
                 req.baseUrl(), req.ipWhitelist(), req.ipBlacklist(),
                 req.qpsLimit(), req.dailyQuota(), current.status(), req.desc(),
@@ -162,7 +162,7 @@ public class AppService {
 
     private AppRow toRow(AppRequest req, String status) {
         return new AppRow(
-                req.appId(), req.name(), req.contact(),
+                null, req.appId(), req.name(), req.contact(),
                 req.authAdapterId(), req.callbackAuthAdapterId(), req.defaultMessageAdapterId(),
                 req.baseUrl(), req.ipWhitelist(), req.ipBlacklist(),
                 req.qpsLimit(), req.dailyQuota(), status, req.desc(),

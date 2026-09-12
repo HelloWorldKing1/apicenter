@@ -15,9 +15,10 @@
       </div>
 
       <el-table :data="apps" v-loading="loading" @row-click="openDetail">
-        <!-- 应用主键即 app_id（app 表无数字 id），列表按 ID 展示 -->
-        <el-table-column prop="appId" label="ID" width="180" />
-        <el-table-column prop="name" label="应用名称" width="160" />
+        <!-- ID = app 表数字主键（2026-09-12 新增，运营引用用）；对外标识仍是「应用标识」app_id -->
+        <el-table-column prop="id" label="ID" width="80" />
+        <el-table-column prop="appId" label="应用标识" width="170" />
+        <el-table-column prop="name" label="应用名称" width="150" />
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
             <el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag>
@@ -164,6 +165,7 @@
     <!-- 详情抽屉(含凭证遮显 + 轮换操作) -->
     <el-drawer v-model="detail.visible" :title="`应用详情 · ${detail.row.appId || ''}`" size="560px">
       <el-descriptions :column="2" border v-if="detail.row.appId">
+        <el-descriptions-item label="ID">{{ detail.row.id ?? '—' }}</el-descriptions-item>
         <el-descriptions-item label="名称">{{ detail.row.name }}</el-descriptions-item>
         <el-descriptions-item label="状态">
           <el-tag :type="statusType(detail.row.status)">{{ statusText(detail.row.status) }}</el-tag>

@@ -84,7 +84,8 @@
   <div class="t-desc">应用 = 平台对接的一方供应商（第三方供应商）。出站签名凭证与回调验签凭证两类分离（凭证落 <a href="#t-credential">app_credential</a> 表）；IP 黑白名单、配额限流在此表统一承载。</div>
   <table class="f">
     <tr><th style="width:22%">字段</th><th style="width:20%">类型</th><th style="width:14%">约束</th><th>说明</th></tr>
-    <tr><td class="c pk">app_id</td><td class="c">VARCHAR(32)</td><td>PK</td><td>全局唯一应用标识（如 TENCENT-CLOUD）</td></tr>
+    <tr><td class="c pk">id</td><td class="c">BIGINT</td><td>AUTO_INCREMENT · UNIQUE</td><td>应用数字 ID（2026-09-12 新增；列表/运维引用用，对外标识仍是 app_id）</td></tr>
+    <tr><td class="c pk">app_id</td><td class="c">VARCHAR(32)</td><td>PK</td><td>全局唯一应用标识（如 TENCENT-CLOUD）；URL / 凭证归属 / 分组接口引用 / 监控过滤全部用它</td></tr>
     <tr><td class="c">name</td><td class="c">VARCHAR(64)</td><td>NOT NULL</td><td>应用名称</td></tr>
     <tr><td class="c">contact</td><td class="c">VARCHAR(64)</td><td></td><td>联系人</td></tr>
     <tr><td class="c ref">auth_adapter_id</td><td class="c">VARCHAR(16)</td><td></td><td>出站供应商签名适配器（引用 adapter.id，NULL = 无鉴权）</td></tr>

@@ -7,9 +7,12 @@ import java.time.LocalDateTime;
 /**
  * app 表行（应用 = 供应商）。凭证不在此表，见 {@link CredentialRow}（app_credential 表）。
  * groupCount / ifaceCount 为列表场景的聚合计数（SQL 子查询提供，非表列）。
+ *
+ * <p>id 为 2026-09-12 新增的应用数字 ID（列表展示 / 运维引用）；**对外标识仍是 appId**——
+ * URL、凭证归属、分组/接口引用、监控过滤一律用 app_id，不要把 id 当业务键。新建时传 null（自增回填）。
  */
 public record AppRow(
-        String appId, String name, String contact,
+        Long id, String appId, String name, String contact,
         String authAdapterId, String callbackAuthAdapterId, String defaultMessageAdapterId,
         String baseUrl, String ipWhitelist, String ipBlacklist,
         Integer qpsLimit, Long dailyQuota,
@@ -20,6 +23,7 @@ public record AppRow(
 
     /** 行映射（含 group_count / iface_count 聚合列，查询 SQL 需使用本类的 SELECT_SQL） */
     public static final RowMapper<AppRow> MAPPER = (rs, i) -> new AppRow(
+            (Long) rs.getObject("id"),
             rs.getString("app_id"),
             rs.getString("name"),
             rs.getString("contact"),

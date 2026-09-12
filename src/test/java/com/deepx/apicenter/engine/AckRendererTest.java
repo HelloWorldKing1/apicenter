@@ -72,7 +72,7 @@ class AckRendererTest {
         when(interfaceRepository.findFieldDefs(7L)).thenReturn(List.of(
                 new FieldDefRow(1, "ACK", "returnCode", "number", null, 10),
                 new FieldDefRow(2, "ACK", "returnMsg", "string", null, 20)));
-        when(appRepository.findById("M3DEMO")).thenReturn(Optional.of(new AppRow(
+        when(appRepository.findById("M3DEMO")).thenReturn(Optional.of(new AppRow(null,
                 "M3DEMO", "演示", null, null, null, null, "http://x", null, null,
                 null, null, "ENABLED", null, LocalDateTime.now(), LocalDateTime.now(), 0, 0)));
 

@@ -17,7 +17,7 @@ class GatewayGuardTest {
     private final GatewayGuard guard = new GatewayGuard();
 
     private AppRow app(Integer qpsLimit, Long dailyQuota, String whitelist, String blacklist) {
-        return new AppRow("GUARD-APP", "防护演示", "ops",
+        return new AppRow(null, "GUARD-APP", "防护演示", "ops",
                 null, null, null, "http://localhost", whitelist, blacklist,
                 qpsLimit, dailyQuota, "ENABLED", null, null, null, 0, 0);
     }

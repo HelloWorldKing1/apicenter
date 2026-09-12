@@ -16,6 +16,7 @@ USE apicenter;
 
 -- 01 应用（供应商）：出站签名凭证与回调验签凭证两类分离（凭证落 16 号表 app_credential）；鉴权/报文适配器按 id 引用 adapter 表
 CREATE TABLE app (
+    id                          BIGINT       NOT NULL AUTO_INCREMENT UNIQUE COMMENT '应用数字 ID（列表展示 / 运维引用；对外标识仍为 app_id）',
     app_id                      VARCHAR(32)  PRIMARY KEY COMMENT '全局唯一应用标识（如 TENCENT-CLOUD）',
     name                        VARCHAR(64)  NOT NULL COMMENT '应用名称',
     contact                     VARCHAR(64)  COMMENT '联系人',
@@ -328,6 +329,14 @@ ALTER TABLE outbound_request ADD KEY idx_outreq_updated (updated_at);
 --                    存在运行数据（outbound_request / inbound_delivery）时仅允许下线
 --   · 删接口       → call_log.interface_id 置 NULL（日志保留，可观测数据不丢）
 --   · dead_letter.ref_id 为多态引用（指向 outbound_request.id 或 inbound_delivery.id），不约束
+-- ============================================================
+
+-- ============================================================
+-- 2026-09-12 列表 ID 增强（应用/接口列表都显示 ID 列）：
+--   接口表本就有自增主键 id；应用表原只有 app_id（自然主键），此处补一个数字 id 供列表展示。
+--   对外契约不变：URL（/apps/{appId}）、凭证归属、分组/接口引用、监控过滤仍全部用 app_id。
+--   已应用到开发库（3 行数据，id 依次 1..3；AUTO_INCREMENT 从 4 起）。
+-- ALTER TABLE app ADD COLUMN id BIGINT NOT NULL AUTO_INCREMENT UNIQUE FIRST;
 -- ============================================================
 
 -- ============================================================

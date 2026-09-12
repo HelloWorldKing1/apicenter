@@ -39,7 +39,7 @@ public final class AppDtos {
      * {@code credentials} 仅详情携带遮显视图（列表恒为空，列表接口不带子表）。
      */
     public record AppResponse(
-            String appId, String name, String contact,
+            Long id, String appId, String name, String contact,
             String authAdapterId, String callbackAuthAdapterId, String defaultMessageAdapterId,
             String baseUrl, String ipWhitelist, String ipBlacklist,
             Integer qpsLimit, Long dailyQuota,
@@ -58,7 +58,7 @@ public final class AppDtos {
         public static AppResponse from(AppRow row, Set<String> activeCredentialKinds,
                                        List<CredentialDtos.CredentialView> credentials) {
             return new AppResponse(
-                    row.appId(), row.name(), row.contact(),
+                    row.id(), row.appId(), row.name(), row.contact(),
                     row.authAdapterId(), row.callbackAuthAdapterId(), row.defaultMessageAdapterId(),
                     row.baseUrl(), row.ipWhitelist(), row.ipBlacklist(),
                     row.qpsLimit(), row.dailyQuota(), row.status(), row.desc(),

@@ -106,6 +106,8 @@ class M1IntegrationTest {
         // 应用（seed 导入或此前已存在）
         AppResponse app = appService.detail("fastmoss");
         assertThat(app.appId()).isEqualTo("fastmoss");
+        // 应用数字 ID（2026-09-12 新增列）：详情与列表都必须带出，供列表「ID」列展示
+        assertThat(app.id()).isNotNull().isPositive();
         assertThat(app.status()).isEqualTo("ENABLED");
         assertThat(app.baseUrl()).isEqualTo("https://openapi.fastmoss.com");
         assertThat(app.authAdapterId()).isEqualTo("ADP-101");
@@ -298,6 +300,7 @@ class M1IntegrationTest {
         // 列表路径同样带角标（一次 IN 查询批量取），且列表不带子表
         AppResponse row = appService.list(null, null).stream()
                 .filter(a -> TEST_APP.equals(a.appId())).findFirst().orElseThrow();
+        assertThat(row.id()).as("列表行必须带数字 ID").isNotNull().isPositive();
         assertThat(row.hasCallbackCredential()).isTrue();
         assertThat(row.hasOutboundCredential()).isFalse();
         assertThat(row.credentials()).isEmpty();
