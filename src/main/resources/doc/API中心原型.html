@@ -544,7 +544,7 @@ function renderGroups(){
             ${a.groups.slice().sort((x,y)=>(x.sortOrder||0)-(y.sortOrder||0)).map(g=>`
               <div class="tree-item" onclick="openGroupDetail('${a.appId}','${g.name}')">
                 <span class="arrow">▸</span><span class="name">分组：${g.name}</span>
-                <span class="sub">${g.ifs.length} 个接口 · 排序 ${g.sortOrder||0}</span>
+                <span class="sub">${g.ifs.length} 个接口</span>
                 <span style="margin-left:auto"><button class="btn sm ghost" onclick="event.stopPropagation();openGroupModal('${a.appId}','${g.name}')">编辑</button> <button class="btn sm danger" onclick="event.stopPropagation();deleteGroup('${a.appId}','${g.name}')">删除</button></span>
               </div>`).join('')}
             ${a.groups.length===0?'<div class="tree-item" style="cursor:default"><span class="arrow">·</span><span class="sub">暂无分组</span></div>':''}

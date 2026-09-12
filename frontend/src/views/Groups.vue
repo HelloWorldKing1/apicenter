@@ -21,7 +21,7 @@
             <div v-for="g in app.groups" :key="g.id" class="tree-item group-row" @click="openGroupDetail(app, g)">
               <span class="arrow">▸</span>
               <span class="name">分组：{{ g.name }}</span>
-              <span class="sub">{{ g.ifaceCount }} 个接口 · 排序 {{ g.sortOrder }}</span>
+              <span class="sub">{{ g.ifaceCount }} 个接口</span>
               <span class="ops">
                 <el-button size="small" @click.stop="openEdit(g)">编辑</el-button>
                 <el-button size="small" type="danger" @click.stop="remove(g)">删除</el-button>
@@ -101,7 +101,7 @@ async function load() {
 }
 onMounted(load)
 
-/** 树形视图：应用 → 分组（按排序升序，照原型） */
+/** 树形视图：应用 → 分组（按排序升序；排序值仅在新建/编辑弹窗维护，列表不展示，2026-09-12） */
 const grouped = computed(() => {
   return apps.value.map((app) => ({
     ...app,
