@@ -1,6 +1,6 @@
 # apicenter · 使用教程
 
-> 版本：v1.0（2026-09-09）｜ 配套：[《API中心项目说明》](API中心项目说明.md) ｜ [README](../../../../README.md)
+> 版本：v1.1（2026-09-14）｜ 配套：[《API中心项目说明》](API中心项目说明.md) ｜ [README](../../../../README.md)
 > 本教程从零开始，带你完成「环境准备 → 启动 → 管理面配置 → 调用验证 → 监控与容错运维」全流程。
 > 每步都给出**界面操作**与**等价 curl**两种方式，任选其一即可。
 
@@ -29,7 +29,7 @@
 | 组件 | 版本要求 | 说明 |
 |---|---|---|
 | JDK | **21**（推荐，工程 `--release 21`） | 本仓库 `.java-version` = 21 |
-| Maven | 3.9+ | ⚠️ 仓库**无** `mvnw`，需系统安装（机器已有 `apache-maven-3.9.16` 可直接用） |
+| Maven | 3.9+ | ⚠️ 仓库**无** `mvnw`，需系统安装；若 `mvn -v` 报 command not found，说明装了但未加入 PATH（改用绝对路径或先配 PATH） |
 | Node.js | 22 | 前端构建（Vue3 + Vite 5） |
 | MySQL | 5.7 / 8.0（PolarDB 兼容） | 连接信息见 `src/main/resources/application.yaml` |
 | WireMock | 3.9.1（可选） | 本地模拟供应商 / 回调接收端 |
@@ -261,7 +261,7 @@ curl -i -X POST http://localhost:8080/qd/ok \
 - impl 未声明凭证字段名（如 HMAC 回调验签）→ 退化为单个「密钥 / Token」框；
 - **留空 = 不改动**；已配置的只显尾 4 位指纹；「重置」需二次确认（旧值立即失效）。
 
-应用列表新增「凭证」列（出站 / 回调 已配·缺失）便于巡检。
+**凭证状态在哪看**：应用列表已**不再**单列凭证角标（2026-09-12 按使用反馈移除）。巡检时进「编辑」看凭证卡片状态行（`ACTIVE ****尾4位`），或进详情抽屉「凭证区」看完整轮换历史；后端 `hasOutboundCredential` / `hasCallbackCredential` 字段仍保留。
 
 生命周期：`DRAFT → ENABLED → DISABLED → CANCELLED`。
 
@@ -281,6 +281,8 @@ curl -i -X POST http://localhost:8080/qd/ok \
 | 应用详情抽屉 → 凭证区 | 查看历史、轮换全套操作 | `prepare` 生成 / 激活 / 完成轮换 / 吊销 / 删除历史 |
 
 > 新建应用时应用尚不存在，凭证在「保存应用」成功后由同一次操作**串行写入**（凭证失败会有明确提示，重新进入编辑补填即可）。
+
+> 下表端点均以 `/api/admin/apps/{appId}/credentials` 为前缀（表中 `...` 即该前缀）。
 
 | 操作 | 端点 | 语义 |
 |---|---|---|
@@ -389,8 +391,9 @@ curl -X POST http://localhost:8080/api/admin/apps/QD1/credentials/update \
 ```bash
 TS=$(date +%s)
 BODY='{"event_id":"evt-1","order_id":"ORD-1","state":"PAID"}'
-# 签名 = HMAC-SHA256(secret, timestamp + body)，具体实现见 HmacSigner
-SIG=<计算出的签名>
+# 签名串 = timestamp + "." + UTF-8(rawBody)——中间是【英文句点】，漏掉必然验签失败（40100）
+# 用 openssl 一行算出（printf 不加换行，保证 body 逐字节一致）：
+SIG=$(printf '%s.%s' "$TS" "$BODY" | openssl dgst -sha256 -hmac 'my-callback-secret' -r | cut -d' ' -f1)
 
 curl -i -X POST http://localhost:8080/qd/callback \
   -H 'Content-Type: application/json' \
@@ -398,6 +401,8 @@ curl -i -X POST http://localhost:8080/qd/callback \
   -H "X-Partner-Signature: $SIG" \
   -d "$BODY"
 ```
+
+> 签名算法与容差在**适配器实例的 params** 里调整（「适配器」页 → 对应 HMAC 回调验签实例，非应用弹窗）：`signatureAlgorithm`（默认 `HMAC-SHA256`，另支持 `HMAC-SHA1` / `HMAC-SHA512`）、`timestampToleranceSeconds`（默认 300）、`replayProtection`（默认关闭；开启后按 `(appId, signature)` 在容差窗口内内存去重，单实例口径）。平台侧实现见 `HmacSigner.sign()`（hex 小写），自算签名不一致时以它为准。
 
 期望：
 
@@ -429,6 +434,8 @@ curl -X POST http://localhost:8080/api/admin/interfaces/<id>/test \
 
 - `chainTrace`：本次装配出的适配器链（role / adapterId / impl / version），test 端点**强制实时解析**，永远反映当前配置；
 - `result`：原业务结果。
+
+> ⚠️ `{chainTrace, result}` 只在**拿到业务结果**时成立（包括供应商返回错误、`code != 0` 的信封——此时仍有 chainTrace）。若链路直接**抛异常**（4xx 死信 `50201` / 熔断短路 `50202` / 超时 `50401`），响应由全局异常处理返回错误信封、`data` 为 `null`、**不带 chainTrace**，诊断信息看 `msg`（如死信编号）。
 
 > 注意：调试端点有意**不落 IN 条 `call_log`**，避免调试流量污染成功率口径；OUT 条照常落库。
 
@@ -517,10 +524,17 @@ curl "http://localhost:8080/api/admin/monitor/stats/top-interfaces?range=24h&lim
 ### 8.2 调用日志
 
 ```bash
+# 列表（已瘦身：不含报文体，取字段走详情）
 curl "http://localhost:8080/api/admin/monitor/call-logs?direction=OUT&appId=QD1&statusGroup=5xx&page=1&pageSize=20"
+
+# 详情（含 req_headers / req_body / resp_body；界面抽屉打开时按 id 拉取）
+curl "http://localhost:8080/api/admin/monitor/call-logs/<id>"
 ```
 
-支持按 traceId / 接口 / 方向 / 应用 / HTTP 状态（精确或 2xx-4xx-5xx 分组）/ 时间范围 / 关键字过滤。日志明细中敏感字段已脱敏（无明文密钥）。
+- 过滤：traceId / 接口 / 方向 / 应用 / HTTP 状态（精确 `statusCode` 优先，或 `statusGroup=2xx|4xx|5xx` 分组）/ 时间范围 / 关键字；
+- **列表响应不含 `req_headers` / `req_body` / `resp_body`**，报文正文一律走详情端点；
+- `keyword` 走 `url LIKE`（无法走索引），服务端**强制时间窗 ≤7 天**：未传按近 24h，跨度超出按近 7 天截断（保留结束时间）；
+- 日志明细中敏感字段已脱敏（无明文密钥）。
 
 **界面明细（v0.3）**：调用日志行「明细」→ 抽屉内请求体 / 响应体**默认缩进美化**（JSON / XML 自动识别，2 空格缩进），工具栏可切换「原文」逐字节核对、一键复制；报文超 4096 字符落库已截断时会标「已截断」，仍按缩进展示；表单编码 / 二进制等非 JSON·XML 报文原样展示。状态机 Tab 的入站 / 出站 / 响应报文与仪表盘「最近调用日志」抽屉同能力。
 
@@ -608,17 +622,25 @@ curl -X POST http://localhost:8080/<回调平台路径> \
 |---|---|
 | 应用列表 / 详情 | `GET /api/admin/apps` · `GET /api/admin/apps/{appId}` |
 | 应用启停 | `POST /api/admin/apps/{appId}/enable` · `.../disable` · `.../cancel` |
+| 应用删除 | `DELETE /api/admin/apps/{appId}` |
 | 凭证遮显列表 | `GET /api/admin/apps/{appId}/credentials` |
 | 分组列表 / 创建 | `GET /api/admin/groups` · `POST /api/admin/groups` |
+| 分组更新 / 删除 | `PUT /api/admin/groups/{id}` · `DELETE /api/admin/groups/{id}` |
 | 接口列表 / 详情 | `GET /api/admin/interfaces?appId=&ifType=&status=&keyword=` · `GET /api/admin/interfaces/{id}` |
 | 接口创建 / 更新 | `POST /api/admin/interfaces` · `PUT /api/admin/interfaces/{id}`（`X-Change-Note`） |
 | 接口发布 / 下线 | `POST /api/admin/interfaces/{id}/publish` · `.../offline` |
+| 接口删除 | `DELETE /api/admin/interfaces/{id}` |
 | 接口测试 | `POST /api/admin/interfaces/{id}/test` |
 | 模拟回调 | `POST /api/admin/interfaces/{id}/test-callback` |
 | 版本列表 / 详情 | `GET /api/admin/interfaces/{id}/versions` · `.../versions/{version}` |
 | 回滚 / 复制 | `POST /api/admin/interfaces/{id}/rollback` · `.../copy` |
 | 适配器 | `GET /api/admin/adapters` · `GET /api/admin/adapters/impls` |
 | 导入种子 | `POST /api/admin/seed/import` |
+| 监控统计 | `GET /api/admin/monitor/overview` · `.../stats/trend` · `.../stats/top-interfaces` |
+| 调用日志 | `GET /api/admin/monitor/call-logs` · `GET /api/admin/monitor/call-logs/{id}` |
+| 出站状态链 / 对账 | `GET /api/admin/monitor/outbound-requests` · `.../{id}` · `.../{id}/audits` · `POST .../{id}/reconcile` |
+| 死信 / 重放 | `GET /api/admin/monitor/dead-letters` · `POST /api/admin/monitor/dead-letters/{id}/replay` |
+| 告警 / 规则 | `GET /api/admin/monitor/alerts` · `GET/POST /api/admin/monitor/alert-rules` · `PUT/DELETE .../alert-rules/{id}` |
 
 ---
 
@@ -627,29 +649,39 @@ curl -X POST http://localhost:8080/<回调平台路径> \
 ### 10.1 运行测试
 
 ```bash
-mvn test            # 全库 180 个 @Test（集成测试连开发库）
+mvn test            # 全库 192 个 @Test（集成测试连开发库）
 mvn clean test      # 结构变更后务必 clean（旧 class 残留会被 Spring 扫描）
 ```
 
 > ⚠️ 集成测试与手动验收共用 WireMock 端口 18080，两者不要同时运行。
 
-### 10.2 前端构建
+### 10.2 前端构建与测试
 
 ```bash
 cd frontend
 npm run dev         # 开发 :5173
 npm run build       # 产物 → src/main/resources/static/（后端 serve）
+npm test            # 单测 48 例 + 组件 SSR 冒烟 13 例（Node 内置 test runner，无需联网）
+npm run lint        # ESLint（flat config，--max-warnings 0）
 ```
+
+> 改动报文美化 / 组件绑定逻辑后**必须**跑 `npm test`：`<script setup>` 里的 computed / watcher 在 JS 中需手动 `.value`，漏写会让界面恒显占位符，靠 SSR 冒烟用例兜住。
 
 ### 10.3 数据重置
 
-`src/main/resources/doc/reset-dev.sql` 提供开发库一键重置（运行数据 8 张 / 配置数据 11 张，`adapter` 表默认保留）：
+`src/main/resources/doc/reset-dev.sql` 提供开发库一键重置，脚本分两段：
+
+- **「一、运行数据」7 张**（`outbound_request` / `inbound_delivery` / `dead_letter` / `call_log` / `reconcile_audit` / `alert_event` / `outbound_request_state_log`）——日常每轮测试只想清调用痕迹时，**手动执行这一段**；
+- **「二、配置数据」11 张**（应用 / 分组 / 接口及其子表 / 凭证 / 快照 / 告警规则）——重头再来才执行；`adapter` 表**保留不重置**。
 
 ```bash
+# 整文件执行 = 两段都清（重头开始，自增 ID 归 1）
 mysql -h <host> -u <user> -p apicenter < src/main/resources/doc/reset-dev.sql
 ```
 
-重置后重启后端（空库启动不再自动导入）；需要基线时 `POST /api/admin/seed/import`。
+重置后重启后端（空库启动不再自动导入）；需要基线时 `POST /api/admin/seed/import`（幂等，重建应用 / 凭证 / 接口）。
+
+> 不想重置自增 ID 时，用脚本「附录 A」的 `DELETE FROM` 等价格式替换 `TRUNCATE`。
 
 > ⚠️ 仅限开发 / 测试库；执行前确认 `SELECT DATABASE()` 返回 `apicenter`，并停掉后端与 WireMock。
 
@@ -693,8 +725,8 @@ mysql -h <host> -u <user> -p apicenter < src/main/resources/doc/reset-dev.sql
 **Q10：入站回调返回 ack 成功，但送达状态是 PENDING？**
 正常。ack 与送达解耦：收到即回 ack，送达失败由补偿 worker 按 `callback_url_snapshot` 重送。确认回调地址可达（本地需 `callback-allow-private: true`）。
 
-**Q11：回调验签失败 `40100`？**
-检查 `X-Timestamp` 与 `X-Partner-Signature` 是否正确、CALLBACK 凭证是否配置为 ACTIVE、时间戳是否在容差内（默认 300s）。
+**Q11：回调验签失败 `40100` / `40101`？**
+`40100` = 缺 `X-Timestamp` / 缺 `X-Partner-Signature` 头、时间戳非法、签名不匹配、或防重放命中；`40101` = 时间戳超出容差（默认 300s，调 `timestampToleranceSeconds`）。逐一排查：① 签名串是否为 `timestamp + "." + body`（**漏英文句点是最常见原因**，见 §5.2）；② CALLBACK 凭证是否为 ACTIVE；③ 发请求机器与平台时钟是否偏差过大。
 
 **Q12：本地回调地址被拒绝？**
 运行参数 `app.api-center.callback-allow-private` 需为 `true`（开发 / 测试指向本地 WireMock）；生产必须 `false`。
