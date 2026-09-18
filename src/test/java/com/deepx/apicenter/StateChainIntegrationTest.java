@@ -5,6 +5,7 @@ import com.deepx.apicenter.dto.GroupDtos.GroupRequest;
 import com.deepx.apicenter.dto.InterfaceDtos.InterfaceRequest;
 import com.deepx.apicenter.engine.OutboundEngine;
 import com.deepx.apicenter.exception.BizException;
+import com.deepx.apicenter.model.OutboundRequestRow;
 import com.deepx.apicenter.model.OutboundRequestStateLogRow;
 import com.deepx.apicenter.repository.AppRepository;
 import com.deepx.apicenter.repository.InterfaceRepository;
@@ -13,6 +14,7 @@ import com.deepx.apicenter.service.AppService;
 import com.deepx.apicenter.service.GroupService;
 import com.deepx.apicenter.service.InterfaceService;
 import com.deepx.apicenter.service.MonitorService;
+import com.deepx.apicenter.worker.CompensationWorker;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -30,7 +32,9 @@ import java.util.List;
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
+import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.stubFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.options;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -66,6 +70,7 @@ class StateChainIntegrationTest {
     @Autowired private OutboundRequestRepository outboundRequestRepository;
     @Autowired private MonitorService monitorService;
     @Autowired private OutboundEngine outboundEngine;
+    @Autowired private CompensationWorker compensationWorker;
     @Autowired private JdbcTemplate jdbcTemplate;
 
     private long groupId;
@@ -259,6 +264,58 @@ class StateChainIntegrationTest {
     }
 
     // ---------- helpers ----------
+
+    /**
+     * 回归固化（2026-09-18）：**宿主 `max_retries=0` 时，5xx 进 COMPENSATING 后首次扫描即判「补偿耗尽」——零补偿尝试**。
+     *
+     * <p>口径推导：`createRecord` 写 `attempt_count=1`、`max_attempts = maxRetries + 1 = 1`；
+     * `scanOutbound` 判 `attemptCount >= maxAttempts`（`1 >= 1` 成立）→ 直接 `DEAD_LETTER`
+     * （`trigger=EXHAUSTED`），**根本不会调用 `replay()`**。本用例用 WireMock 请求计数把这个结论钉死：
+     * scan 后上游零新请求。
+     *
+     * <p>⚠ 与前置接口编排的关系：该语义使「A 转 COMPENSATING 顺延」在 `max_retries=0` 宿主上退化为立即死信，
+     * 故《前置接口编排设计方案》D-PS-11 已拍板「**前置宿主强制补偿预算 ≥1**」（落地时点 = 其 PS-4）。
+     * 届时此断言需同步调整为「有 1 次补偿尝试」（本用例即是那个基线锚点）。
+     */
+    @Test
+    void maxRetries0宿主_5xx进补偿后首次扫描即耗尽死信_零补偿尝试() {
+        createIface("IF-SCT-EXH", "/sct/exh", "/up-exh", 0); // max_retries=0 → max_attempts=1
+        stubFor(post("/up-exh").willReturn(aResponse().withStatus(500).withBody("boom")));
+
+        try {
+            outboundEngine.dispatch("/sct/exh", "POST",
+                    "{\"a\":1}".getBytes(StandardCharsets.UTF_8), "biz-exh", "trace-exh");
+        } catch (BizException e) {
+            assertThat(e.getCode()).isEqualTo(50201);
+        }
+
+        // 首送 1 次上游调用 → COMPENSATING（attempt_count=1 / max_attempts=1）
+        OutboundRequestRow row = outboundRequestRepository.findByBizId(TEST_APP, "biz-exh").get(0);
+        assertThat(row.status()).isEqualTo("COMPENSATING");
+        assertThat(row.attemptCount()).isEqualTo(1);
+        assertThat(row.maxAttempts()).isEqualTo(1);
+        wireMock.verify(1, postRequestedFor(urlEqualTo("/up-exh")));
+
+        // 上游恢复 200：若给了补偿预算，scan 应当重放成功；max_retries=0 则连试都不试
+        wireMock.resetAll(); // 清 stub + 请求计数（下一步用 0 计数证明「零补偿尝试」）
+        stubFor(post("/up-exh").willReturn(okJson("{\"data\":{},\"code\":\"0\"}")));
+        // 5xx 分类器把 next_retry_at 置为 now+3s → 手动置到期（不等 3s；与本类其它用例同款手法）
+        jdbcTemplate.update("UPDATE outbound_request SET next_retry_at = NOW() WHERE id = ?", row.id());
+        compensationWorker.scan();
+
+        OutboundRequestRow after = outboundRequestRepository.findById(row.id()).orElseThrow();
+        assertThat(after.status()).isEqualTo("DEAD_LETTER");
+        List<OutboundRequestStateLogRow> chain = outboundRequestRepository.stateChain(row.id());
+        assertThat(chain).extracting(OutboundRequestStateLogRow::toStatus)
+                .containsExactly("INIT", "MAPPING", "COMPENSATING", "DEAD_LETTER");
+        OutboundRequestStateLogRow last = chain.get(3);
+        assertThat(last.fromStatus()).isEqualTo("COMPENSATING");
+        assertThat(last.trigger()).isEqualTo("EXHAUSTED");
+        assertThat(last.attempt()).isEqualTo(1);
+        assertThat(last.detail()).contains("补偿重试耗尽（attempt 1/1）");
+        // ★ 核心断言：scan 之后上游**零新请求** —— 证明「零补偿尝试」而非「试了但失败」
+        wireMock.verify(0, postRequestedFor(urlEqualTo("/up-exh")));
+    }
 
     private long idOf(String bizId) {
         return outboundRequestRepository.findByBizId(TEST_APP, bizId).get(0).id();

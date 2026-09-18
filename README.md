@@ -25,7 +25,7 @@ API 三方接口统一调用平台组件 —— 只做 **连接 + 适配 + 可�
 - **M4 完成（编码与自动化测试）**：熔断器三态（闸门前置，OPEN 短路转补偿顺延不计数）+ UNKNOWN 人工对账与 TTL 自动降级（reconcile_audit 审计）+ 死信查看与重放 + QPS 限流 / 日配额 / IP 黑白名单 + call_log 双向落库（脱敏 + traceId 三方贯穿）+ Micrometer 指标 / OTel span / 告警规则；schema 增至 18 张表（reconcile_audit / alert_event）。
 - **M5 完成（版本快照 / 回滚与适配器绑定切换，自动化测试通过）**：接口版本快照与回滚（config_json 序列化 / 版本历史端点 / 回滚复用全量替换 + 乐观锁，版本号每次变更/回滚 +0.1（只增不回退）、status 不变）；适配器 **D6'（2026-09-08 定稿：adapter.name 全表唯一；同 (impl, version) 允许多启用；绑定即实例，binding.version 仅记录不再路由）+ 解析时机上移烘焙缓存链 + `ConfigChangedEvent` 事件失效 + test 端点 chainTrace**；管理面版本历史弹窗 / 变更说明。压测调优（M5.3）与压测报告待执行（脚本已随仓库 `src/test/resources/m5-load/`）。
 - **M5 后状态链完成（观测增强，2026-09-08）**：`outbound_request_state_log` 事件溯源（INIT/MAPPING/终态 + trigger/detail，SENDING/RETRYING 不落库）；主路径请求级批量落链（低延迟）；Monitor 详情抽屉状态链时间线。
-- **测试**：全库归属 **205 个 @Test**（2026-09-18 基准；含 D-PS-0 接口级读超时：单测 8 例 `PerRequestReadTimeoutFactoryTest` + 集成 3 例 `M2IntegrationTest` 读超时组；接口级数值值域校验集成 2 例 `M1IntegrationTest`），`mvn test` 全绿。
+- **测试**：全库归属 **206 个 @Test**（2026-09-18 基准；含 D-PS-0 接口级读超时：单测 8 例 `PerRequestReadTimeoutFactoryTest` + 集成 3 例 `M2IntegrationTest` 读超时组；接口级数值值域校验集成 2 例 `M1IntegrationTest`；补偿预算语义固化 1 例 `StateChainIntegrationTest`），`mvn test` 全绿。
 - **下一步**：M4 手动验收（方案已备）→ M5.3 压测执行与 M5 手动验收 → 联调验收；多鉴权并行线继续。
 
 ## 文档导航
