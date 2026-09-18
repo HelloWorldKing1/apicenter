@@ -80,7 +80,8 @@ public class CompensationWorker {
                     insertDeadLetterOnce("OUTBOUND", row.id(),
                             "补偿重试耗尽（attempt " + row.attemptCount() + "/" + row.maxAttempts() + "）",
                             row.inPayload());
-                    log.warn("outbound_request {} 补偿耗尽 → 死信", row.id());
+                    log.warn("outbound_request {} 补偿耗尽 → 死信（attempt {}/{}，接口 {}，biz_id {}）",
+                            row.id(), row.attemptCount(), row.maxAttempts(), row.interfaceId(), row.bizId());
                     continue;
                 }
                 outboundEngine.replay(row);

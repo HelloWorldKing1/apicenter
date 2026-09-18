@@ -115,7 +115,13 @@ public class InboundDeliveryRepository {
 
     /** 测试 / 运维清理：按应用删除运行数据（含其死信） */
     public int deleteByApp(String appId) {
-        jdbc.update("DELETE FROM dead_letter WHERE ref_id IN (SELECT id FROM inbound_delivery WHERE app_id = ?)", appId);
+        // biz_type 过滤不可省（2026-09-18）：dead_letter.ref_id 多态（INBOUND→inbound_delivery.id，
+        // OUTBOUND→outbound_request.id），两表 id 空间重叠——不筛类型会误删同 id 的出站死信
+        jdbc.update("""
+                DELETE FROM dead_letter
+                WHERE biz_type = 'INBOUND'
+                  AND ref_id IN (SELECT id FROM inbound_delivery WHERE app_id = ?)
+                """, appId);
         return jdbc.update("DELETE FROM inbound_delivery WHERE app_id = ?", appId);
     }
 }

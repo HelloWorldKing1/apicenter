@@ -49,6 +49,17 @@ public class InterfaceService {
     private static final Set<String> PARAM_OPS = Set.of("typeCast", "enumMap", "condition", "aggregate");
     private static final Set<String> ROLES = Set.of("MESSAGE", "AUTH", "CALLBACK_AUTH");
 
+    // ---------- 接口级数值配置值域（2026-09-18 补：原实现无值域校验，负数 / 超大值可入库） ----------
+
+    /** 读超时下限（ms）：低于 100ms 对真实网络无意义（本地 WireMock 也可能误伤） */
+    private static final int MIN_TIMEOUT_MS = 100;
+    /** 读超时上限（ms）：60s 已覆盖慢第三方接口；更大的值会把单请求（含 11 次尝试）拉长到分钟级，拖死补偿 worker 单轮 */
+    private static final int MAX_TIMEOUT_MS = 60_000;
+    private static final int MIN_MAX_RETRIES = 0;
+    /** 短重试上限：须 **小于** {@code UpstreamInvoker.RETRY_CAP}（注解层 16）——
+     *  超出部分会被注解层静默截断，配置与实际不符 */
+    private static final int MAX_MAX_RETRIES = 10;
+
     private final com.deepx.apicenter.engine.CircuitBreakerRegistry circuitBreakerRegistry;
     private final InterfaceRepository interfaceRepository;
     private final AppRepository appRepository;
@@ -368,6 +379,17 @@ public class InterfaceService {
         String pout = req.protocolOut() == null || req.protocolOut().isBlank() ? "JSON" : req.protocolOut();
         if (!PROTOCOLS.contains(pin) || !PROTOCOLS.contains(pout)) {
             throw BizException.fieldInvalid("协议仅支持 JSON / XML");
+        }
+        // ---- 接口级数值配置值域（空 = 落库默认值：timeout 3000 / maxRetries 4；D-PS-0 相邻缺口） ----
+        if (req.timeoutMs() != null
+                && (req.timeoutMs() < MIN_TIMEOUT_MS || req.timeoutMs() > MAX_TIMEOUT_MS)) {
+            throw BizException.fieldInvalid("读超时须在 " + MIN_TIMEOUT_MS + "~" + MAX_TIMEOUT_MS
+                    + "ms 之间，当前：" + req.timeoutMs());
+        }
+        if (req.maxRetries() != null
+                && (req.maxRetries() < MIN_MAX_RETRIES || req.maxRetries() > MAX_MAX_RETRIES)) {
+            throw BizException.fieldInvalid("最大重试次数须在 " + MIN_MAX_RETRIES + "~" + MAX_MAX_RETRIES
+                    + " 之间，当前：" + req.maxRetries());
         }
         // ---- 类型互斥（OUTBOUND vs INBOUND） ----
         List<FieldDefDto> fieldDefs = req.fieldDefs() == null ? List.of() : req.fieldDefs();

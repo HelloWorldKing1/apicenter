@@ -37,7 +37,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "app.api-center.alert-worker-fixed-delay-ms=3600000",
-        "app.api-center.retry-worker-fixed-delay-ms=3600000"
+        "app.api-center.retry-worker-fixed-delay-ms=3600000",
+        // 首跑延迟置大（2026-09-18 隔离修复）：initial-delay 默认 0 = 上下文启动即跑一轮全局扫描，
+        // 会与其他测试类的用例、以及库中历史残留行竞态（scan() 不按应用过滤）
+        "app.api-center.retry-worker-initial-delay-ms=3600000",
+        "app.api-center.alert-worker-initial-delay-ms=3600000"
 })
 class MonitorStatsIntegrationTest {
 

@@ -286,6 +286,79 @@ class M2IntegrationTest {
         assertThat(row.errorCode()).isEqualTo("50401");
     }
 
+    // ---------- D-PS-0：接口级读超时（per-request）端到端生效 ----------
+
+    /**
+     * 判别用例：上游延迟 1500ms 恰落在「接口级超时 500ms」与「修复前的全局兜底 3000ms」之间——
+     * <ul>
+     *   <li>修复后：500ms 读超时 → ResourceAccessException → UNKNOWN(50401)；</li>
+     *   <li>修复前：全局 3000ms 吃掉配置 → 上游 1500ms 正常返回 → SUCCESS。</li>
+     * </ul>
+     * 故「状态 + errorCode」本身就是修复的判别信号，无需墙钟断言
+     * （超时「在正确时刻中断」由 PerRequestReadTimeoutFactoryTest 无 DB 精确断言）。
+     */
+    @Test
+    void 接口级读超时_小超时快于上游响应_转UNKNOWN() {
+        stubFor(post("/shop/v1/tmo-fast")
+                .willReturn(okJson(GOLDEN_RESPONSE).withFixedDelay(1500)));
+        long groupId = groupService.list(TEST_APP).get(0).id();
+        long ifaceId = interfaceService.create(
+                timedInterface(groupId, 500, "M2-TMO-STRICT", "/test/m2/tmo-strict", "/shop/v1/tmo-fast"));
+        interfaceService.publish(ifaceId);
+
+        assertThatThrownBy(() -> outboundEngine.dispatch("/test/m2/tmo-strict", "POST",
+                GOLDEN_REQUEST.getBytes(StandardCharsets.UTF_8), "biz-tmo-strict", "trace-tmo-strict"))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("UNKNOWN");
+        OutboundRequestRow row = outboundRequestRepository.findByBizId(TEST_APP, "biz-tmo-strict").get(0);
+        assertThat(row.status()).isEqualTo("UNKNOWN");
+        assertThat(row.errorCode()).isEqualTo("50401");
+    }
+
+    /**
+     * 计时用例（与上例互补，均不用临界墙钟）：上游延迟 8000ms 远大于全局兜底 3000ms——
+     * 只要读超时生效，就绝不可能等满上游（余量 >4s，不会因远程 DB 往返或机器负载抖动）。
+     * 注：本例只守「超时完全未生效」；守「全局 3000ms 吃掉配置」的是上例的状态判别。
+     */
+    @Test
+    void 接口级读超时_远慢于全局兜底_不等待上游() {
+        int upstreamDelayMs = 8000;
+        stubFor(post("/shop/v1/tmo-slow")
+                .willReturn(okJson(GOLDEN_RESPONSE).withFixedDelay(upstreamDelayMs)));
+        long groupId = groupService.list(TEST_APP).get(0).id();
+        long ifaceId = interfaceService.create(
+                timedInterface(groupId, 500, "M2-TMO-SLOW", "/test/m2/tmo-slow", "/shop/v1/tmo-slow"));
+        interfaceService.publish(ifaceId);
+
+        long start = System.currentTimeMillis();
+        assertThatThrownBy(() -> outboundEngine.dispatch("/test/m2/tmo-slow", "POST",
+                GOLDEN_REQUEST.getBytes(StandardCharsets.UTF_8), "biz-tmo-slow", "trace-tmo-slow"))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("UNKNOWN");
+        assertThat(System.currentTimeMillis() - start)
+                .as("读超时 500ms 生效 → 不应等满上游 8000ms")
+                .isLessThan(upstreamDelayMs);
+        assertThat(outboundRequestRepository.findByBizId(TEST_APP, "biz-tmo-slow").get(0).status())
+                .isEqualTo("UNKNOWN");
+    }
+
+    /** 反向用例：接口级超时 5000ms > 上游 1500ms → 成功（防「一律超时」的假绿） */
+    @Test
+    void 接口级读超时_大超时_上游正常响应成功() {
+        stubFor(post("/shop/v1/tmo-loose")
+                .willReturn(okJson(GOLDEN_RESPONSE).withFixedDelay(1500)));
+        long groupId = groupService.list(TEST_APP).get(0).id();
+        long ifaceId = interfaceService.create(
+                timedInterface(groupId, 5000, "M2-TMO-LOOSE", "/test/m2/tmo-loose", "/shop/v1/tmo-loose"));
+        interfaceService.publish(ifaceId);
+
+        ApiResult<?> ok = outboundEngine.dispatch("/test/m2/tmo-loose", "POST",
+                GOLDEN_REQUEST.getBytes(StandardCharsets.UTF_8), "biz-tmo-loose", "trace-tmo-loose");
+        assertThat(ok.code()).isZero();
+        assertThat(outboundRequestRepository.findByBizId(TEST_APP, "biz-tmo-loose").get(0).status())
+                .isEqualTo("SUCCESS");
+    }
+
     // ---------- 接口绑定为空 → 继承应用默认出站鉴权（绑定解析契约回归） ----------
 
     @Test
@@ -360,6 +433,33 @@ class M2IntegrationTest {
                 List.of(
                         new BindingDto("AUTH", inheritAuth ? null : "ADP-101", null),
                         new BindingDto("MESSAGE", "ADP-201", null)));
+    }
+
+    /**
+     * D-PS-0 用例辅助：可指定读超时（timeout_ms）的无重试变体
+     * （maxRetries=0 → 1 次尝试，用例快且不把「重试 × 超时」混进来）。
+     */
+    private InterfaceRequest timedInterface(long groupId, int timeoutMs, String code, String path) {
+        InterfaceRequest base = goldenInterface(groupId, 0);
+        return new InterfaceRequest(code, "M2 读超时用例", "OUTBOUND", "POST", path,
+                "JSON", "JSON", TEST_APP, groupId,
+                "/shop/v1/creatorList", null, null, timeoutMs, 0,
+                "D-PS-0 接口级 per-request 读超时", 1,
+                base.params(), base.bodies(), base.mappings(), base.fieldDefs(), base.bindings());
+    }
+
+    /**
+     * D-PS-0 用例辅助：可指定读超时（timeout_ms）与上游路径的无重试变体
+     * （maxRetries=0 → 1 次尝试，用例快且不把「重试 × 超时」混进来）。
+     */
+    private InterfaceRequest timedInterface(long groupId, int timeoutMs, String code, String path,
+                                           String upstreamPath) {
+        InterfaceRequest base = goldenInterface(groupId, 0);
+        return new InterfaceRequest(code, "M2 读超时用例", "OUTBOUND", "POST", path,
+                "JSON", "JSON", TEST_APP, groupId,
+                upstreamPath, null, null, timeoutMs, 0,
+                "D-PS-0 接口级 per-request 读超时", 1,
+                base.params(), base.bodies(), base.mappings(), base.fieldDefs(), base.bindings());
     }
 
     /** G5：带字段映射（rename page → page_no）的接口，用于断言 out_payload 为「映射后」报文 */

@@ -46,7 +46,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 @SpringBootTest(properties = {
         "app.api-center.retry-worker-fixed-delay-ms=3600000",
-        "app.api-center.alert-worker-fixed-delay-ms=3600000"
+        "app.api-center.alert-worker-fixed-delay-ms=3600000",
+        // 首跑延迟置大（2026-09-18 隔离修复）：initial-delay 默认 0 = 上下文启动即跑一轮全局扫描，
+        // 会与其他测试类的用例、以及库中历史残留行竞态（scan() 不按应用过滤）
+        "app.api-center.retry-worker-initial-delay-ms=3600000",
+        "app.api-center.alert-worker-initial-delay-ms=3600000"
 })
 class M1IntegrationTest {
 
@@ -455,6 +459,67 @@ class M1IntegrationTest {
                 List.of(new FieldDefDto("ACK", "code", "string", null, 1)), List.of())))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("完整 URL");
+    }
+
+    // ---------- 接口级数值配置值域（timeout_ms / max_retries） ----------
+
+    /**
+     * 值域校验（2026-09-18 补）：修复前负数 / 超大值可直接入库——
+     * 负数 max_retries 使 {@code max_attempts = maxRetries + 1 <= 0}（首送即判补偿耗尽→死信）；
+     * 超大 timeout 会把单请求（含多次尝试）拉长到分钟级并拖死补偿 worker 单轮。
+     */
+    @Test
+    void 接口级超时与重试次数值域校验_越界拒绝() {
+        setupTestApp();
+        long groupId = createTestGroup();
+        InterfaceRequest base = baseOutboundReq(groupId);
+
+        // 读超时：< 100 / > 60000 拒绝
+        for (int bad : new int[]{99, 60_001, 0, -1}) {
+            assertThatThrownBy(() -> interfaceService.create(withNums(base, bad, 4, "TMO" + bad, "tmo" + bad)))
+                    .as("timeoutMs=%s 应拒绝", bad)
+                    .isInstanceOf(BizException.class)
+                    .hasMessageContaining("读超时须在 100~60000ms");
+        }
+        // 最大重试：< 0 / > 10 拒绝
+        for (int bad : new int[]{-1, 11, 16}) {
+            assertThatThrownBy(() -> interfaceService.create(withNums(base, 3000, bad, "MR" + bad, "mr" + bad)))
+                    .as("maxRetries=%s 应拒绝", bad)
+                    .isInstanceOf(BizException.class)
+                    .hasMessageContaining("最大重试次数须在 0~10");
+        }
+    }
+
+    /** 边界值必须放行（防「一刀切拦死」）：100/60000 与 0/10，且落库后回读一致 */
+    @Test
+    void 接口级超时与重试次数值域校验_边界放行且回读一致() {
+        setupTestApp();
+        long groupId = createTestGroup();
+
+        long lower = interfaceService.create(withNums(baseOutboundReq(groupId), 100, 0, "BNDL", "bnd-l"));
+        InterfaceResponse low = interfaceService.detail(lower);
+        assertThat(low.timeoutMs()).isEqualTo(100);
+        assertThat(low.maxRetries()).isZero();
+
+        long upper = interfaceService.create(withNums(baseOutboundReq(groupId), 60_000, 10, "BNDU", "bnd-u"));
+        InterfaceResponse up = interfaceService.detail(upper);
+        assertThat(up.timeoutMs()).isEqualTo(60_000);
+        assertThat(up.maxRetries()).isEqualTo(10);
+
+        // 缺省（null）走落库默认值（3000 / 4），不受校验影响
+        long dft = interfaceService.create(withNums(baseOutboundReq(groupId), null, null, "BNDD", "bnd-d"));
+        InterfaceResponse def = interfaceService.detail(dft);
+        assertThat(def.timeoutMs()).isEqualTo(3000);
+        assertThat(def.maxRetries()).isEqualTo(4);
+    }
+
+    /** 基于 baseOutboundReq 替换 code/path 与数值配置（null = 用落库默认值） */
+    private InterfaceRequest withNums(InterfaceRequest base, Integer timeoutMs, Integer maxRetries,
+                                     String codeSuffix, String pathSuffix) {
+        return new InterfaceRequest("IF-M1-" + codeSuffix, base.name(), base.ifType(), base.method(),
+                "/test/m1/" + pathSuffix, base.protocolIn(), base.protocolOut(), base.appId(), base.groupId(),
+                base.upstreamPath(), null, null, timeoutMs, maxRetries, null, 1,
+                base.params(), base.bodies(), base.mappings(), base.fieldDefs(), base.bindings());
     }
 
     // ---------- 乐观锁 ----------

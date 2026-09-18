@@ -267,11 +267,12 @@
             </div>
             <div class="adv-item">
               <span class="basic-label">读超时(ms)</span>
-              <el-input-number v-model="form.timeoutMs" :min="100" style="width: 100%" />
+              <el-input-number v-model="form.timeoutMs" :min="100" :max="60000" :step="100"
+                               style="width: 100%" />
             </div>
             <div class="adv-item">
               <span class="basic-label">最大重试</span>
-              <el-input-number v-model="form.maxRetries" :min="0" style="width: 100%" />
+              <el-input-number v-model="form.maxRetries" :min="0" :max="10" style="width: 100%" />
             </div>
             <div class="adv-item">
               <span class="basic-label">报文适配器</span>

@@ -88,7 +88,13 @@ public class OutboundRequestRepository {
                 DELETE FROM outbound_request_state_log
                 WHERE outbound_request_id IN (SELECT id FROM outbound_request WHERE app_id = ?)
                 """, appId);
-        jdbc.update("DELETE FROM dead_letter WHERE ref_id IN (SELECT id FROM outbound_request WHERE app_id = ?)", appId);
+        // biz_type 过滤不可省（2026-09-18）：dead_letter.ref_id 是多态引用（OUTBOUND→outbound_request.id，
+        // INBOUND→inbound_delivery.id），两表 id 空间重叠——不筛类型会误删同 id 的入站死信
+        jdbc.update("""
+                DELETE FROM dead_letter
+                WHERE biz_type = 'OUTBOUND'
+                  AND ref_id IN (SELECT id FROM outbound_request WHERE app_id = ?)
+                """, appId);
         return jdbc.update("DELETE FROM outbound_request WHERE app_id = ?", appId);
     }
 

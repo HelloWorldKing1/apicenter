@@ -1,6 +1,7 @@
 package com.deepx.apicenter.engine;
 
 import com.deepx.apicenter.client.OutboundRequestSpec;
+import com.deepx.apicenter.config.PerRequestReadTimeoutFactory;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.resilience.annotation.Retryable;
@@ -12,6 +13,7 @@ import org.springframework.web.client.RestClient;
 
 import java.lang.reflect.Method;
 import java.net.URI;
+import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -30,6 +32,10 @@ import java.util.concurrent.TimeUnit;
  * 因此改用 @Retryable 的 predicate 扩展点（每次尝试后都会回调，与 includes 取 AND）承担真实预算：
  * 注解 maxRetries 固定为上限常量，predicate 按本次调用引擎设置的接口级预算判定是否继续。
  * 引擎须以 beginRetryBudget / endRetryBudget 包裹顶层调用（重置失败计数，防线程池复用串账）。
+ *
+ * <p>读超时（D-PS-0 修复，2026-09-13）：每次 dispatch 以 {@code interface.timeout_ms}
+ * 声明 {@code PerRequestReadTimeoutFactory} 作用域（@Retryable 的每次尝试都会重新进入 dispatch，
+ * 故重试同样受该接口超时约束）；未声明时回退全局兜底值。
  */
 @Component
 public class UpstreamInvoker {
@@ -45,8 +51,12 @@ public class UpstreamInvoker {
 
     private final RestClient restClient;
 
-    public UpstreamInvoker(RestClient restClient) {
+    /** 按请求读超时工厂（D-PS-0）：dispatch 内以作用域声明 interface.timeout_ms（含短重试的每次尝试） */
+    private final PerRequestReadTimeoutFactory readTimeoutFactory;
+
+    public UpstreamInvoker(RestClient restClient, PerRequestReadTimeoutFactory readTimeoutFactory) {
         this.restClient = restClient;
+        this.readTimeoutFactory = readTimeoutFactory;
     }
 
     /** 引擎在每次顶层调用前设置接口级重试预算（同时清零失败计数，防线程池复用残留） */
@@ -104,19 +114,25 @@ public class UpstreamInvoker {
         String method = spec.method() == null ? "POST" : spec.method().toUpperCase();
         java.util.function.Consumer<org.springframework.http.HttpHeaders> headerSetter =
                 h -> spec.headers().forEach(h::addAll);
-        // GET / DELETE 不带 body（RestClient 对 GET 带 body 的兼容性保守处理）
-        if ("GET".equals(method) || "DELETE".equals(method)) {
+        // D-PS-0（2026-09-13）：接口级读超时按请求生效——作用域覆盖本次 dispatch 的全部短重试
+        // （@Retryable 每次尝试都会重新进入本方法），try-with-resources 退出即还原外层作用域。
+        // 未声明 spec 超时（或配置非法）→ 工厂兜底 default-read-timeout-ms。
+        try (PerRequestReadTimeoutFactory.Scope ignored =
+                     readTimeoutFactory.withReadTimeout(Duration.ofMillis(spec.readTimeoutMs()))) {
+            // GET / DELETE 不带 body（RestClient 对 GET 带 body 的兼容性保守处理）
+            if ("GET".equals(method) || "DELETE".equals(method)) {
+                return restClient.method(HttpMethod.valueOf(method))
+                        .uri(URI.create(spec.url()))
+                        .headers(headerSetter)
+                        .retrieve()
+                        .toEntity(byte[].class);
+            }
             return restClient.method(HttpMethod.valueOf(method))
                     .uri(URI.create(spec.url()))
                     .headers(headerSetter)
+                    .body(spec.body())
                     .retrieve()
                     .toEntity(byte[].class);
         }
-        return restClient.method(HttpMethod.valueOf(method))
-                .uri(URI.create(spec.url()))
-                .headers(headerSetter)
-                .body(spec.body())
-                .retrieve()
-                .toEntity(byte[].class);
     }
 }

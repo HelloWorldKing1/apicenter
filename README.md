@@ -25,7 +25,7 @@ API 三方接口统一调用平台组件 —— 只做 **连接 + 适配 + 可�
 - **M4 完成（编码与自动化测试）**：熔断器三态（闸门前置，OPEN 短路转补偿顺延不计数）+ UNKNOWN 人工对账与 TTL 自动降级（reconcile_audit 审计）+ 死信查看与重放 + QPS 限流 / 日配额 / IP 黑白名单 + call_log 双向落库（脱敏 + traceId 三方贯穿）+ Micrometer 指标 / OTel span / 告警规则；schema 增至 18 张表（reconcile_audit / alert_event）。
 - **M5 完成（版本快照 / 回滚与适配器绑定切换，自动化测试通过）**：接口版本快照与回滚（config_json 序列化 / 版本历史端点 / 回滚复用全量替换 + 乐观锁，版本号每次变更/回滚 +0.1（只增不回退）、status 不变）；适配器 **D6'（2026-09-08 定稿：adapter.name 全表唯一；同 (impl, version) 允许多启用；绑定即实例，binding.version 仅记录不再路由）+ 解析时机上移烘焙缓存链 + `ConfigChangedEvent` 事件失效 + test 端点 chainTrace**；管理面版本历史弹窗 / 变更说明。压测调优（M5.3）与压测报告待执行（脚本已随仓库 `src/test/resources/m5-load/`）。
 - **M5 后状态链完成（观测增强，2026-09-08）**：`outbound_request_state_log` 事件溯源（INIT/MAPPING/终态 + trigger/detail，SENDING/RETRYING 不落库）；主路径请求级批量落链（低延迟）；Monitor 详情抽屉状态链时间线。
-- **测试**：全库归属 **180 个 @Test**（M1 22 / M2 23 / M3 62 / M4 57 / M5 10 + 状态链 6 = StateChainIntegrationTest）；2026-09-08 基准。
+- **测试**：全库归属 **205 个 @Test**（2026-09-18 基准；含 D-PS-0 接口级读超时：单测 8 例 `PerRequestReadTimeoutFactoryTest` + 集成 3 例 `M2IntegrationTest` 读超时组；接口级数值值域校验集成 2 例 `M1IntegrationTest`），`mvn test` 全绿。
 - **下一步**：M4 手动验收（方案已备）→ M5.3 压测执行与 M5 手动验收 → 联调验收；多鉴权并行线继续。
 
 ## 文档导航
@@ -46,6 +46,7 @@ API 三方接口统一调用平台组件 —— 只做 **连接 + 适配 + 可�
 | 里程碑计划 | [doc/开发文档/](src/main/resources/doc/开发文档/) | M3 / M4 / M5 开发计划（D-M3-1~4、D-M4-1~6、D-M5-1~3 即编码依据；M3/M4 已实施，M5 已定稿待开工） |
 | 手动验收方案 | [doc/开发文档/](src/main/resources/doc/开发文档/) | M2 / M3 / M4 手动验收测试方案（本地 WireMock stub 随仓库 `src/test/resources/`） |
 | 端到端演示方案 | [端到端闭环演示方案.md](src/main/resources/doc/开发文档/端到端闭环演示方案.md) | 从界面配置到真实供应商（evoLink）/ 真实 XML 闭环的完整演示脚本；每环节给原理 / 设计思路 / 实现方式 |
+| 前置接口编排（方案稿） | [前置接口编排设计方案.md](src/main/resources/doc/开发文档/前置接口编排设计方案.md) | 既有接口复用为前置（A → B → 第三方）：`interface_step` 配置子表 + 链内小改 + 前端「前置步骤」Tab；含失败传播 / 幂等 / 影响清单 / 待拍板 D-PS-1~9 |
 | 代码评审记录 | [doc/开发文档/](src/main/resources/doc/开发文档/) | M2 / M3 四路评审问题清单与修复进度 |
 | 踩坑记录 | [技术踩坑记录.md](src/main/resources/doc/开发文档/技术踩坑记录.md) | Spring 7 / Jackson 3 / WireMock 3 API 差异与经验（写代码前先查） |
 
