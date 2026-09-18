@@ -21,6 +21,9 @@ public class OutboundRequestSpec {
     private String appId;
     private String traceId;
 
+    /** 前置步骤名（编排）：仅 PreStepExecutor 填充，供 OUT 方向 call_log 的 step_code 列与「按步骤筛选」 */
+    private String stepCode;
+
     public String url() {
         return url;
     }
@@ -85,5 +88,13 @@ public class OutboundRequestSpec {
 
     public void traceId(String traceId) {
         this.traceId = traceId;
+    }
+
+    public String stepCode() {
+        return stepCode;
+    }
+
+    public void stepCode(String stepCode) {
+        this.stepCode = stepCode;
     }
 }

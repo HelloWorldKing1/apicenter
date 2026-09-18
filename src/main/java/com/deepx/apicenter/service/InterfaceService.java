@@ -425,6 +425,9 @@ public class InterfaceService {
         if (!IF_TYPES.contains(req.ifType())) {
             throw BizException.fieldInvalid("非法接口类型：" + req.ifType() + "（OUTBOUND / INBOUND）");
         }
+        if (isBlank(req.path()) || !req.path().startsWith("/")) {
+            throw BizException.fieldInvalid("平台侧路径必须以 / 开头（否则运行时路由不命中）：" + req.path());
+        }
         if (!METHODS.contains(req.method())) {
             throw BizException.fieldInvalid("非法 HTTP 方法：" + req.method());
         }
@@ -455,6 +458,11 @@ public class InterfaceService {
             // 上游路径应为相对路径（拼应用服务地址），拒绝绝对 URL 与路径穿越（中危 #7）
             if (req.upstreamPath().matches("^https?://.*") || req.upstreamPath().contains("..")) {
                 throw BizException.fieldInvalid("供应商接口路径应为相对路径（拼应用服务地址），不含协议与「..」");
+            }
+            // URI 合法性（2026-09-18 补，代码评审 P2）：含空白或 < > " { } | \ ^ ` 时
+            // URI.create 会在运行时抛 IllegalArgumentException → 请求 500（且熔断探针漏计数）
+            if (req.upstreamPath().matches(".*[\\s<>\"{}|\\\\^`].*")) {
+                throw BizException.fieldInvalid("供应商接口路径含非法字符（空白 / <>\"{}|\\^`）：" + req.upstreamPath());
             }
             if (!isBlank(req.callbackUrl())) {
                 throw BizException.fieldInvalid("出站接口不允许配置回调地址 callbackUrl");

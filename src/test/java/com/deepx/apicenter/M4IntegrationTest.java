@@ -382,6 +382,12 @@ class M4IntegrationTest {
         ResponseEntity<byte[]> resp = httpPost("/m4/reject", "{}".getBytes(StandardCharsets.UTF_8));
         assertThat(resp.getStatusCode().value()).isEqualTo(502);
         assertThat(body(resp)).contains("50201");
+        // 2026-09-18 回归：msg 里的「死信编号」必须是**真实 dead_letter.id**（原实现拿 outbound_request.id 冒充，
+        // 运维照它去 /monitor/dead-letters/{id}/replay 会打错记录）
+        java.util.regex.Matcher numMatcher =
+                java.util.regex.Pattern.compile("死信编号 (\\d+)").matcher(body(resp));
+        assertThat(numMatcher.find()).as("响应应带死信编号").isTrue();
+        assertThat(deadLetterRepository.findById(Long.parseLong(numMatcher.group(1)))).isPresent();
 
         OutboundRequestRow dead = latestOutbound(rejectIfaceId);
         assertThat(dead.status()).isEqualTo("DEAD_LETTER");
@@ -594,7 +600,7 @@ class M4IntegrationTest {
     private List<CallLogRepository.CallLogView> awaitCallLogs(String traceId, int expected) {
         long deadline = System.currentTimeMillis() + 8000;
         List<CallLogRepository.CallLogView> rows =
-                callLogRepository.findPaged(traceId, null, null, null, null, null, null, null, null, 0, 50);
+                callLogRepository.findPaged(traceId, null, null, null, null, null, null, null, null, null, 0, 50);
         while (rows.size() < expected && System.currentTimeMillis() < deadline) {
             try {
                 Thread.sleep(300);
@@ -602,7 +608,7 @@ class M4IntegrationTest {
                 Thread.currentThread().interrupt();
                 break;
             }
-            rows = callLogRepository.findPaged(traceId, null, null, null, null, null, null, null, null, 0, 50);
+            rows = callLogRepository.findPaged(traceId, null, null, null, null, null, null, null, null, null, 0, 50);
         }
         return rows.stream()
                 .map(r -> callLogRepository.findById(r.id()).orElse(r))

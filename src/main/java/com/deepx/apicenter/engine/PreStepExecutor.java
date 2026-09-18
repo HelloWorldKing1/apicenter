@@ -50,6 +50,13 @@ public class PreStepExecutor {
     private final CircuitBreakerRegistry circuitBreakerRegistry;
     private final ResponseJudger responseJudger;
 
+    /**
+     * 前置响应体上限（默认 256KB）：前置结果会整块挂进宿主模型（进而可能落 out_payload / 进日志），
+     * 超限按「链失败」处理（40001）而不是截断——截断会让宿主映射基于半份数据发出错误报文。
+     */
+    @org.springframework.beans.factory.annotation.Value("${app.api-center.pre-step.max-response-bytes:262144}")
+    private long maxResponseBytes;
+
     public PreStepExecutor(InterfaceRepository interfaceRepository,
                            AppRepository appRepository,
                            ChainEngine chainEngine,
@@ -73,8 +80,11 @@ public class PreStepExecutor {
         int depth = parent.attrs().get("preCallDepth") instanceof Integer d ? d : 1;
         int attempt = parent.attrs().get("attempt") instanceof Integer a ? a : 1;
         if (depth >= MAX_PRE_DEPTH) {
-            throw new PreStepFailure(PreStepFailure.Kind.DEPTH_EXCEEDED, BizException.FIELD_INVALID, null,
-                    "前置链深度超限（" + depth + " ≥ " + MAX_PRE_DEPTH + "），疑似嵌套环");
+            // 2026-09-18 评审 P3#6：深度超限原先在任何留痕之前抛出 → 状态链上看不到「为何没走前置」。
+            // 此处补一条留痕节点（error_code 40001，trigger=PRE_STEP），便于监控页一眼定位嵌套环。
+            String detail = "前置链深度超限（depth=" + depth + " ≥ " + MAX_PRE_DEPTH + "）：疑似嵌套环";
+            appendNode(attempt, String.valueOf(BizException.FIELD_INVALID), detail);
+            throw new PreStepFailure(PreStepFailure.Kind.DEPTH_EXCEEDED, BizException.FIELD_INVALID, null, detail);
         }
         for (InterfaceRow.StepView step : steps) {
             if (!step.enabled()) {
@@ -126,6 +136,7 @@ public class PreStepExecutor {
         spec.interfaceId(target.id());
         spec.appId(target.appId());
         spec.traceId(traceId);
+        spec.stepCode(step.stepCode());   // 供 OUT 方向 call_log 的 step_code 列（按步骤筛选）
         if (traceId != null && !traceId.isBlank()) {
             spec.header("X-Trace-Id", traceId);
         }
@@ -167,6 +178,11 @@ public class PreStepExecutor {
         long elapsedMs = System.currentTimeMillis() - start;
         int httpStatus = resp.getStatusCode().value();
         byte[] body = resp.getBody() == null ? new byte[0] : resp.getBody();
+        if (body.length > maxResponseBytes) {
+            throw fail(step, traceId, attempt, PreStepFailure.Kind.CONFIG_ERROR, BizException.FIELD_INVALID,
+                    "前置响应体超过上限（" + body.length + " > " + maxResponseBytes + " 字节），"
+                            + "请让前置接口裁剪字段或调整 app.api-center.pre-step.max-response-bytes", elapsedMs, 0);
+        }
 
         // 6. 非 2xx（4xx 非 429）→ 上游明确拒绝 → 宿主导「链失败」出口（不推进状态机、不建死信）
         if (!resp.getStatusCode().is2xxSuccessful()) {
@@ -217,7 +233,6 @@ public class PreStepExecutor {
     private void appendNode(int attempt, String errorCode, String detail) {
         StateChainBuffer.append("INIT", "INIT", attempt, errorCode, "PRE_STEP", detail);
     }
-
     private String errorCodeOf(Integer code) {
         return code == null ? null : String.valueOf(code);
     }

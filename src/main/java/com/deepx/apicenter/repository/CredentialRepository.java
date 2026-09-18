@@ -41,10 +41,13 @@ public class CredentialRepository {
         return jdbc.query("SELECT * FROM app_credential WHERE id = ?", CredentialRow.MAPPER, id).stream().findFirst();
     }
 
-    /** 出站签名用：仅 ACTIVE（M0-04 §3.2 读取规则；M2 链引擎调用） */
+    /** 出站签名用：仅 ACTIVE（M0-04 §3.2 读取规则；M2 链引擎调用）。
+     *  ORDER BY id DESC LIMIT 1（2026-09-18 补，代码评审 P2）：应用层约定「每 (app_id,kind) 至多 1 条 ACTIVE」，
+     *  但库级无唯一约束（PolarDB 5.7 不支持函数索引）——数据异常时取哪条至少要是确定的。 */
     public Optional<CredentialRow> findActive(String appId, String kind) {
         return jdbc.query(
-                "SELECT * FROM app_credential WHERE app_id = ? AND kind = ? AND status = 'ACTIVE'",
+                "SELECT * FROM app_credential WHERE app_id = ? AND kind = ? AND status = 'ACTIVE' "
+                        + "ORDER BY id DESC LIMIT 1",
                 CredentialRow.MAPPER, appId, kind).stream().findFirst();
     }
 

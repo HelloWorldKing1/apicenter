@@ -342,6 +342,7 @@
     <tr><td class="c">trace_id</td><td class="c">VARCHAR(32)</td><td></td><td>traceId（贯穿全链路）</td></tr>
     <tr><td class="c">span_id</td><td class="c">VARCHAR(32)</td><td></td><td>span 标识（OpenTelemetry）</td></tr>
     <tr><td class="c">direction</td><td class="c">VARCHAR(8)</td><td>NOT NULL</td><td>IN 入站（调用方→平台 / 供应商回调→平台）/ OUT 出站（平台→供应商 / 平台→回调地址）</td></tr>
+                <tr><td class="c">step_code</td><td class="c">VARCHAR(32)</td><td></td><td>前置步骤名（编排；仅前置调用的 OUT 条，其余 NULL）——支持按步骤筛选调用日志</td></tr>
     <tr><td class="c ref">interface_id</td><td class="c">BIGINT</td><td></td><td>关联接口</td></tr>
     <tr><td class="c">app_id</td><td class="c">VARCHAR(32)</td><td></td><td>关联应用（供应商）</td></tr>
     <tr><td class="c">url</td><td class="c">VARCHAR(255)</td><td></td><td>目标 URL</td></tr>
@@ -353,7 +354,7 @@
     <tr><td class="c">resp_body</td><td class="c">CLOB</td><td></td><td>响应体</td></tr>
     <tr><td class="c">created_at</td><td class="c">DATETIME</td><td>NOT NULL</td><td>记录时间</td></tr>
   </table>
-  <div class="idx"><b>索引</b>：PK(id)，INDEX(trace_id)，INDEX(created_at)，INDEX(interface_id)</div>
+  <div class="idx"><b>索引</b>：PK(id)，INDEX(trace_id)，INDEX(created_at)，INDEX(interface_id)，INDEX(step_code)</div>
   <div class="t-desc" style="padding-bottom:14px">日志为高频追加表：异步批量写入；按保留期归档 / 清理。</div>
 </section>
 

@@ -60,7 +60,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "app.api-center.retry-worker-fixed-delay-ms=3600000",
         "app.api-center.alert-worker-fixed-delay-ms=3600000",
         "app.api-center.retry-worker-initial-delay-ms=3600000",
-        "app.api-center.alert-worker-initial-delay-ms=3600000"
+        "app.api-center.alert-worker-initial-delay-ms=3600000",
+        // 前置响应体上限调小（默认 262144）：让「超限拒接」用例用一个小报文就能验证
+        "app.api-center.pre-step.max-response-bytes=64"
 })
 class PreStepIntegrationTest {
 
@@ -160,6 +162,61 @@ class PreStepIntegrationTest {
                 .hasSize(2)
                 .allSatisfy(d -> assertThat(d).contains("HTTP 200"));
         assertThat(chain.get(chain.size() - 1).toStatus()).isEqualTo("SUCCESS");
+
+        // ⑤ 调用日志「按步骤筛选」脏数据源（PS-6 可观测二期）：B 的 OUT 条带 step_code=auth（异步批量写，轮询）
+        long deadline = System.currentTimeMillis() + 8000;
+        int logRows = 0;
+        while (System.currentTimeMillis() < deadline) {
+            Integer n = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM call_log WHERE step_code = 'auth' AND direction = 'OUT'", Integer.class);
+            logRows = n == null ? 0 : n;
+            if (logRows > 0) {
+                break;
+            }
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        assertThat(logRows).as("前置调用的 OUT 条应带 step_code").isGreaterThan(0);
+    }
+
+    /**
+     * 回归（2026-09-18 评审修复）：**第一个前置步骤时，B 的 MAPPING 不得污染宿主模型**。
+     *
+     * <p>背景：宿主的链路载体是 `AdapterContext.payload`；`withoutSteps` 早期在「无 steps 键」时
+     * 原样返回**同一实例**（首个步骤必然如此），而 `MappingEngine` 规则非空会执行
+     * `ctx.payload().root(newRoot)` → 把 B 的映射结果写回宿主载体，宿主随后的字段映射会基于
+     * **B 的映射输出**而不是宿主自己的入站报文。本用例让 B 带映射（rename）后断言宿主映射仍读自己的入站字段。
+     */
+    @Test
+    void 前置接口自身带映射_不得污染宿主模型() {
+        // B 带映射：token → tk（非空规则 → 会替换 B 的 payload root）
+        long auth = createIface("IF-PS-BMAP", "/ps/bmap", "/up-bmap", 0, 3000, List.of(),
+                List.of(new MappingDto("token", "rename", "tk", null, "KEEP", 0)));
+        // 宿主：一个步骤 + 两组映射（一组引用步骤输出、一组引用宿主自己的入站字段）
+        // 注：B 的响应体是 `{"token":"T-BMAP"}`（B 的 request 映射 token→tk 只作用于 B 的出站报文，不影响 B 的响应）
+        createIface("IF-PS-BMAP-MAIN", "/ps/bmap-main", "/up-bmap-main", 0, 3000,
+                List.of(new StepDto(0, "auth", auth, "ABORT", true)),
+                List.of(new MappingDto("steps.auth.token", "rename", "api_token", null, "KEEP", 0),
+                        new MappingDto("orderId", "rename", "order_id", null, "KEEP", 1)));
+
+        stubFor(post("/up-bmap").willReturn(okJson("{\"token\":\"T-BMAP\"}")));
+        stubFor(post("/up-bmap-main").willReturn(okJson("{\"ok\":true}")));
+
+        assertThat(outboundEngine.dispatch("/ps/bmap-main", "POST",
+                IN_BODY.getBytes(StandardCharsets.UTF_8), "biz-ps-bmap", "trace-ps-bmap").code()).isZero();
+
+        // B 自己的出站报文应为其映射产物（token 源不存在 → tk=null，而非原入站报文的 orderId）
+        wireMock.verify(postRequestedFor(urlEqualTo("/up-bmap")).withRequestBody(containing("tk")));
+        // B 的响应交给宿主（steps.auth.token）→ api_token 拿到值；
+        // 且宿主自己映射的 orderId → order_id 必须来自**宿主的入站报文**；报文里不得出现保留键 steps。
+        // 用精确 JSON 相等断言（键序无关）：修复前该报文是 {"api_token":null,"order_id":null}（宿主载体被 B 的映射结果覆盖）
+        wireMock.verify(postRequestedFor(urlEqualTo("/up-bmap-main"))
+                .withRequestBody(equalToJson("{\"api_token\":\"T-BMAP\",\"order_id\":\"O-1\"}"))
+                .withRequestBody(notContaining("steps")));
     }
 
     // ---------- 2. 透传防护（宿主无映射 = 整体透传） ----------
@@ -388,8 +445,16 @@ class PreStepIntegrationTest {
                 IN_BODY.getBytes(StandardCharsets.UTF_8), "biz-ps-rec", "trace-ps-rec"))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("深度超限");
-        assertThat(outboundRequestRepository.findByBizId(TEST_APP, "biz-ps-rec").get(0).status())
-                .isEqualTo("INIT");
+        OutboundRequestRow recRow = outboundRequestRepository.findByBizId(TEST_APP, "biz-ps-rec").get(0);
+        assertThat(recRow.status()).isEqualTo("INIT");
+        // 2026-09-18 评审 P3#6：深度超限原先不留痕 → 现在补一条 PRE_STEP 节点（errorCode 40001）便于定位
+        assertThat(outboundRequestRepository.stateChain(recRow.id()))
+                .filteredOn(n -> "PRE_STEP".equals(n.trigger()))
+                .singleElement()
+                .satisfies(n -> {
+                    assertThat(n.errorCode()).isEqualTo("40001");
+                    assertThat(n.detail()).contains("深度超限");
+                });
     }
 
     @Test
@@ -412,6 +477,24 @@ class PreStepIntegrationTest {
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("未发布");
         assertThat(outboundRequestRepository.findByBizId(TEST_APP, "biz-ps-off").get(0).status())
+                .isEqualTo("INIT");
+    }
+
+    @Test
+    void 前置响应体超限_按链失败拒绝() {
+        long auth = createIface("IF-PS-BIG-AUTH", "/ps/big-auth", "/up-big-auth", 0, 3000, List.of());
+        createIface("IF-PS-BIG-MAIN", "/ps/big-main", "/up-big-main", 0, 3000,
+                List.of(new StepDto(0, "auth", auth, "ABORT", true)));
+        // 本测试类把上限调成 64 字节（见 @SpringBootTest properties）；此处返回 ~200 字节
+        stubFor(post("/up-big-auth").willReturn(okJson(
+                "{\"token\":\"" + "X".repeat(180) + "\"}")));
+
+        assertThatThrownBy(() -> outboundEngine.dispatch("/ps/big-main", "POST",
+                IN_BODY.getBytes(StandardCharsets.UTF_8), "biz-ps-big", "trace-ps-big"))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("超过上限");
+        assertThat(outboundRequestRepository.findByBizId(TEST_APP, "biz-ps-big").get(0).status())
+                .as("超限按链失败处理（不截断后继续发错误报文）")
                 .isEqualTo("INIT");
     }
 

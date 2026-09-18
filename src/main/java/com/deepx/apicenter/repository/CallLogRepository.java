@@ -20,7 +20,7 @@ public class CallLogRepository {
 
     /** 列表投影列（不含 body） */
     private static final String LIST_COLUMNS =
-            "id, trace_id, direction, interface_id, app_id, url, method, status_code, latency_ms, created_at";
+            "id, trace_id, direction, step_code, interface_id, app_id, url, method, status_code, latency_ms, created_at";
 
     private final JdbcTemplate jdbc;
 
@@ -30,13 +30,13 @@ public class CallLogRepository {
 
     /** 异步批量写单元（CallLogWriter 攒批后提交） */
     public record CallLogEntry(
-            String traceId, String spanId, String direction,
+            String traceId, String spanId, String direction, String stepCode,
             Long interfaceId, String appId, String url, String method,
             Integer statusCode, Long latencyMs, String reqHeaders, String reqBody, String respBody) {
     }
 
     public record CallLogView(
-            long id, String traceId, String direction, Long interfaceId, String appId,
+            long id, String traceId, String direction, String stepCode, Long interfaceId, String appId,
             String url, String method, int statusCode, long latencyMs,
             String reqHeaders, String reqBody, String respBody, String createdAt) {
     }
@@ -47,34 +47,35 @@ public class CallLogRepository {
             return;
         }
         jdbc.batchUpdate("""
-                INSERT INTO call_log (trace_id, span_id, direction, interface_id, app_id,
+                INSERT INTO call_log (trace_id, span_id, direction, step_code, interface_id, app_id,
                                       url, method, status_code, latency_ms, req_headers, req_body, resp_body)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, entries, 100, (PreparedStatement ps, CallLogEntry e) -> {
             ps.setString(1, e.traceId());
             ps.setString(2, e.spanId());
             ps.setString(3, e.direction());
+            ps.setString(4, truncate(e.stepCode(), 32));   // 前置步骤名（编排；仅前置调用的 OUT 条）
             if (e.interfaceId() == null || e.interfaceId() <= 0) {
-                ps.setNull(4, java.sql.Types.BIGINT);
+                ps.setNull(5, java.sql.Types.BIGINT);
             } else {
-                ps.setLong(4, e.interfaceId());
+                ps.setLong(5, e.interfaceId());
             }
-            ps.setString(5, e.appId());
-            ps.setString(6, truncate(e.url(), 255));
-            ps.setString(7, truncate(e.method(), 8));
+            ps.setString(6, e.appId());
+            ps.setString(7, truncate(e.url(), 255));
+            ps.setString(8, truncate(e.method(), 8));
             if (e.statusCode() == null) {
-                ps.setNull(8, java.sql.Types.INTEGER);
+                ps.setNull(9, java.sql.Types.INTEGER);
             } else {
-                ps.setInt(8, e.statusCode());
+                ps.setInt(9, e.statusCode());
             }
             if (e.latencyMs() == null) {
-                ps.setNull(9, java.sql.Types.BIGINT);
+                ps.setNull(10, java.sql.Types.BIGINT);
             } else {
-                ps.setLong(9, e.latencyMs());
+                ps.setLong(10, e.latencyMs());
             }
-            ps.setString(10, truncate(e.reqHeaders(), 2000));
-            ps.setString(11, e.reqBody());
-            ps.setString(12, e.respBody());
+            ps.setString(11, truncate(e.reqHeaders(), 2000));
+            ps.setString(12, e.reqBody());
+            ps.setString(13, e.respBody());
         });
     }
 
@@ -82,11 +83,12 @@ public class CallLogRepository {
     public List<CallLogView> findPaged(String traceId, Long interfaceId, String direction, String appId,
                                        Integer statusMin, Integer statusMax,
                                        LocalDateTime timeFrom, LocalDateTime timeTo, String keyword,
-                                       int offset, int limit) {
+                                       String stepCode, int offset, int limit) {
         // 列表只投影元数据列（req_body/resp_body 为 LONGTEXT，列表用不到——详情走 findById，2026-09-12 瘦身）
         StringBuilder sql = new StringBuilder("SELECT " + LIST_COLUMNS + " FROM call_log WHERE 1=1");
         List<Object> args = new ArrayList<>();
-        appendFilters(sql, args, traceId, interfaceId, direction, appId, statusMin, statusMax, timeFrom, timeTo, keyword);
+        appendFilters(sql, args, traceId, interfaceId, direction, appId, statusMin, statusMax, timeFrom, timeTo,
+                keyword, stepCode);
         sql.append(" ORDER BY id DESC LIMIT ").append(Math.max(1, limit))
                 .append(" OFFSET ").append(Math.max(0, offset));
         return jdbc.queryForList(sql.toString(), args.toArray()).stream()
@@ -102,17 +104,19 @@ public class CallLogRepository {
 
     public long count(String traceId, Long interfaceId, String direction, String appId,
                       Integer statusMin, Integer statusMax,
-                      LocalDateTime timeFrom, LocalDateTime timeTo, String keyword) {
+                      LocalDateTime timeFrom, LocalDateTime timeTo, String keyword, String stepCode) {
         StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM call_log WHERE 1=1");
         List<Object> args = new ArrayList<>();
-        appendFilters(sql, args, traceId, interfaceId, direction, appId, statusMin, statusMax, timeFrom, timeTo, keyword);
+        appendFilters(sql, args, traceId, interfaceId, direction, appId, statusMin, statusMax, timeFrom, timeTo,
+                keyword, stepCode);
         Long n = jdbc.queryForObject(sql.toString(), Long.class, args.toArray());
         return n == null ? 0 : n;
     }
 
     private static void appendFilters(StringBuilder sql, List<Object> args, String traceId, Long interfaceId,
                                       String direction, String appId, Integer statusMin, Integer statusMax,
-                                      LocalDateTime timeFrom, LocalDateTime timeTo, String keyword) {
+                                      LocalDateTime timeFrom, LocalDateTime timeTo, String keyword,
+                                      String stepCode) {
         if (traceId != null && !traceId.isBlank()) {
             sql.append(" AND trace_id = ?");
             args.add(traceId);
@@ -148,6 +152,10 @@ public class CallLogRepository {
         if (keyword != null && !keyword.isBlank()) {
             sql.append(" AND url LIKE ?");
             args.add("%" + keyword.trim() + "%");
+        }
+        if (stepCode != null && !stepCode.isBlank()) {
+            sql.append(" AND step_code = ?");
+            args.add(stepCode.trim());
         }
     }
 
@@ -254,6 +262,7 @@ public class CallLogRepository {
                 ((Number) row.get("id")).longValue(),
                 (String) row.get("trace_id"),
                 (String) row.get("direction"),
+                (String) row.get("step_code"),
                 row.get("interface_id") == null ? null : ((Number) row.get("interface_id")).longValue(),
                 (String) row.get("app_id"),
                 (String) row.get("url"),

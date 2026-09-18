@@ -104,7 +104,7 @@ public class CallLogAspect {
         String method = request == null ? null : request.getMethod();
         long latencyMs = (System.nanoTime() - start) / 1_000_000;
         callLogWriter.offer(new CallLogEntry(
-                traceId, spanId(), "IN", interfaceId > 0 ? interfaceId : null, appId,
+                traceId, spanId(), "IN", null, interfaceId > 0 ? interfaceId : null, appId,
                 url, method, status, latencyMs, reqHeaders,
                 masker.maskBody(reqBody), masker.maskBody(respBody)));
         metrics("IN", interfaceId, appId, outcome, start);
@@ -139,7 +139,7 @@ public class CallLogAspect {
         Map<String, String> headers = new TreeMap<>();
         spec.headers().forEach((k, values) -> headers.put(k, values.isEmpty() ? "" : values.get(0)));
         callLogWriter.offer(new CallLogEntry(
-                spec.traceId(), spanId(), "OUT",
+                spec.traceId(), spanId(), "OUT", spec.stepCode(),
                 spec.interfaceId() > 0 ? spec.interfaceId() : null, spec.appId(),
                 spec.url(), spec.method(), status, latencyMs,
                 masker.maskHeaders(headers),

@@ -30,6 +30,7 @@ public class AppService {
     private final CredentialRepository credentialRepository;
     private final com.deepx.apicenter.service.GatewayGuard gatewayGuard;
     private final com.deepx.apicenter.service.AlertService alertService;
+    private final CallbackUrlValidator callbackUrlValidator;
     private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     public AppService(AppRepository appRepository,
@@ -38,6 +39,7 @@ public class AppService {
                       CredentialRepository credentialRepository,
                       com.deepx.apicenter.service.GatewayGuard gatewayGuard,
                       com.deepx.apicenter.service.AlertService alertService,
+                      CallbackUrlValidator callbackUrlValidator,
                       org.springframework.context.ApplicationEventPublisher eventPublisher) {
         this.appRepository = appRepository;
         this.adapterRepository = adapterRepository;
@@ -45,6 +47,7 @@ public class AppService {
         this.credentialRepository = credentialRepository;
         this.gatewayGuard = gatewayGuard;
         this.alertService = alertService;
+        this.callbackUrlValidator = callbackUrlValidator;
         this.eventPublisher = eventPublisher;
     }
 
@@ -82,6 +85,10 @@ public class AppService {
             throw BizException.fieldInvalid("应用标识已存在：" + req.appId());
         }
         validateAdapterRefs(req.authAdapterId(), req.callbackAuthAdapterId(), req.defaultMessageAdapterId());
+        // 服务地址校验（2026-09-18 补，代码评审 P2）：格式非法直接拒；开关关闭（生产）时拒内网——
+        // 出站 URL = base_url + upstreamPath，不校验等于给「管理面 → 内网服务」留了 SSRF 通道
+        // （与回调地址共用同一套规则与 callback-allow-private 开关：开发 true 允许本地 WireMock）
+        callbackUrlValidator.validateForSave(req.baseUrl(), "应用服务地址");
         appRepository.insert(toRow(req, "DRAFT"));
     }
 
@@ -89,6 +96,7 @@ public class AppService {
     public void update(String appId, AppRequest req) {
         AppRow current = appRepository.findById(appId).orElseThrow(() -> BizException.appNotFound(appId));
         validateAdapterRefs(req.authAdapterId(), req.callbackAuthAdapterId(), req.defaultMessageAdapterId());
+        callbackUrlValidator.validateForSave(req.baseUrl(), "应用服务地址");   // 同 create（2026-09-18）
         // 状态字段不在编辑范围（生命周期走操作端点），沿用当前状态
         appRepository.update(new AppRow(
                 null, appId, req.name(), req.contact(),

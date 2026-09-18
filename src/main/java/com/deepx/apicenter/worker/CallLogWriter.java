@@ -70,14 +70,16 @@ public class CallLogWriter {
                 }
                 batch.add(first);
                 queue.drainTo(batch, BATCH_SIZE - 1);
-                flush(batch);
+                int size = batch.size();   // 2026-09-18：flush 内部会 clear，事后取 size 恒 0（日志误导）
+                try {
+                    flush(batch);
+                } catch (Exception e) {
+                    // 批次异常隔离：丢弃本批（监控数据可容忍），继续消费后续批次
+                    log.error("call_log 批量落库失败，丢弃本批 {} 条", size, e);
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
-            } catch (Exception e) {
-                // 批次异常隔离：丢弃本批（监控数据可容忍），继续消费后续批次
-                log.error("call_log 批量落库失败，丢弃本批 {} 条", batch.size(), e);
-                batch.clear();
             }
         }
         // 退出前尽力冲刷

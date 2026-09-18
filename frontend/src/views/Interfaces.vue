@@ -327,6 +327,17 @@
         <div class="test-side">
           <div class="side-desc" style="margin-bottom: 8px">响应（统一信封 { code, msg, data }）</div>
           <pre class="test-resp" :class="{ 'resp-error': test.isError }">{{ test.resp }}</pre>
+          <!-- 前置步骤运行留痕（编排 PS-6：chainTrace.steps）：每一步的 HTTP / 耗时 / 结局 -->
+          <template v-if="test.steps.length">
+            <div class="side-desc" style="margin: 10px 0 6px">前置步骤（本次真实执行）</div>
+            <el-table :data="test.steps" size="small">
+              <el-table-column prop="stepCode" label="步骤" width="90" />
+              <el-table-column prop="targetCode" label="前置接口" width="130" />
+              <el-table-column prop="httpStatus" label="HTTP" width="64" />
+              <el-table-column prop="latencyMs" label="耗时(ms)" width="80" />
+              <el-table-column prop="outcome" label="结局" />
+            </el-table>
+          </template>
         </div>
       </div>
     </el-dialog>
@@ -891,12 +902,13 @@ async function copyPath() {
 }
 
 // ---------- 测试接口（管理面调试：POST /api/admin/interfaces/{id}/test，仅 OUTBOUND） ----------
-const test = reactive({ visible: false, body: '{}', sending: false, resp: '', isError: false })
+const test = reactive({ visible: false, body: '{}', sending: false, resp: '', isError: false, steps: [] })
 
 function openTest(row) {
   const inBody = row.bodies?.find((b) => b.side === 'IN')
   test.body = inBody && inBody.raw ? inBody.raw : '{}'
   test.resp = ''
+  test.steps = []
   test.isError = false
   test.visible = true
 }
@@ -904,11 +916,14 @@ function openTest(row) {
 async function sendTest() {
   test.sending = true
   test.resp = ''
+  test.steps = []
   try {
     // 发 JSON 对象（axios 序列化为 application/json，后端 byte[] 原样收）——避免字符串被表单编码
     const obj = JSON.parse(test.body)
     const result = await http.post(`/interfaces/${detail.row.id}/test`, obj, { timeout: LONG_RUNNING_TIMEOUT })
     test.isError = false
+    // data = { chainTrace, steps, result }；步骤留痕（编排）单独列表展示
+    test.steps = result?.steps || []
     test.resp = JSON.stringify({ code: 0, msg: 'ok', data: result }, null, 2)
   } catch (e) {
     test.isError = true

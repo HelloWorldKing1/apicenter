@@ -51,6 +51,7 @@
             </el-select>
             <el-input v-model="logFilter.traceId" size="small" clearable placeholder="traceId" style="width: 210px" />
             <el-input v-model="logFilter.keyword" size="small" clearable placeholder="URL 子串" style="width: 160px" />
+            <el-input v-model="logFilter.stepCode" size="small" clearable placeholder="前置步骤名" style="width: 130px" />
             <el-button size="small" type="primary" @click="loadLogs(1)">查询</el-button>
           </div>
           <el-table :data="logs" size="small" @row-click="openLogDetail">
@@ -62,6 +63,12 @@
             </el-table-column>
             <el-table-column prop="interfaceId" label="接口ID" width="90" />
             <el-table-column prop="appId" label="应用" width="120" show-overflow-tooltip />
+            <el-table-column label="步骤" width="86">
+              <template #default="{ row }">
+                <el-tag v-if="row.stepCode" size="small" effect="plain">前置·{{ row.stepCode }}</el-tag>
+                <span v-else class="tip">—</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="method" label="M" width="56" />
             <el-table-column prop="url" label="URL" show-overflow-tooltip />
             <el-table-column label="状态码" width="80">
@@ -492,7 +499,7 @@ async function loadOverviewTrend() {
 const logs = ref([])
 const logTotal = ref(0)
 const logPage = ref(1)
-const logFilter = ref({ range: null, direction: null, appId: null, interfaceId: null, statusGroup: null, traceId: '', keyword: '' })
+const logFilter = ref({ range: null, direction: null, appId: null, interfaceId: null, statusGroup: null, traceId: '', keyword: '', stepCode: '' })
 
 async function loadLogs(page = 1) {
   logPage.value = page
@@ -508,7 +515,8 @@ async function loadLogs(page = 1) {
         statusGroup: f.statusGroup || undefined,
         timeFrom: f.range ? f.range[0] : undefined,
         timeTo: f.range ? f.range[1] : undefined,
-        keyword: f.keyword || undefined
+        keyword: f.keyword || undefined,
+        stepCode: f.stepCode || undefined
       }
     })
     logs.value = d.list

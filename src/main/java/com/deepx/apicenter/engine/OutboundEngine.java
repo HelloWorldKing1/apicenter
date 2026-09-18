@@ -120,8 +120,8 @@ public class OutboundEngine {
     public ApiResult<?> execute(InterfaceRow iface, byte[] body, String bizId, String traceId) {
         CallLogContext.set(iface.id(), iface.appId(), traceId);
         // 前置宿主补偿预算下限（D-PS-11 已拍板：配置了前置的接口强制 ≥1 次补偿尝试）；
-        // hasPreSteps 读的是装配缓存链，不额外查库（本次请求随后自会走到 chainEngine.execute）
-        long recordId = createRecord(iface, body, bizId, traceId, chainEngine.hasPreSteps(iface.id()));
+        // hasPreSteps 读的是装配缓存链（传 iface 避免热路径多一次远程查询）
+        long recordId = createRecord(iface, body, bizId, traceId, chainEngine.hasPreSteps(iface));
         beginChain();
         try {
             chainAppend(null, "INIT", 1, null, TRIGGER_FIRST_SEND, "创建出站记录");
@@ -241,9 +241,15 @@ public class OutboundEngine {
         String reason = "供应商 " + status.value() + "：" + resp.getStatusCode();
         chainAppend("MAPPING", "DEAD_LETTER", attempt, "50201", trigger, how + " 4xx 不重试：" + reason);
         outboundRequestRepository.updateState(recordId, "DEAD_LETTER", null, null, null, "50201");
-        outboundRequestRepository.insertDeadLetter("OUTBOUND", recordId, reason, bytesText(respBody));
-        long deadLetterId = deadLetterId(recordId);
-        throw new BizException(50201, "供应商拒绝（4xx）：" + reason + "，死信编号 " + deadLetterId);
+        // 返回真实 dead_letter.id（2026-09-18 修复）：原实现拿 outbound_request.id 冒充「死信编号」，
+        // 运维照它去 POST /monitor/dead-letters/{id}/replay 会打错记录；
+        // 极端情况下驱动未回填主键（-1）时不给误导性编号（评审 P3#7）
+        long deadLetterId = outboundRequestRepository.insertDeadLetter(
+                "OUTBOUND", recordId, reason, bytesText(respBody));
+        String deadLetterRef = deadLetterId > 0
+                ? "，死信编号 " + deadLetterId
+                : "（死信已落库，编号未回填，请在监控「死信」区查看）";
+        throw new BizException(50201, "供应商拒绝（4xx）：" + reason + deadLetterRef);
     }
 
     /** 2xx：信封适配判业务成败（M0-03 定稿 C2：业务失败也记 SUCCESS、业务码透传）；RESP 过滤仅成功路径（D-M3-3）。
@@ -396,10 +402,6 @@ public class OutboundEngine {
 
     private AppRow appOf(InterfaceRow iface) {
         return appRepository.findById(iface.appId()).orElseThrow();
-    }
-
-    private long deadLetterId(long recordId) {
-        return recordId; // M2 简化：ref_id 即出站记录 id（dead_letter.ref_id 多态引用）
     }
 
     private String bytesText(byte[] body) {

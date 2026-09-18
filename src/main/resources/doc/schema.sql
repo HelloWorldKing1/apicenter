@@ -225,6 +225,7 @@ CREATE TABLE call_log (
     trace_id     VARCHAR(32)   COMMENT 'traceId（贯穿全链路）',
     span_id      VARCHAR(32)   COMMENT 'span 标识（OpenTelemetry）',
     direction    VARCHAR(8)    NOT NULL COMMENT 'IN 入站（调用方/供应商回调→平台）/ OUT 出站（平台→供应商/回调地址）',
+    step_code    VARCHAR(32)   COMMENT '前置步骤名（编排；仅前置调用的 OUT 条，其余 NULL）——供「按步骤筛选调用日志」',
     interface_id BIGINT        COMMENT '关联接口',
     app_id       VARCHAR(32)   COMMENT '关联应用（供应商）',
     url          VARCHAR(255)  COMMENT '目标 URL',
@@ -237,7 +238,8 @@ CREATE TABLE call_log (
     created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录时间',
     KEY idx_call_trace (trace_id),
     KEY idx_call_time (created_at),
-    KEY idx_call_interface (interface_id)
+    KEY idx_call_interface (interface_id),
+    KEY idx_call_step (step_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='调用日志';
 
 -- 15 告警规则：阈值告警（成功率下降/延迟超限/死信堆积/补偿失败）
@@ -318,6 +320,11 @@ CREATE TABLE outbound_request_state_log (
 -- M4 评审定稿：AlertWorker success_rate 按更新时间窗口聚合，需 updated_at 索引
 -- （现有 idx_outreq_scan(status, next_retry_at) 对 updated_at 范围过滤只能走 status 前缀扫全部历史 SUCCESS 行）
 ALTER TABLE outbound_request ADD KEY idx_outreq_updated (updated_at);
+
+-- 前置接口编排（2026-09-18，PS-6 可观测二期）：预置调用的 OUT 条标记步骤名，支持「按步骤筛选调用日志」
+-- ⚠ 2026-09-18 已应用到开发库；schema 与《表结构设计.html》同步。
+ALTER TABLE call_log ADD COLUMN step_code VARCHAR(32) NULL COMMENT '前置步骤名（编排）' AFTER direction;
+ALTER TABLE call_log ADD KEY idx_call_step (step_code);
 
 -- 20 接口前置步骤（编排，第 7 张配置子表；见《前置接口编排设计方案.md》v0.1.3）
 -- 宿主接口（仅 OUTBOUND）在自身链的 MAPPING 前，按 seq 串行复用目标接口作为前置（A → B → 第三方）：

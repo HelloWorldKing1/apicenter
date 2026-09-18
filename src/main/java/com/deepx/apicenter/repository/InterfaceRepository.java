@@ -1,6 +1,8 @@
 package com.deepx.apicenter.repository;
 
 import com.deepx.apicenter.model.InterfaceRow;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -19,6 +21,8 @@ import java.util.Optional;
  */
 @Repository
 public class InterfaceRepository {
+
+    private static final Logger log = LoggerFactory.getLogger(InterfaceRepository.class);
 
     private static final String SELECT_SQL = """
             SELECT i.*, a.name AS app_name, g.name AS group_name
@@ -67,7 +71,12 @@ public class InterfaceRepository {
         // 列表硬上限（2026-09-12）：不做服务端分页（前端需全量做下拉 / 客户端分页），
         // 加保护上限防接口数量失控拖垮首屏；超过请用 appId/keyword 过滤（v1.1 分页）。
         sql.append("ORDER BY i.created_at DESC LIMIT ").append(LIST_LIMIT);
-        return jdbc.query(sql.toString(), InterfaceRow.MAPPER, args.toArray());
+        List<InterfaceRow> rows = jdbc.query(sql.toString(), InterfaceRow.MAPPER, args.toArray());
+        // 截断可见（2026-09-18 补，评审 P2）
+        if (rows.size() >= LIST_LIMIT) {
+            log.warn("接口列表命中硬上限 {}，结果可能被截断（请用 appId / keyword 缩小范围）", LIST_LIMIT);
+        }
+        return rows;
     }
 
     public Optional<InterfaceRow> findById(long id) {

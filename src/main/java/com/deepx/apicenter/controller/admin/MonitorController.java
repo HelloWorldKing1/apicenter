@@ -85,6 +85,7 @@ public class MonitorController {
             @RequestParam(required = false) String timeFrom,
             @RequestParam(required = false) String timeTo,
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String stepCode,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize) {
         int size = clampSize(pageSize);
@@ -108,9 +109,9 @@ public class MonitorController {
                 keyword != null && !keyword.isBlank());
         return ApiResult.ok(PagedResponse.of(
                 callLogRepository.findPaged(traceId, interfaceId, direction, appId, min, max,
-                        window[0], window[1], keyword, offset, size),
+                        window[0], window[1], keyword, stepCode, offset, size),
                 callLogRepository.count(traceId, interfaceId, direction, appId, min, max,
-                        window[0], window[1], keyword),
+                        window[0], window[1], keyword, stepCode),
                 page, size));
     }
 

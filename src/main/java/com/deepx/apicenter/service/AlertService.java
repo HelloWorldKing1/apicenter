@@ -163,9 +163,14 @@ public class AlertService {
         verifyFailWindows.remove(appId);
     }
 
-    /** 告警规则删除时清理其冷却记录（2026-09-12）：lastFiredAt 的键含 ruleId，规则删除后残留。 */
+    /**
+     * 告警规则删除时清理其冷却记录（2026-09-18 修复）：
+     * `evaluateAndFire` 写入的冷却键是 **`rule:<id>`**（见 :80），而原实现用 `endsWith("#" + ruleId)` 匹配
+     * → **永不命中**，删规则后冷却条目残留（轻微内存泄漏 + 重建同 id 规则时冷却残留）。
+     * 回归：AlertServiceTest#冷却期内不重复_evictRule后可立即再触发。
+     */
     public void evictRule(long ruleId) {
-        lastFiredAt.keySet().removeIf(key -> key.endsWith("#" + ruleId));
+        lastFiredAt.remove("rule:" + ruleId);
     }
 
     /** 测试支撑：清空冷却与验签计数 */

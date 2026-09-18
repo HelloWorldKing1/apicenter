@@ -15,7 +15,6 @@
     <description>API 中心 —— 三方接口统一调用平台(连接 + 适配 + 可靠传输)</description>
     <properties>
         <java.version>21</java.version>
-        <mapstruct.version>1.6.3</mapstruct.version>
         <!-- WireMock 版本(M2 集成测试 mock 对端使用,当前未作为依赖引入) -->
         <wiremock.version>3.9.1</wiremock.version>
     </properties>
@@ -48,11 +47,6 @@
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.mapstruct</groupId>
-            <artifactId>mapstruct</artifactId>
-            <version>${mapstruct.version}</version>
         </dependency>
 
         <!-- XML 协议编解码（协议适配器 XmlProtocolAdapter 用；Jackson 3 的 XML 模块）
@@ -117,11 +111,6 @@
                                     <groupId>org.projectlombok</groupId>
                                     <artifactId>lombok</artifactId>
                                 </path>
-                                <path>
-                                    <groupId>org.mapstruct</groupId>
-                                    <artifactId>mapstruct-processor</artifactId>
-                                    <version>${mapstruct.version}</version>
-                                </path>
                             </annotationProcessorPaths>
                         </configuration>
                     </execution>
@@ -136,11 +125,6 @@
                                 <path>
                                     <groupId>org.projectlombok</groupId>
                                     <artifactId>lombok</artifactId>
-                                </path>
-                                <path>
-                                    <groupId>org.mapstruct</groupId>
-                                    <artifactId>mapstruct-processor</artifactId>
-                                    <version>${mapstruct.version}</version>
                                 </path>
                             </annotationProcessorPaths>
                         </configuration>

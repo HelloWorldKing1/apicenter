@@ -35,13 +35,20 @@ public final class ReservedKeys {
     }
 
     /**
-     * 返回不含保留键的模型视图（**浅隔离**：复用同一子节点，仅换根对象）：
-     * 用于把宿主模型交给前置接口 —— B 看不到宿主的步骤输出。
-     * 非对象根 / 无保留键时原样返回（不复制，零开销）。
+     * 返回不含保留键的模型视图：用于把宿主模型交给前置接口——B 看不到宿主的步骤输出。
+     *
+     * <p><b>必须返回新的 {@link UnifiedModel} 包装实例</b>（2026-09-18 评审修复）：宿主的链路载体是
+     * `AdapterContext.payload`，而 `MappingEngine` 在规则非空时会执行 `ctx.payload().root(newRoot)`——
+     * 若这里在「无 steps 键」时原样返回**同一个实例**（首个前置步骤时必然如此），B 的 MAPPING 会把
+     * root 替换回宿主载体，导致宿主后续字段映射基于 **B 的映射结果** 而不是宿主自己的入站报文。
+     * 新包装共享同一根节点（只读场景零成本），仅保证 root 引用互相隔离。
      */
     public static UnifiedModel withoutSteps(UnifiedModel model) {
-        if (!(model.root() instanceof UnifiedModel.ObjectNode obj) || !obj.fields().containsKey(STEPS)) {
-            return model;
+        if (!(model.root() instanceof UnifiedModel.ObjectNode obj)) {
+            return UnifiedModel.of(model.root());   // 新包装：仍隔离 root 引用
+        }
+        if (!obj.fields().containsKey(STEPS)) {
+            return UnifiedModel.of(obj);            // 新包装 + 共享根节点（root 替换互不影响）
         }
         LinkedHashMap<String, UnifiedModel.UNode> copy = new LinkedHashMap<>(obj.fields());
         copy.remove(STEPS);

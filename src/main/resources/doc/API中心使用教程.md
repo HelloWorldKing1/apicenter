@@ -702,7 +702,7 @@ curl -X POST http://localhost:8080/<回调平台路径> \
 ### 10.1 运行测试
 
 ```bash
-mvn test            # 全库 192 个 @Test（集成测试连开发库）
+mvn test            # 全库 227 个 @Test（集成测试连开发库；成本高时用 -Dtest=<类> 跑针对性批次）
 mvn clean test      # 结构变更后务必 clean（旧 class 残留会被 Spring 扫描）
 ```
 
@@ -714,7 +714,7 @@ mvn clean test      # 结构变更后务必 clean（旧 class 残留会被 Sprin
 cd frontend
 npm run dev         # 开发 :5173
 npm run build       # 产物 → src/main/resources/static/（后端 serve）
-npm test            # 单测 48 例 + 组件 SSR 冒烟 13 例（Node 内置 test runner，无需联网）
+npm test            # 单测 48 例 + 组件 SSR 冒烟 16 例（Node 内置 test runner，无需联网）
 npm run lint        # ESLint（flat config，--max-warnings 0）
 ```
 

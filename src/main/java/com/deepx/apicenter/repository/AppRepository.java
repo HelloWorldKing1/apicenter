@@ -2,6 +2,8 @@ package com.deepx.apicenter.repository;
 
 import com.deepx.apicenter.model.AppRow;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -13,6 +15,8 @@ import java.util.Optional;
  */
 @Repository
 public class AppRepository {
+
+    private static final Logger log = LoggerFactory.getLogger(AppRepository.class);
 
     /** 列表查询（含分组数 / 接口数聚合列，与 AppRow.MAPPER 对齐） */
     static final String SELECT_SQL = """
@@ -52,7 +56,12 @@ public class AppRepository {
             sql.append(" WHERE ").append(String.join(" AND ", where));
         }
         sql.append(" ORDER BY a.created_at DESC LIMIT ").append(LIST_LIMIT);
-        return jdbc.query(sql.toString(), AppRow.MAPPER, args.toArray());
+        List<AppRow> rows = jdbc.query(sql.toString(), AppRow.MAPPER, args.toArray());
+        // 截断可见（2026-09-18 补，评审 P2）：硬上限静默截断会让管理面误以为「就这么少」
+        if (rows.size() >= LIST_LIMIT) {
+            log.warn("应用列表命中硬上限 {}，结果可能被截断（请用 keyword / status 缩小范围）", LIST_LIMIT);
+        }
+        return rows;
     }
 
     public Optional<AppRow> findById(String appId) {

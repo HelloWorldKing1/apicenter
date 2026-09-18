@@ -528,6 +528,40 @@ class M1IntegrationTest {
                 base.params(), base.bodies(), base.mappings(), base.fieldDefs(), base.bindings());
     }
 
+    /** 基于 baseOutboundReq 替换 code/path/upstreamPath（校验收敛用例用） */
+    private InterfaceRequest withReq(InterfaceRequest base, String code, String path, String upstreamPath) {
+        return new InterfaceRequest(code, base.name(), base.ifType(), base.method(), path,
+                base.protocolIn(), base.protocolOut(), base.appId(), base.groupId(),
+                upstreamPath, null, null, base.timeoutMs(), base.maxRetries(), null, 1,
+                base.params(), base.bodies(), base.mappings(), base.fieldDefs(), base.bindings());
+    }
+
+    /**
+     * 地址 / 路径格式校验（2026-09-18 补，代码评审 P2）：
+     * ① 应用服务地址（base_url）非法格式 → 拒（原先不校验，配合 /test 即 SSRF 通道）；
+     * ② 平台侧路径必须 `/` 开头（否则运行时路由永不命中）；
+     * ③ 供应商接口路径含空白等 URI 非法字符 → 拒（原会在运行时 URI.create 抛 IllegalArgumentException → 500）。
+     */
+    @Test
+    void 地址与路径格式校验_非法拒绝() {
+        assertThatThrownBy(() -> appService.create(new AppRequest("M1-BAD-URL", "x", null,
+                null, null, null, "not-a-url", null, null, null, null, null)))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("应用服务地址必须是完整 URL");
+
+        setupTestApp();
+        long groupId = createTestGroup();
+        InterfaceRequest base = baseOutboundReq(groupId);
+        assertThatThrownBy(() -> interfaceService.create(
+                withReq(base, "IF-M1-P1", "no-leading-slash", "/v1/test")))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("必须以 / 开头");
+        assertThatThrownBy(() -> interfaceService.create(
+                withReq(base, "IF-M1-P2", "/test/m1/p2", "/v1/with space")))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("含非法字符");
+    }
+
     // ---------- 乐观锁 ----------
 
     @Test

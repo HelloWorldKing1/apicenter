@@ -479,10 +479,17 @@ public class ChainEngine {
                          boolean hasPreSteps) {
     }
 
-    /** 接口是否配置了前置步骤（读缓存链；与装配同源，不额外查库） */
+    /** 接口是否配置了前置步骤（读缓存链；与装配同源） */
     public boolean hasPreSteps(long interfaceId) {
-        InterfaceRow iface = interfaceRepository.findById(interfaceId)
-                .orElseThrow(() -> BizException.ifaceNotFound(interfaceId));
+        return hasPreSteps(interfaceRepository.findById(interfaceId)
+                .orElseThrow(() -> BizException.ifaceNotFound(interfaceId)));
+    }
+
+    /**
+     * 接口是否配置了前置步骤（重载：调用方已持有行对象时用它，**避免热路径多一次远程查询**）。
+     * OutboundEngine 在 createRecord 前需要该值决定补偿预算下限（D-PS-11），那里已持有 iface。
+     */
+    public boolean hasPreSteps(InterfaceRow iface) {
         return chain(iface).hasPreSteps();
     }
 

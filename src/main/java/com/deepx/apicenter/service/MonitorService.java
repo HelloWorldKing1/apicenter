@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -49,6 +50,9 @@ public class MonitorService {
     private final CallLogRepository callLogRepository;
     private final InterfaceRepository interfaceRepository;
 
+    /** 逐行事务模板（TTL 降级：状态 + 审计两写必须同成败；见 downgradeExpiredUnknown 注释） */
+    private final org.springframework.transaction.support.TransactionTemplate txTemplate;
+
     /** UNKNOWN 超时自动降级时长（分钟，M0-03 §3.1；已有配置项，M4 消费） */
     @Value("${app.api-center.unknown-ttl-minutes:10}")
     private long unknownTtlMinutes;
@@ -59,7 +63,8 @@ public class MonitorService {
                           DeadLetterRepository deadLetterRepository,
                           AlertEventRepository alertEventRepository,
                           CallLogRepository callLogRepository,
-                          InterfaceRepository interfaceRepository) {
+                          InterfaceRepository interfaceRepository,
+                          org.springframework.transaction.PlatformTransactionManager txManager) {
         this.outboundRequestRepository = outboundRequestRepository;
         this.inboundDeliveryRepository = inboundDeliveryRepository;
         this.reconcileAuditRepository = reconcileAuditRepository;
@@ -67,6 +72,7 @@ public class MonitorService {
         this.alertEventRepository = alertEventRepository;
         this.callLogRepository = callLogRepository;
         this.interfaceRepository = interfaceRepository;
+        this.txTemplate = new org.springframework.transaction.support.TransactionTemplate(txManager);
     }
 
     // ---------- 对账（D-M4-2） ----------
@@ -75,7 +81,11 @@ public class MonitorService {
      * 人工对账置位（M0-03 C3 M2 范围补缺）：仅 UNKNOWN 可操作；
      * SUCCESS → 收敛（error_code 清空）；COMPENSATING → next_retry_at=now 立即入队由 worker 重放。
      * 审计落 reconcile_audit（source=MANUAL）——管理面无用户体系（M1 现状），operator 由前端弹窗填写。
+     *
+     * <p>@Transactional（2026-09-18 补，代码评审 P2）：本方法含 2~3 次写（状态 / 审计），
+     * 原先无事务可能造成「状态改了、审计缺了」的不可对账现场。
      */
+    @Transactional
     public OutboundRequestRow reconcile(long outboundRequestId, String target, String operator, String reason) {
         if (!"SUCCESS".equals(target) && !"COMPENSATING".equals(target)) {
             throw BizException.fieldInvalid("对账目标仅允许 SUCCESS / COMPENSATING，当前：" + target);
@@ -110,21 +120,36 @@ public class MonitorService {
     /**
      * TTL 超时自动降级（M0-03 §3.1 分支二，CompensationWorker 周期调用）：
      * UNKNOWN 持续超 unknown_ttl → 自动转 COMPENSATING（error_code 保持 50401 保留超时成因）+ 审计（source=TTL）。
+     *
+     * <p><b>逐行事务</b>（2026-09-18 评审 P3#5）：原先「状态降级 + 审计落库」两写无事务，
+     * 一旦审计写失败，该行已不再处于 UNKNOWN → 下轮扫描不会重试，审计**永久缺失**。
+     * 这里用 `TransactionTemplate` 按行包裹（不用方法级 `@Transactional`：那会让单行失败回滚整批，
+     * 丧失批处理的部分进度）；单行异常仍然隔离记录，不影响其余行。
      */
     public int downgradeExpiredUnknown() {
         LocalDateTime expireBefore = LocalDateTime.now().minusMinutes(unknownTtlMinutes);
         List<OutboundRequestRow> expired = outboundRequestRepository.findUnknownExpired(expireBefore);
+        int downgraded = 0;
         for (OutboundRequestRow row : expired) {
-            // attempt 清零（同 reconcile COMPENSATING 分支：降级记录需新预算才有机会重放）
-            outboundRequestRepository.degradeUnknownToCompensating(row.id(),
-                    LocalDateTime.now().plusSeconds(TTL_RETRY_INTERVAL_SECONDS),
-                    OutboundRequestRepository.TRIGGER_TTL_DOWNGRADE,
-                    "UNKNOWN 超过 " + unknownTtlMinutes + " 分钟自动降级（重放依赖供应商幂等，ADR 5）");
-            reconcileAuditRepository.insert(row.id(), "UNKNOWN", "COMPENSATING", "TTL",
-                    "TTL-WORKER", "UNKNOWN 超过 " + unknownTtlMinutes + " 分钟自动降级（重放依赖供应商幂等，ADR 5）");
-            log.info("UNKNOWN 超时降级 outbound_request {}（updated_at 超 {} 分钟）→ COMPENSATING", row.id(), unknownTtlMinutes);
+            try {
+                txTemplate.executeWithoutResult(status -> {
+                    // attempt 清零（同 reconcile COMPENSATING 分支：降级记录需新预算才有机会重放）
+                    outboundRequestRepository.degradeUnknownToCompensating(row.id(),
+                            LocalDateTime.now().plusSeconds(TTL_RETRY_INTERVAL_SECONDS),
+                            OutboundRequestRepository.TRIGGER_TTL_DOWNGRADE,
+                            "UNKNOWN 超过 " + unknownTtlMinutes + " 分钟自动降级（重放依赖供应商幂等，ADR 5）");
+                    reconcileAuditRepository.insert(row.id(), "UNKNOWN", "COMPENSATING", "TTL",
+                            "TTL-WORKER", "UNKNOWN 超过 " + unknownTtlMinutes + " 分钟自动降级（重放依赖供应商幂等，ADR 5）");
+                });
+                downgraded++;
+                log.info("UNKNOWN 超时降级 outbound_request {}（updated_at 超 {} 分钟）→ COMPENSATING",
+                        row.id(), unknownTtlMinutes);
+            } catch (Exception e) {
+                // 单行隔离：一行失败不回滚整批（已提交的行保持降级结果）
+                log.warn("UNKNOWN 超时降级失败 outbound_request {}（该行下轮重扫）", row.id(), e);
+            }
         }
-        return expired.size();
+        return downgraded;
     }
 
     /** 对账审计查询（监控页 / 手动验收查证） */
@@ -139,7 +164,11 @@ public class MonitorService {
      * OUTBOUND → outbound_request 置回 COMPENSATING + attempt=0；INBOUND → inbound_delivery 置回 PENDING
      * + attempt=0（payload / callback_url_snapshot 不变）；dead_letter → HANDLED + handled_at。
      * 仅 PENDING 死信可重放（防重）；出站重放自然经熔断闸门。
+     *
+     * <p>@Transactional（2026-09-18 补，代码评审 P2）：运行行状态重置与死信置 HANDLED 必须同成败，
+     * 否则可能「死信已 HANDLED、运行行没复位」（丢重放）或反之（重复重放）。
      */
+    @Transactional
     public void replayDeadLetter(long deadLetterId) {
         DeadLetterRepository.DeadLetterView dead = deadLetterRepository.findById(deadLetterId)
                 .orElseThrow(() -> BizException.fieldInvalid("死信不存在：" + deadLetterId));
@@ -217,6 +246,14 @@ public class MonitorService {
         CacheEntry<?> hit = statsCache.get(key);
         if (hit != null && hit.expireAt() > now) {
             return (T) hit.value();
+        }
+        // 有界（2026-09-18 补，代码评审 P2）：key 含用户可控 appId，原实现只增不洮 → 先清过期，再兜底限容
+        if (statsCache.size() > 200) {
+            statsCache.entrySet().removeIf(e -> e.getValue().expireAt() < now);
+            if (statsCache.size() > 500) {
+                statsCache.clear();
+                log.warn("监控统计缓存超限，已清空（key 含用户输入的 appId，防止无界增长）");
+            }
         }
         T fresh = loader.get();
         statsCache.put(key, new CacheEntry<>(fresh, now + STATS_CACHE_TTL_MS));

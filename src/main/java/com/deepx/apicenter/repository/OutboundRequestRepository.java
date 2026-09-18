@@ -397,12 +397,26 @@ public class OutboundRequestRepository {
         return jdbc.update("UPDATE outbound_request SET error_code = NULL WHERE id = ?", id);
     }
 
-    /** 死信落库（设计 §6.1：4xx / 重试耗尽 / 补偿耗尽） */
-    public void insertDeadLetter(String bizType, long refId, String reason, String payload) {
-        jdbc.update("""
-                INSERT INTO dead_letter (biz_type, ref_id, reason, payload, status)
-                VALUES (?, ?, ?, ?, 'PENDING')
-                """, bizType, refId, reason, payload);
+    /**
+     * 死信落库（设计 §6.1：4xx / 重试耗尽 / 补偿耗尽）；返回 **dead_letter.id**
+     * （2026-09-18 修复，评审 P3：原返回 void，调用方只能拿 outbound_request.id 冒充「死信编号」，
+     * 会让运维拿错 id 去重放）。
+     */
+    public long insertDeadLetter(String bizType, long refId, String reason, String payload) {
+        KeyHolder kh = new GeneratedKeyHolder();
+        jdbc.update(con -> {
+            PreparedStatement ps = con.prepareStatement("""
+                    INSERT INTO dead_letter (biz_type, ref_id, reason, payload, status)
+                    VALUES (?, ?, ?, ?, 'PENDING')
+                    """, Statement.RETURN_GENERATED_KEYS);
+            ps.setString(1, bizType);
+            ps.setLong(2, refId);
+            ps.setString(3, reason);
+            ps.setString(4, payload);
+            return ps;
+        }, kh);
+        Number key = kh.getKey();
+        return key == null ? -1 : key.longValue();
     }
 
     /** 死信计数（并发双扫防重复插入：补偿 worker 可被调度与测试手动并发调用，同一记录至多一条死信） */

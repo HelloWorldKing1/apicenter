@@ -96,9 +96,10 @@ public class XmlProtocolAdapter implements Adapter {
             ctx.payload().root(ObjectNode.of());
             return ctx;
         }
+        XMLStreamReader reader = null;
         try {
             rejectDtd(raw);
-            XMLStreamReader reader = inputFactory.createXMLStreamReader(new ByteArrayInputStream(raw));
+            reader = inputFactory.createXMLStreamReader(new ByteArrayInputStream(raw));
             // 前进到根元素（StAX 初始状态为 START_DOCUMENT，此时 getLocalName 不可用；
             // 跳过注释 / 处理指令，声明头由解析器自动消费）
             int ev;
@@ -119,6 +120,15 @@ public class XmlProtocolAdapter implements Adapter {
             throw e;
         } catch (Exception e) {
             throw new BizException(40002, "报文格式非法：" + e.getMessage());
+        } finally {
+            // 2026-09-18 修复（评审 P3）：XMLStreamReader 未关闭（StAX 规范要求显式 close）
+            if (reader != null) {
+                try {
+                    reader.close();
+                } catch (Exception ignored) {
+                    // 关闭失败不影响已解析结果
+                }
+            }
         }
     }
 

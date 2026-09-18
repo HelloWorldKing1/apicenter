@@ -42,9 +42,28 @@ class MonitorServiceTest {
     private final CallLogRepository callLogRepository = mock(CallLogRepository.class);
     private final InterfaceRepository interfaceRepository = mock(InterfaceRepository.class);
 
+    /** 直通事务管理器（单测不关心事务语义：只要求 getTransaction/commit/rollback 不阻执行） */
+    private static org.springframework.transaction.PlatformTransactionManager passthroughTxManager() {
+        return new org.springframework.transaction.PlatformTransactionManager() {
+            @Override
+            public org.springframework.transaction.TransactionStatus getTransaction(
+                    org.springframework.transaction.TransactionDefinition definition) {
+                return new org.springframework.transaction.support.SimpleTransactionStatus();
+            }
+
+            @Override
+            public void commit(org.springframework.transaction.TransactionStatus status) {
+            }
+
+            @Override
+            public void rollback(org.springframework.transaction.TransactionStatus status) {
+            }
+        };
+    }
+
     private final MonitorService service = new MonitorService(outboundRequestRepository,
             inboundDeliveryRepository, reconcileAuditRepository, deadLetterRepository,
-            alertEventRepository, callLogRepository, interfaceRepository);
+            alertEventRepository, callLogRepository, interfaceRepository, passthroughTxManager());
 
     private OutboundRequestRow unknownRow(long id) {
         return new OutboundRequestRow(id, 7L, "APP", "BIZ-1", "{}", null, null,

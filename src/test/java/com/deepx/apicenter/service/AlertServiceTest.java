@@ -37,6 +37,17 @@ class AlertServiceTest {
     }
 
     @Test
+    void 冷却期内不重复_evictRule后可立即再触发() {
+        // 2026-09-18 修复回归：冷却键为 "rule:<id>"，原 evictRule 用 endsWith("#<id>") 永不命中 →
+        // 删规则后冷却记录残留（下面第三步会因冷却未清而直接 false）
+        AlertRuleRow r = rule(7, "dead_letter_backlog", "> 100");
+        assertThat(service.evaluateAndFire(r, 150.0)).isTrue();    // 首次命中
+        assertThat(service.evaluateAndFire(r, 150.0)).isFalse();   // 冷却期内不重复
+        service.evictRule(7);                                     // 规则删除时应能清掉冷却记录
+        assertThat(service.evaluateAndFire(r, 150.0)).isTrue();    // 清理后可立即再触发
+    }
+
+    @Test
     void 表达式命中_落库告警事件() {
         boolean fired = service.evaluateAndFire(rule(1, "dead_letter_backlog", "> 100"), 150.0);
         assertThat(fired).isTrue();
