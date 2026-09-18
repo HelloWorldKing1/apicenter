@@ -48,6 +48,7 @@ API 三方接口统一调用平台组件 —— 只做 **连接 + 适配 + 可�
 | 里程碑计划 | [doc/开发文档/](src/main/resources/doc/开发文档/) | M3 / M4 / M5 开发计划（D-M3-1~4、D-M4-1~6、D-M5-1~3 即编码依据；M3/M4 已实施，M5 已定稿待开工） |
 | 手动验收方案 | [doc/开发文档/](src/main/resources/doc/开发文档/) | M2 / M3 / M4 手动验收测试方案（本地 WireMock stub 随仓库 `src/test/resources/`） |
 | 端到端演示方案 | [端到端闭环演示方案.md](src/main/resources/doc/开发文档/端到端闭环演示方案.md) | 从界面配置到真实供应商（evoLink）/ 真实 XML 闭环的完整演示脚本；每环节给原理 / 设计思路 / 实现方式 |
+| 前置编排真实接口案例 | [前置接口编排真实接口案例（FastMoss + evoLink）.md](src/main/resources/doc/开发文档/前置接口编排真实接口案例（FastMoss + evoLink）.md) | 用真实供应商（FastMoss 达人列表 / evoLink 生图）做前置接口的手动测试：命名空间引用、数组限制正解、失败码、可判别断言与 stub 回放 |
 | 前置接口编排（方案稿） | [前置接口编排设计方案.md](src/main/resources/doc/开发文档/前置接口编排设计方案.md) | **PS-1..PS-9 已落地（2026-09-18）**：`interface_step` 配置子表 + `PreStepExecutor` + `ResponseJudger` + 前端「前置步骤」Tab；含落地记录（§0）、与文档偏差、待拍板项 |
 | 代码评审记录 | [doc/开发文档/](src/main/resources/doc/开发文档/) | M2 / M3 四路评审问题清单与修复进度 |
 | 踩坑记录 | [技术踩坑记录.md](src/main/resources/doc/开发文档/技术踩坑记录.md) | Spring 7 / Jackson 3 / WireMock 3 API 差异与经验（写代码前先查） |
