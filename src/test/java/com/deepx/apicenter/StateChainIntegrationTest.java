@@ -299,8 +299,10 @@ class StateChainIntegrationTest {
         // 上游恢复 200：若给了补偿预算，scan 应当重放成功；max_retries=0 则连试都不试
         wireMock.resetAll(); // 清 stub + 请求计数（下一步用 0 计数证明「零补偿尝试」）
         stubFor(post("/up-exh").willReturn(okJson("{\"data\":{},\"code\":\"0\"}")));
-        // 5xx 分类器把 next_retry_at 置为 now+3s → 手动置到期（不等 3s；与本类其它用例同款手法）
-        jdbcTemplate.update("UPDATE outbound_request SET next_retry_at = NOW() WHERE id = ?", row.id());
+        // 5xx 分类器把 next_retry_at 置为 now+3s → 手动置为**过去**时间（不等 3s；
+        // 且避免用 NOW()：远程库与应用的时钟偏差会让它落入未来 → 扫描不命中，用例发捣）
+        jdbcTemplate.update("UPDATE outbound_request SET next_retry_at = NOW() - INTERVAL 5 SECOND WHERE id = ?",
+                row.id());
         compensationWorker.scan();
 
         OutboundRequestRow after = outboundRequestRepository.findById(row.id()).orElseThrow();

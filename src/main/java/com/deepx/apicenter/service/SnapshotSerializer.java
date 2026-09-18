@@ -6,6 +6,7 @@ import com.deepx.apicenter.dto.InterfaceDtos.FieldDefDto;
 import com.deepx.apicenter.dto.InterfaceDtos.InterfaceRequest;
 import com.deepx.apicenter.dto.InterfaceDtos.MappingDto;
 import com.deepx.apicenter.dto.InterfaceDtos.ParamDto;
+import com.deepx.apicenter.dto.InterfaceDtos.StepDto;
 import com.deepx.apicenter.model.InterfaceRow;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -19,7 +20,7 @@ import java.util.List;
 
 /**
  * 接口配置快照序列化器（M5 D-M5-1）：
- * - config_json ↔ 六段（main / params / bodies / mappings / fieldDefs / bindings）完整可重建；
+ * - config_json ↔ 七段（main / params / bodies / mappings / fieldDefs / bindings / **steps**）完整可重建；
  * - 不含 status（回滚不动生命周期）；含 appId / groupId（换过应用的接口回滚不恢复错归属）；
  * - 解析按显式键取值、数组缺省容忍、未知字段忽略（向前兼容，防结构漂移）。
  * 保护网：SnapshotSerializerTest 往返等价（加子表 / 加字段必须同步本类并回改该测试）。
@@ -40,7 +41,9 @@ public class SnapshotSerializer {
                          List<InterfaceRow.BodyRow> bodies,
                          List<InterfaceRow.MappingRow> mappings,
                          List<InterfaceRow.FieldDefRow> fieldDefs,
-                         List<InterfaceRow.BindingRow> bindings) {
+                         List<InterfaceRow.BindingRow> bindings,
+                         /** 前置步骤（编排，第七段）；调用方须传实参——不留默认重载，避免静默丢步骤 */
+                         List<InterfaceRow.StepView> steps) {
         ObjectNode root = objectMapper.createObjectNode();
         ObjectNode main = root.putObject("main");
         main.put("code", nz(row.code()));
@@ -102,13 +105,40 @@ public class SnapshotSerializer {
             n.put("adapterId", nz(b.adapterId()));
             n.put("version", nz(b.version()));
         }
+        // 前置步骤（编排，第七段）：存 targetCode（跨环境 / 跨库可移植；回滚时解析回 id）
+        ArrayNode stepsArr = root.putArray("steps");
+        for (InterfaceRow.StepView s : steps) {
+            ObjectNode n = stepsArr.addObject();
+            n.put("seq", s.seq());
+            n.put("stepCode", s.stepCode());
+            n.put("targetCode", s.targetCode());
+            n.put("failurePolicy", nz(s.failurePolicy()));
+            n.put("enabled", s.enabled());
+        }
         return root.toString();
     }
 
     // ---------- 反序列化：config_json → InterfaceRequest（回滚走既有全量替换路径） ----------
 
+    /**
+     * targetCode → id 解析器（回滚专用）：快照里只存 code（跨环境 / 跨库可移植），
+     * 回滚时由调用方（拥有仓储的 InterfaceService）解析回 id，解析失败必须报 40001。
+     * 用函数式参数而非直接依赖仓储：本类保持纯序列化器，单测无需 Spring / 数据。
+     */
+    @FunctionalInterface
+    public interface StepTargetResolver {
+        long resolve(String targetCode);
+    }
+
     /** 回滚专用：version 由调用方（乐观锁 currentVersion）传入；status 快照不含，由 update 保留当前值 */
     public InterfaceRequest toRequest(String configJson, BigDecimal version) {
+        return toRequest(configJson, version, code -> {
+            throw com.deepx.apicenter.exception.BizException.fieldInvalid("快照引用的前置接口不存在：" + code);
+        });
+    }
+
+    /** 同 {@link #toRequest(String, BigDecimal)}；steps 的 targetCode 经 resolver 解析回 id */
+    public InterfaceRequest toRequest(String configJson, BigDecimal version, StepTargetResolver resolver) {
         JsonNode root;
         try {
             root = objectMapper.readTree(configJson);
@@ -121,6 +151,7 @@ public class SnapshotSerializer {
         List<MappingDto> mappings = parseMappings(root.path("mappings"));
         List<FieldDefDto> fieldDefs = parseFieldDefs(root.path("fieldDefs"));
         List<BindingDto> bindings = parseBindings(root.path("bindings"));
+        List<StepDto> steps = parseSteps(root.path("steps"), resolver);
         return new InterfaceRequest(
                 text(main, "code"), text(main, "name"), text(main, "ifType"), text(main, "method"),
                 text(main, "path"), text(main, "protocolIn"), text(main, "protocolOut"),
@@ -129,7 +160,28 @@ public class SnapshotSerializer {
                 null, // status：快照不含，回滚保留当前生命周期状态
                 main.path("timeoutMs").asInt(3000), main.path("maxRetries").asInt(4),
                 nullable(main, "desc"),
-                version, params, bodies, mappings, fieldDefs, bindings);
+                version, params, bodies, mappings, fieldDefs, bindings, steps);
+    }
+
+    /**
+     * 前置步骤解析（编排）：快照存 targetCode（跨环境可移植）→ 回滚时经 resolver 解析回 id；
+     * 解析失败直接 40001（不静默丢步骤）。旧快照无 steps 字段 → 空表（向前兼容）。
+     */
+    private List<StepDto> parseSteps(JsonNode arr, StepTargetResolver resolver) {
+        List<StepDto> out = new ArrayList<>();
+        if (arr == null || !arr.isArray()) {
+            return out;
+        }
+        for (JsonNode n : arr) {
+            String targetCode = nullable(n, "targetCode");
+            Long targetId = null;
+            if (targetCode != null && !targetCode.isBlank()) {
+                targetId = resolver.resolve(targetCode);
+            }
+            out.add(new StepDto(intOrNull(n, "seq"), text(n, "stepCode"), targetId,
+                    text(n, "failurePolicy"), n.path("enabled").asBoolean(true), targetCode, null));
+        }
+        return out;
     }
 
     private List<ParamDto> parseParams(JsonNode arr) {

@@ -44,7 +44,7 @@
 <body>
 <div class="topbar">
   <h1>API 中心 · 表结构设计</h1>
-  <p>依据《API中心设计方案.md》《API中心原型.html》整理 · 共 19 张表：配置类 11 张 + 运行类 8 张（M4 新增 17/18 对账审计与告警事件；M5 后新增 19 状态流转历史）· 生产 MySQL 8.0 InnoDB</p>
+  <p>依据《API中心设计方案.md》《API中心原型.html》整理 · 共 20 张表：配置类 12 张 + 运行类 8 张（M4 新增 17/18 对账审计与告警事件；M5 后新增 19 状态流转历史；前置编排新增 20 前置步骤，只增配置不动运行表）· 生产 MySQL 8.0 InnoDB</p>
 </div>
 <div class="wrap">
 
@@ -75,6 +75,7 @@
     <li><a href="#t-reconcile">reconcile_audit 对账审计</a></li>
     <li><a href="#t-alertevent">alert_event 告警事件</a></li>
     <li><a href="#t-statelog">outbound_request_state_log 出站状态流转历史</a></li>
+    <li><a href="#t-step">interface_step 接口前置步骤（编排）</a></li>
   </ol>
 </div>
 
@@ -449,6 +450,26 @@
   <div class="t-desc" style="padding-bottom:14px">埋点收敛在 OutboundRequestRepository.transition()：仅 status 真正变化时追加（from≠to）；from==to 的顺延（如熔断期 COMPENSATING→COMPENSATING 只改 next_retry_at）不产生节点。设计详见《API中心设计方案.md》§4.6。</div>
 </section>
 
+<!-- ============ 20. interface_step ============ -->
+<section class="table" id="t-step">
+  <div class="t-head"><span class="no">20</span><h2>接口前置步骤（编排）</h2><span class="en">interface_step</span></div>
+  <div class="t-desc">宿主接口（仅 <a href="#t-iface">interface</a>.if_type = OUTBOUND）在自身链的 MAPPING 前，按 seq 升序<b>串行</b>调用 target_interface_id 指向的另一个出站接口，其结果合入模型命名空间 <span class="mono">steps.&lt;step_code&gt;.&lt;field&gt;</span> 供宿主的字段映射 / condition 引用（如取 token / 主数据 / 额度校验后，再调第三方）。复用前置接口的链 / 凭证 / 短重试 / 熔断 / 协议 / 日志，<b>不</b>复用其补偿与对账状态机（长重试由宿主驱动）。</div>
+  <table class="f">
+    <tr><th style="width:22%">字段</th><th style="width:20%">类型</th><th style="width:14%">约束</th><th>说明</th></tr>
+    <tr><td class="c pk">id</td><td class="c">BIGINT</td><td>PK 自增</td><td>主键</td></tr>
+    <tr><td class="c ref">interface_id</td><td class="c">BIGINT</td><td>NOT NULL</td><td>宿主接口（仅 OUTBOUND）；UK(interface_id, step_code)</td></tr>
+    <tr><td class="c">seq</td><td class="c">INT</td><td>NOT NULL DEFAULT 0</td><td>执行顺序（升序；顺序敏感——先取 token 再带上 token）</td></tr>
+    <tr><td class="c">step_code</td><td class="c">VARCHAR(32)</td><td>NOT NULL</td><td>步骤名（同接口内唯一；= <span class="mono">steps.&lt;步骤名&gt;</span> 命名空间与日志标识）</td></tr>
+    <tr><td class="c ref">target_interface_id</td><td class="c">BIGINT</td><td>NOT NULL</td><td>前置接口（必须 OUTBOUND 且已发布）；<b>存数字主键</b>——interface.code 可被修改，存 code 会静默断链</td></tr>
+    <tr><td class="c">failure_policy</td><td class="c">VARCHAR(16)</td><td>NOT NULL DEFAULT 'ABORT'</td><td>失败策略（一期仅 ABORT = 阻断后续；CONTINUE / FALLBACK 二期）</td></tr>
+    <tr><td class="c">enabled</td><td class="c">TINYINT(1)</td><td>NOT NULL DEFAULT 1</td><td>停用 = 保留配置不执行</td></tr>
+    <tr><td class="c">created_at</td><td class="c">DATETIME</td><td>NOT NULL DEFAULT CURRENT_TIMESTAMP</td><td>创建时间</td></tr>
+    <tr><td class="c">updated_at</td><td class="c">DATETIME</td><td>NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP</td><td>更新时间</td></tr>
+  </table>
+  <div class="idx"><b>索引</b>：PK(id)，UNIQUE(interface_id, step_code)，INDEX(target_interface_id)</div>
+  <div class="t-desc" style="padding-bottom:14px">保存期校验（服务端权威）：宿主仅 OUTBOUND；步数 ≤5；步骤名 <span class="mono">^[A-Za-z0-9_]&#123;1,32&#125;$</span> 且不得为保留名 steps；目标必须 OUTBOUND + PUBLISHED 且非自身；<b>环检测 + 解析链长度 ≤3（节点数，含宿主）</b>；同时禁止将 <span class="mono">steps</span> 用作 IN 参数名 / 映射 target 名。运行期另有嵌套深度防线（preCallDepth ≥3 即拒）。<br><b>快照</b>：随 interface_snapshot.config_json 的 <span class="mono">steps</span> 段存 <span class="mono">targetCode</span>（跨环境可移植），回滚时解析回 id，解析失败报 40001（不静默丢步骤）。<br><b>删除策略</b>：宿主删除时级联删本表行；被引为前置的接口<b>禁止删除</b>（提示引用方），OFFLINE 允许但服务端返回 warnings 强提示。设计详见《开发文档/前置接口编排设计方案.md》。</div>
+</section>
+
 <!-- ============ 附录 A ============ -->
 <h3 class="apx">附录 A · 状态与枚举汇总</h3>
 <section class="table">
@@ -471,7 +492,7 @@
     <tr><td class="c">call_log.direction</td><td class="c">IN / OUT</td><td>入站 / 出站</td></tr>
     <tr><td class="c">reconcile_audit.source</td><td class="c">MANUAL / TTL</td><td>人工置位 / 超时自动降级（M0-03 §3 对账三分支）</td></tr>
     <tr><td class="c">alert_event.level</td><td class="c">WARN / CRITICAL</td><td>告警级别</td></tr>
-    <tr><td class="c">outbound_request_state_log.trigger</td><td class="c">FIRST_SEND / COMPENSATE / CIRCUIT_OPEN / RECONCILE_MANUAL / TTL_DOWNGRADE / REPLAY / EXHAUSTED</td><td>状态转移触发来源（M5 后状态链）</td></tr>
+    <tr><td class="c">outbound_request_state_log.trigger</td><td class="c">FIRST_SEND / COMPENSATE / CIRCUIT_OPEN / RECONCILE_MANUAL / TTL_DOWNGRADE / REPLAY / EXHAUSTED / PRE_STEP</td><td>状态转移触发来源（M5 后状态链；PRE_STEP = 前置步骤留痕，同态 INIT→INIT）</td></tr>
   </table>
 </section>
 

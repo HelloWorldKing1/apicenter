@@ -74,6 +74,11 @@ public class InterfaceRepository {
         return jdbc.query(SELECT_SQL + " WHERE i.id = ?", InterfaceRow.MAPPER, id).stream().findFirst();
     }
 
+    /** 按接口标识查（编排：快照回滚按 targetCode 解析回 id；回滚失败要报 40001 而不是静默丢步骤） */
+    public Optional<InterfaceRow> findByCode(String code) {
+        return jdbc.query(SELECT_SQL + " WHERE i.code = ?", InterfaceRow.MAPPER, code).stream().findFirst();
+    }
+
     /** 平台侧路径路由（执行面 M2 接入层用） */
     public Optional<InterfaceRow> findByPath(String path) {
         return jdbc.query(SELECT_SQL + " WHERE i.path = ?", InterfaceRow.MAPPER, path).stream().findFirst();
@@ -153,7 +158,7 @@ public class InterfaceRepository {
         return jdbc.update("UPDATE interface SET status = ? WHERE id = ?", status, id);
     }
 
-    /** 级联删除：6 张配置子表 + 主表（前提：service 已校验无运行数据） */
+    /** 级联删除：7 张配置子表 + 主表（前提：service 已校验无运行数据） */
     public void deleteCascade(long id) {
         jdbc.update("DELETE FROM interface_snapshot WHERE interface_id = ?", id);
         jdbc.update("DELETE FROM interface_param WHERE interface_id = ?", id);
@@ -161,6 +166,7 @@ public class InterfaceRepository {
         jdbc.update("DELETE FROM interface_field_mapping WHERE interface_id = ?", id);
         jdbc.update("DELETE FROM interface_field_def WHERE interface_id = ?", id);
         jdbc.update("DELETE FROM interface_adapter_binding WHERE interface_id = ?", id);
+        jdbc.update("DELETE FROM interface_step WHERE interface_id = ?", id);
         jdbc.update("DELETE FROM interface WHERE id = ?", id);
     }
 
@@ -171,6 +177,7 @@ public class InterfaceRepository {
         jdbc.update("DELETE FROM interface_field_mapping WHERE interface_id = ?", interfaceId);
         jdbc.update("DELETE FROM interface_field_def WHERE interface_id = ?", interfaceId);
         jdbc.update("DELETE FROM interface_adapter_binding WHERE interface_id = ?", interfaceId);
+        jdbc.update("DELETE FROM interface_step WHERE interface_id = ?", interfaceId);
     }
 
     // ---------- 子表查询 ----------
@@ -197,6 +204,58 @@ public class InterfaceRepository {
     public List<InterfaceRow.BindingRow> findBindings(long interfaceId) {
         return jdbc.query("SELECT * FROM interface_adapter_binding WHERE interface_id = ?",
                 InterfaceRow.BindingRow.MAPPER, interfaceId);
+    }
+
+    /**
+     * 前置步骤（interface_step）+ 目标展示字段（LEFT JOIN：目标缺失也要能看到行，由校验/运行时拦截）。
+     * 装配期一次读取并烘焙进缓存链（M5 D-M5-2）；管理面 detail 复用同一查询拿 targetCode/Name。
+     */
+    public List<InterfaceRow.StepView> findSteps(long interfaceId) {
+        return jdbc.query("""
+                SELECT s.*, t.code AS target_code, t.name AS target_name,
+                       t.status AS target_status, t.if_type AS target_if_type
+                FROM interface_step s
+                LEFT JOIN interface t ON t.id = s.target_interface_id
+                WHERE s.interface_id = ?
+                ORDER BY s.seq, s.id
+                """, InterfaceRow.StepView.MAPPER, interfaceId);
+    }
+
+    /** 列表角标：批量统计各接口的前置步骤数（一次 IN 查询，避免 N+1；与凭证角标同款手法） */
+    public java.util.Map<Long, Integer> countStepsByInterfaces(java.util.List<Long> interfaceIds) {
+        if (interfaceIds == null || interfaceIds.isEmpty()) {
+            return java.util.Map.of();
+        }
+        String placeholders = String.join(",", java.util.Collections.nCopies(interfaceIds.size(), "?"));
+        java.util.Map<Long, Integer> out = new java.util.HashMap<>();
+        jdbc.query("SELECT interface_id, COUNT(*) AS c FROM interface_step WHERE interface_id IN ("
+                        + placeholders + ") GROUP BY interface_id",
+                // 显式声明为 RowCallbackHandler：否则与 ResultSetExtractor 重载二义
+                (org.springframework.jdbc.core.RowCallbackHandler) rs ->
+                        out.put(rs.getLong("interface_id"), rs.getInt("c")),
+                interfaceIds.toArray());
+        return out;
+    }
+
+    /** 被引为前置的次数（删除 / 下线守卫用） */
+    public int countReferencedBySteps(long targetInterfaceId) {
+        Integer n = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM interface_step WHERE target_interface_id = ?",
+                Integer.class, targetInterfaceId);
+        return n == null ? 0 : n;
+    }
+
+    /** 引用方明细（删除守卫的报错文案：「接口被 N 个前置步骤引用：IF-X(步骤 auth)、…」） */
+    public List<InterfaceRow.StepRefView> findStepRefsByTarget(long targetInterfaceId) {
+        return jdbc.query("""
+                SELECT s.interface_id AS host_interface_id, h.code AS host_code, s.step_code
+                FROM interface_step s
+                LEFT JOIN interface h ON h.id = s.interface_id
+                WHERE s.target_interface_id = ?
+                ORDER BY s.interface_id, s.seq
+                """, (rs, i) -> new InterfaceRow.StepRefView(
+                        rs.getLong("host_interface_id"), rs.getString("host_code"), rs.getString("step_code")),
+                targetInterfaceId);
     }
 
     // ---------- 子表写入（全量重建） ----------
@@ -249,5 +308,15 @@ public class InterfaceRepository {
     /** 删除适配器时绑定引用置 NULL（schema.sql 删除策略） */
     public int clearBindingRefs(String adapterId) {
         return jdbc.update("UPDATE interface_adapter_binding SET adapter_id = NULL WHERE adapter_id = ?", adapterId);
+    }
+
+    /** 写入前置步骤（全量重建；步骤引用的完整性由 service 校验） */
+    public void insertSteps(long interfaceId, List<InterfaceRow.StepRow> rows) {
+        for (InterfaceRow.StepRow r : rows) {
+            jdbc.update("""
+                    INSERT INTO interface_step (interface_id, seq, step_code, target_interface_id, failure_policy, enabled)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """, interfaceId, r.seq(), r.stepCode(), r.targetInterfaceId(), r.failurePolicy(), r.enabled());
+        }
     }
 }

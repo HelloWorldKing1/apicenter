@@ -130,19 +130,21 @@ public class InterfaceController {
         byte[] raw = body == null || body.length == 0
                 ? "{}".getBytes(StandardCharsets.UTF_8)
                 : body;
+        String traceId = "TEST-" + UUID.randomUUID().toString().substring(0, 8);
         try {
-            ApiResult<?> result = outboundEngine.execute(iface, raw,
-                    "TEST-" + UUID.randomUUID().toString().substring(0, 8), null);
-            return traced(id, result);
+            ApiResult<?> result = outboundEngine.execute(iface, raw, traceId, null);
+            return traced(id, result, traceId);
         } finally {
             // 调试端点直调引擎不经网关：按 CallLogContext 清理契约自行清理
             // （有意不落 IN 条 call_log——避免调试流量污染成功率口径；OUT 条经 Invoker 切面照常落库）
             com.deepx.apicenter.aspect.CallLogContext.clear();
+            com.deepx.apicenter.engine.PreStepTrace.clear();   // 步骤留痕兜底清理（traced 已 drain）
         }
     }
 
-    /** M5：出站测试结果包一层 {chainTrace, result}（保留原 code/msg——业务失败信封语义不变） */
-    private ApiResult<?> traced(long interfaceId, ApiResult<?> result) {
+    /** M5：出站测试结果包一层 {chainTrace, steps, result}（保留原 code/msg——业务失败信封语义不变）。
+     *  steps = 本次真实执行的前置步骤留痕（PS-6 留痕通道 3），读后清理（与 CallLogContext 同纪律）。 */
+    private ApiResult<?> traced(long interfaceId, ApiResult<?> result, String traceId) {
         ArrayNode traceArr = objectMapper.createArrayNode();
         for (ChainEngine.ChainTraceItem t : chainEngine.traceOf(interfaceId)) {
             ObjectNode n = traceArr.addObject();
@@ -153,6 +155,17 @@ public class InterfaceController {
         }
         ObjectNode data = objectMapper.createObjectNode();
         data.set("chainTrace", traceArr);
+        ArrayNode stepArr = data.putArray("steps");
+        for (com.deepx.apicenter.engine.PreStepTrace.Item item
+                : com.deepx.apicenter.engine.PreStepTrace.drain(traceId)) {
+            ObjectNode n = stepArr.addObject();
+            n.put("stepCode", item.stepCode());
+            n.put("targetCode", item.targetCode());
+            n.put("policy", item.policy());
+            n.put("httpStatus", item.httpStatus());
+            n.put("latencyMs", item.latencyMs());
+            n.put("outcome", item.outcome());
+        }
         data.set("result", result.data() instanceof JsonNode jn ? jn : objectMapper.nullNode());
         return new ApiResult<>(result.code(), result.msg(), data);
     }
@@ -215,10 +228,12 @@ public class InterfaceController {
         return ApiResult.ok();
     }
 
+    /** 下线（D-PS-10）：data 返回「该接口被哪些前置步骤引用」的强提示（不阻断生命周期；
+     *  宿主侧运行时会硬失败 40001，而非静默降级跳过前置）。 */
     @PostMapping("/{id}/offline")
-    public ApiResult<Void> offline(@PathVariable long id) {
+    public ApiResult<List<String>> offline(@PathVariable long id) {
         interfaceService.offline(id);
-        return ApiResult.ok();
+        return ApiResult.ok(interfaceService.offlineWarnings(id));
     }
 
     @DeleteMapping("/{id}")

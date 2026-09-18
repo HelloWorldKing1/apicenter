@@ -15,6 +15,7 @@
 5. [入站回调链路](#5-入站回调链路)
 6. [测试接口与模拟回调](#6-测试接口与模拟回调)
 7. [版本历史、回滚与复制](#7-版本历史回滚与复制)
+7.5 [前置步骤（接口编排）](#75-前置步骤接口编排)
 8. [监控与容错运维](#8-监控与容错运维)
 9. [调用速查（curl）](#9-调用速查curl)
 10. [开发与测试](#10-开发与测试)
@@ -44,7 +45,7 @@ node -v              # 期望 v22.x
 
 ### 1.2 数据库准备
 
-数据库已按 `src/main/resources/doc/schema.sql` 建好（19 张表）。首次在全新库上部署时：
+数据库已按 `src/main/resources/doc/schema.sql` 建好（20 张表）。首次在全新库上部署时：
 
 ```bash
 mysql -h <host> -u <user> -p <db> < src/main/resources/doc/schema.sql
@@ -504,6 +505,58 @@ curl -X POST http://localhost:8080/api/admin/interfaces/<id>/copy \
 - 新接口为源当前配置的副本，归属固定 = 源应用 / 源分组（不支持跨应用）；
 - 产物为 `DRAFT v1.0`，首快照说明为「复制自 {源code}#v{源版本}」；
 - 未填的 `name` / `upstreamPath` / `callbackUrl` 沿用源值。
+
+---
+
+## 7.5 前置步骤（接口编排）
+
+> 目标：新接口 A 在调自己的供应商之前，**先用一个已维护好的接口 B**（取 token / 主数据 / 额度校验），
+> 把 B 的结果映射进 A 的出站报文（`A → B → 第三方`）。详见《开发文档/前置接口编排设计方案.md》。
+
+### 7.5.1 界面操作
+
+1. 先确认 B 是**已发布**的出站中转接口（未发布的接口不能作为前置）；
+2. 接口管理 → 新建/编辑接口 A → Tab「**前置步骤**」（仅出站中转可见）→ `＋ 添加前置步骤`：
+   - **步骤名**：如 `auth`（字母/数字/下划线，≤32；将作为命名空间 `steps.auth.*`）；
+   - **前置接口**：选 B；
+   - **失败策略**：一期仅「阻断后续（ABORT）」；
+   - **启用**：可临时停用（保留配置不执行）；
+3. 可添加多步（≤5），用 ↑↓ 调整顺序（顺序敏感：先取 token 再带上 token）；
+4. 回到「字段映射」Tab 写引用：`source = steps.auth.token` → `target = api_token`；
+   - 不知道 B 返回什么字段？点该步的「**可用字段**」→ 拉取 B 的 RESP / 出站参数清单 → 一键复制 `steps.auth.xxx`；
+5. 保存（随保存生成新版本快照，可在版本历史回滚；复制接口会带上步骤）。
+
+### 7.5.2 等价 curl
+
+```bash
+# A 挂两步前置：auth（IF-AUTH-001）、route（IF-ROUTE-003）
+curl -X PUT http://localhost:8080/api/admin/interfaces/<A的id> \
+  -H 'Content-Type: application/json' -H 'X-Change-Note: 加两步前置' \
+  -d '{"code":"IF-ORDER","name":"下单","ifType":"OUTBOUND","method":"POST","path":"/order",
+       "protocolIn":"JSON","protocolOut":"JSON","appId":"fastmoss","groupId":1,
+       "upstreamPath":"/v1/order","version":1.0,
+       "mappings":[{"source":"steps.auth.token","op":"rename","target":"api_token","nullStrategy":"KEEP","sortOrder":0}],
+       "steps":[{"seq":0,"stepCode":"auth","targetInterfaceId":<B的id>,"failurePolicy":"ABORT","enabled":true}]}'
+```
+
+### 7.5.3 运行语义（排障必读）
+
+| 情形 | 表现 |
+|---|---|
+| 正常 | B 先调，结果立刻合入模型；A 的映射可引用；`X-Trace-Id` 贯穿 A/B/第三方（监控按 traceId 能看到瀑布） |
+| B 返回 4xx / 业务失败 / 未发布 / 目标缺失 / 链过深 | A **不推进状态机**（记录停留 INIT），响应 40001 并在 msg 里点名是哪一步（不建死信、不入补偿） |
+| B 5xx / 429 短重试耗尽、B 熔断 OPEN | A 转 **COMPENSATING 顺延**（50201 / 50202），由补偿 worker 重放时**重跑前置** |
+| B 读超时 | A 转 **UNKNOWN**（50401，结果不确定，需人工对账）——不会自动重试 |
+| 前置接口被下线 | A 运行时硬失败（40001“目标接口未发布”）；下线时服务端会回 warnings 强提示 |
+| 监控 | 状态链出现 `前置步骤` 节点（trigger=PRE_STEP，含步骤名/HTTP 码/耗时）；调用日志按 traceId 可看到 B 的 OUT 记录 |
+| 应急关闭 | `app.api-center.pre-step.enabled=false`：装配期忽略步骤（**配置保留**、不执行）——一键回到今日行为 |
+
+### 7.5.4 行为边界
+
+- 前置调用**不消耗**宿主应用的 QPS / 日配额（内部调用，不经接入层防护）；
+- 前置调用**不计入**前置接口所属应用的 QPS / 配额统计；
+- 前置**不落自己的运行记录**，也不进补偿/对账状态机——长重试统一由宿主驱动（重放依赖供应商对业务键幂等，ADR 5）；
+- 一期不支持：失败继续（CONTINUE）/ 兼容默认值（FALLBACK）、入参常量覆盖、条件执行、并行组、拖拽排序。
 
 ---
 

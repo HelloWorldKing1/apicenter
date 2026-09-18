@@ -405,7 +405,8 @@ const METRIC_LABEL = {
 const TRIGGER_LABEL = {
   FIRST_SEND: '首送', COMPENSATE: '补偿重放', CIRCUIT_OPEN: '熔断短路',
   RECONCILE_MANUAL: '人工对账', TTL_DOWNGRADE: 'TTL 降级',
-  REPLAY: '死信重放', EXHAUSTED: '重试耗尽'
+  REPLAY: '死信重放', EXHAUSTED: '重试耗尽',
+  PRE_STEP: '前置步骤'   // 前置接口编排（PS-6）：步骤留痕节点（INIT→INIT 同态）
 }
 const statusTag = s => ({ SUCCESS: 'success', DEAD_LETTER: 'danger', UNKNOWN: 'warning', COMPENSATING: 'warning', INIT: 'info', MAPPING: 'info' }[s] || 'info')
 // 状态链时间线节点色（el-timeline-item type：primary/success/warning/danger/info）

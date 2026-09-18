@@ -65,6 +65,27 @@ public class UpstreamInvoker {
         RETRY_FAILURES.set(0L);
     }
 
+    /**
+     * 预算快照（D-PS-3 / 前置接口编排）：前置调用会 `beginRetryBudget(B.maxRetries)`，
+     * 而 `endRetryBudget()` 是 `remove()` 语义——不 save/restore 就会把**宿主 A 的预算冲掉**
+     * （A 后续 invoke 退回默认 4 次）。用法：
+     * <pre>{@code Budget saved = UpstreamInvoker.saveBudget();
+     * try { UpstreamInvoker.beginRetryBudget(b.maxRetries()); ... } finally { UpstreamInvoker.restoreBudget(saved); }}</pre>
+     */
+    public record Budget(long maxRetries, long failures) {
+    }
+
+    /** 读取当前线程的预算快照（不修改） */
+    public static Budget saveBudget() {
+        return new Budget(MAX_RETRIES.get(), RETRY_FAILURES.get());
+    }
+
+    /** 恢复预算快照（嵌套调用退出时使用；不改变既有 begin/end 语义） */
+    public static void restoreBudget(Budget budget) {
+        MAX_RETRIES.set(budget.maxRetries());
+        RETRY_FAILURES.set(budget.failures());
+    }
+
     /** 顶层调用结束（finally）清理 ThreadLocal（Tomcat 线程池复用防串账） */
     public static void endRetryBudget() {
         MAX_RETRIES.remove();

@@ -15,15 +15,16 @@
 
 | 项 | 状态 |
 |---|---|
-| 设计文档 | 已定稿：`src/main/resources/doc/` 6 份 + schema.sql（**19 张表**，M4 新增 reconcile_audit / alert_event，M5 后新增 outbound_request_state_log 状态链） |
+| 设计文档 | 已定稿：`src/main/resources/doc/` 6 份 + schema.sql（**20 张表**，M4 新增 reconcile_audit / alert_event，M5 后新增 outbound_request_state_log 状态链，前置编排新增 interface_step） |
 | M0 契约设计 | **已评审通过 v1.0（2026-09-02）**：`doc/开发文档/` M0-01/02/03/04（确认点全部通过） |
 | 旧 demo 代码 | 已删除（commit `ad55cea`），git 历史可查 |
 | 数据库 | MySQL PolarDB 已按新 schema 建库（连接信息见 application.yaml）；M4 DDL（两表 + idx_outreq_updated 索引）已于 2026-09-04 应用到开发库 |
-| 工程代码 | **M1 + M2 + M3 + M4 已落地并测试通过；M5.1/M5.2 已落地；M5 后状态链已落地；D-PS-0 接口级读超时已落地（全库 206 @Test 全绿，2026-09-18）**。M4 = 熔断器三态 + UNKNOWN 人工对账 + TTL 降级 + 死信重放 + GatewayGuard 防护 + call_log 脱敏与 traceId 贯穿 + 指标告警。M5.1 = 接口版本快照与回滚（config_json 序列化 / 回滚复用全量替换 + 乐观锁；版本 v1.0 起每次配置变更 / 回滚 +0.1 步进、历史只增不回退 / 版本查询端点）；M5.2 = 适配器绑定即实例 + 解析时机上移（绑定/映射/参数烘焙进缓存链，凭证保持实时）+ ConfigChangedEvent 事件失效 + test 端点 chainTrace + D6'（2026-09-08 定稿：adapter.name 全表唯一；同 (impl, version) 允许多启用；version 不再路由）+ 前端版本历史/变更说明。 |
+| 工程代码 | **M1 + M2 + M3 + M4 已落地并测试通过；M5.1/M5.2 已落地；M5 后状态链已落地；D-PS-0 接口级读超时已落地；前置接口编排（PS-1..PS-9）已落地（全库 219 @Test 全绿，2026-09-18）**。M4 = 熔断器三态 + UNKNOWN 人工对账 + TTL 降级 + 死信重放 + GatewayGuard 防护 + call_log 脱敏与 traceId 贯穿 + 指标告警。M5.1 = 接口版本快照与回滚（config_json 序列化 / 回滚复用全量替换 + 乐观锁；版本 v1.0 起每次配置变更 / 回滚 +0.1 步进、历史只增不回退 / 版本查询端点）；M5.2 = 适配器绑定即实例 + 解析时机上移（绑定/映射/参数烘焙进缓存链，凭证保持实时）+ ConfigChangedEvent 事件失效 + test 端点 chainTrace + D6'（2026-09-08 定稿：adapter.name 全表唯一；同 (impl, version) 允许多启用；version 不再路由）+ 前端版本历史/变更说明。 |
 | 应用凭证内联 + 报文美化（2026-09-11） | 已落地：① 应用弹窗内联凭证卡片（方案 A，D1–D5 已拍板，见《应用凭证配置改造方案.md》v0.2）+ E2 修复（过期 ROTATING 不再阻塞 prepare）；列表「凭证」列已于 2026-09-12 按使用反馈移除（后端 has*Credential 字段保留）；② 调用日志 / 状态机 Tab / Dashboard 抽屉 / 死信 payload 报文美化（JSON·XML·form·头串；只增删空白，19 位数字等 token 逐字节不变；语法高亮 / 折行 / 行号 / 全屏 / 折叠 / 复制含上下文 / >256KB Worker 后台格式化，见《接口监控设计方案》§8）；③ 前端零依赖测试 `cd frontend && npm test`（单测 48 例 + 组件 SSR 冒烟 13 例）+ `npm run lint`（ESLint 扁平配置） |
 | 整体代码评审修复（2026-09-12） | **P1–P3 已修**（P0 安全项按指示暂不动：仓库内 DB 口令 / crypto key / `callback-allow-private` 默认 true）。P1：`calllog.dropped` 指标真正自增；主干红灯（SnapshotChangeDiffTest 夹具/断言）；M4 抖动（熔断窗口放宽 + c3 有界重扫 + 短路按 traceId 归属断言）；`prepare` 回填真实 id（KeyHolder）+ 唯一索引因 PolarDB=MySQL 5.7.28 不支持函数索引 → 官方降级为应用层保证（已写入 schema.sql/M5 手册）。P2：调用日志列表瘦身 + 新增 `GET /monitor/call-logs/{id}` 详情（前端抽屉按 id 拉）；关键字检索强制 ≤7 天窗口；apps/interfaces 列表 2000 上限；`ThreadPoolTaskScheduler(2)` 拆开补偿/告警 worker；删接口/删应用/删规则清理熔断·限流·告警内存态；`Interfaces.vue` 1458→1253 行（拆出 `InterfaceParamsTab.vue`）；公共 `CodeBlock.vue`/`utils/logContext.mjs` 去重；`RENDER_MAX_LINES` 20000→2000；`readBoolPref`；`mergeParams` 提纯函数 + 单测；去掉 Node 专属 `Buffer` 兜底。P3：`fingerprint` 短值不再回显明文；CallLogWriter 文案；长耗时端点 30s 超时；静默 catch 全部补日志；引入 ESLint（flat config）；文档计数口径统一 |
 | 评审遗留补修（2026-09-18） | **D-PS-0 + P2-2.1 已修**：① 接口级读超时真实生效（新增 `config/PerRequestReadTimeoutFactory`，`UpstreamInvoker.dispatch` 作用域声明，`connect-timeout-ms` / `default-read-timeout-ms` 两项配置；单测 8 例 + 集成 3 例，含「模拟修复前行为必红」的反证）；② `timeoutMs` / `maxRetries` 值域校验（100~60000ms / 0~10，越界 40001；前端 `el-input-number` 同步 `:max`；集成 2 例含边界放行与默认值回读）。全库 206 @Test 全绿（2026-09-18） |
 | 测试隔离修复（2026-09-18） | 追查「M4 `c5_死信重放` / StateChain `补偿重放_成功` 在全量套件下偶发红」（**单跑始终绿 6/6、8/8；全量约 5 轮中 2 轮红**）定位到三类隔离缺陷：① 4 个测试类未覆盖 worker `initial-delay`（=0 → 上下文启动即跑一轮**全局** `scan()`，与用例抢跑——2026-09-12 的「统一置 1h」其实只盖了 M2/M3/M4/StateChain）；② 两处 `deleteByApp` 裸按多态 `ref_id` 删死信（id 空间与另一方向重叠 → 误删）；③ 开发库残留 13 条孤儿死信 + 小 id 残留行被用例的全局 `scan()` 处理。已修：8 个测试类统一四属性置 1h、两处 `deleteByApp` 加 `biz_type` 过滤、清理孤儿行、`CompensationWorker` 耗尽告警补 `attempt/max/interface/biz_id` 诊断。修复后连续 2 轮全量 205 全绿（受成本约束未继续跑）；**根因链未 100% 闭合**（C5 那例的计数来源待新诊断行复现确认）——细节见《技术踩坑记录.md》§11 |
+| 前置接口编排（2026-09-18） | **PS-1..PS-9 已落地**（《开发文档/前置接口编排设计方案.md》v0.1.3 + §0 落地记录表）：`interface_step`（**第 20 张表**，开发库已建）+ `PreStepExecutor`（绕开 OutboundEngine 状态机，只复用链/传输/熔断/短重试）+ `ResponseJudger`（信封+RESP 判定从 OutboundEngine 抽出共用）+ `ReservedKeys`（保留键 steps 两道剥离）+ `StateChainBuffer`（从 OutboundEngine 抽出批量通道）+ `ChainEngine` 三处小改（DECODE 可跳过 / MAPPING 前插前置 / ENCODE 前剥离）+ OutboundEngine 捕获边界 + **D-PS-11 补偿预算下限**（前置宿主 `max(2, maxRetries+1)`）+ 前端「前置步骤」Tab + `/test` chainTrace.steps + `offline` warnings；全库 **219 @Test**（新增 13：编排 12 + 快照 1）针对性验证全绿。未做（按 §13/§14 边界）：CONTINUE/FALLBACK、overlay、条件执行、并行组、`call_log.step_code` 列、响应体上限、拖拽排序 |
 | 里程碑计划 | **M4 手动验收（方案已细化，2026-09-05）待完成；M5.3 压测执行（方案与脚本已就绪，见《M5压测报告.md》，执行后回填数据）+ M5 手动验收待排期**——M5 开发计划已评审定稿（2026-09-04 一轮 + 09-07 二轮），D-M5-1~3 即编码依据，总盘 9 人日 |
 | 未拍板决策 | 无（M0 全部评审通过；M4/M5 计划均已评审定稿） |
 
@@ -36,7 +37,7 @@
 | `API中心设计方案.md` | 设计总纲：应用（供应商）/ 分组 / 接口 / 监控 / 适配器 5 模块；接口定义模型（出站中转 / 入站回调）；三类适配器（鉴权 / 协议 / 报文）+ 接口级字段映射；状态机 / 错误码 / 容错附录 |
 | `技术架构和实现方案.md` | 实现路径：分层架构、技术选型、适配器链引擎、出 / 入站执行引擎、M1–M5 路线图、ADR |
 | `可行性报告.md` | 技术可行性评估、工作量估算（约 81 人日）、风险与应对 |
-| `表结构设计.html` | 19 张表（配置 11 + 运行 8，M4 增 reconcile_audit / alert_event，M5 后增 outbound_request_state_log）+ 枚举汇总 + 原型数据模型映射对照 |
+| `表结构设计.html` | 20 张表（配置 12 + 运行 8，M4 增 reconcile_audit / alert_event，M5 后增 outbound_request_state_log，前置编排增 interface_step）+ 枚举汇总 + 原型数据模型映射对照 |
 | `API中心时序图与流程图.md` | 配置流程、Flow A / B 时序、请求处理 + 容错流程图 |
 | `API中心原型.html` | 可交互管理面原型（数据模型与交互即事实来源） |
 | `API中心项目说明.md` | **面向使用者的项目总览**（非设计文档）：定位 / 核心概念 / 架构 / 两条链路 / 数据模型 / 状态机容错 / 错误码；对外介绍、新人入门的首选入口 |
@@ -102,7 +103,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 |---|---|---|
 | `controller/` | 管理面 REST（应用 / 分组 / 接口 / 监控 / 适配器 5 模块）+ 接入层路由 | M1 / M2 / M4（监控 + 死信重放 + 对账端点） |
 | `service/` | 业务编排：配置校验、状态机流转、接入层防护（GatewayGuard） | M1 / M4 |
-| `repository/` | JdbcTemplate 数据访问（19 张表） | M1 / M4（reconcile_audit / alert_event）/ M5 后（state_log） |
+| `repository/` | JdbcTemplate 数据访问（20 张表） | M1 / M4（reconcile_audit / alert_event）/ M5 后（state_log）/ 前置编排（interface_step） |
 | `engine/` | 适配器链引擎 + 出站 / 入站执行引擎 + 熔断器（CircuitBreakerRegistry） | M2 / M3 / M4 |
 | `adapter/` | 鉴权 / 协议 / 报文三类适配器实现 | M2 |
 | `mapping/` | 动态字段映射引擎（M0-02 规范，6 操作运行时解释器） | M2 |
@@ -131,7 +132,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 ## 配置与数据模型
 
 - 配置集中在 `src/main/resources/application.yaml`：仅基础设施参数（datasource、`retry-worker-fixed-delay-ms: 3000`、`unknown-ttl-minutes: 10`）；业务配置（应用 / 接口 / 适配器 / 字段映射）全部落库。
-- `src/main/resources/doc/schema.sql`：19 张表（配置 11 + 运行 8，M4 新增 reconcile_audit / alert_event + idx_outreq_updated，M5 后新增 outbound_request_state_log + adapter.name 唯一），无数据库外键（引用完整性应用层保证，引用列建索引），与《表结构设计.html》逐表一致。
+- `src/main/resources/doc/schema.sql`：20 张表（配置 12 + 运行 8，M4 新增 reconcile_audit / alert_event + idx_outreq_updated，M5 后新增 outbound_request_state_log + adapter.name 唯一，前置编排新增 interface_step），无数据库外键（引用完整性应用层保证，引用列建索引），与《表结构设计.html》逐表一致。
 
 ## 约定与注意事项（Gotchas）
 
@@ -153,6 +154,8 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 - **`CredentialRepository.countByStatus` 与 `countLiveRotating` 的区别**：前者含已过期 ROTATING 行，仅用于 `retire` 的 ACTIVE 计数；`prepare` 的「已有待激活轮换」判定必须用 `countLiveRotating`（排除 `rotating_until` 已过期，E2 修复）。
 - **请求参数快速导入（2026-09-12）**：接口弹窗 →「请求参数」→ 每侧 `⇪ 快速导入参数`（`components/ParamImportDialog.vue` + `utils/paramImport.mjs`）。示例值取 **token 原始切片**（19 位数字等保真），`JSON.parse` 只用于校验；路径 = 嵌套 `.` + 数组 `[0]` + 特殊键名 `["a.b"]`；默认覆盖同名并追加 + 一次撤销快照；上限 200 条 / 深度 6。设计见 `doc/开发文档/参数快速导入设计方案.md`。
 - **接口级读超时走作用域声明（D-PS-0，2026-09-13）**：`interface.timeout_ms` 经 `PerRequestReadTimeoutFactory.withReadTimeout(...)` 作用域在 `UpstreamInvoker.dispatch` 内声明——**这是 `Spec.readTimeoutMs` 唯一的消费点**；新增出站调用路径（如未来接入新客户端 / 新引擎）必须同样包裹作用域，否则静默退回全局 `default-read-timeout-ms`（3000ms）。作用域是**栈式**（嵌套安全），`close()` 后清 ThreadLocal。连接超时全局 `connect-timeout-ms`（per-request 连接超时需 per-request HttpClient，不做）。
+- **前置步骤（编排）保留键 `steps`（2026-09-18）**：宿主模型的步骤输出挂在保留命名空间 `steps.<stepCode>.<field>`，写入一律用 `ReservedKeys.putStep`（**字面量键**，禁走点路径解析）；两道剥离缺一不可——交前置接口前 `withoutSteps`（否则前置透传会把宿主步骤输出发给它的供应商）、宿主 ENCODE 前 `stripSteps`（否则宿主透传会把 steps 发给第三方）；同时保存期禁止把 `steps` 用做 IN 参数名 / 映射 target 名（**仅在该接口配了前置时拦截**，不惊动既有接口）。步骤留痕节点用 `from=to=INIT` + `trigger=PRE_STEP`（此刻 status 尚未进 MAPPING）。
+- **前置编排的扩展纪律（2026-09-18）**：`PreStepExecutor` 直调 `ChainEngine` + `UpstreamInvoker`（**不**经 `OutboundEngine`，否则会重置状态链缓冲 / 覆盖 CallLogContext / 冲掉宿主预算 / 落可被 worker 独立重放孤儿记录）；它的调用受 `ChainEngine` 的 MAPPING 闭包内抛出 `PreStepFailure` → **必须由 `OutboundEngine.doInvoke` 捕获并分类**（`chainEngine.execute` 原本在 try 之外）；宿主预算下限由 D-PS-11 拍定（配了前置 ⇒ `max_attempts = max(2, maxRetries+1)`）；新增出站调用路径若要复用前置能力，须同样保证「捕获边界 + 预算 save/restore + preCallDepth 传递」三件事。
 - **时间列写入统一走 `repository/SqlTimes.ts(...)`（2026-09-12）**：MySQL `DATETIME`(0) 会把带毫秒的值**四舍五入到秒**，直接 `Timestamp.valueOf(LocalDateTime.now())` 写 `next_retry_at` 会让「立即入队」变成「下一句才生效」（C3 用例随机挂）。新增写库的调度时间字段请复用该 helper；统计窗口上界则相反——`statWindow.to` 不要 `withNano(0)`，否则本秒写入的日志被半开区间排除（TOP 偶发少一条）。
 - **集成测试隔离后台 worker（2026-09-12 起，2026-09-18 补齐）**：`retry-worker-initial-delay-ms` / `alert-worker-initial-delay-ms` 默认 **0 = Spring 上下文启动即跑一轮 `scan()`**，而 `scan()`（`findDueCompensating` / `downgradeExpiredUnknown`）**不按应用过滤**——会处理**其他测试类**乃至开发库里**历史残留**的到期行，与正在执行的用例抢跑（症状：状态链凭空多出 `COMPENSATING → DEAD_LETTER` 节点、replay 的行被别人先耗尽、死信凭空少一条）。**全部 8 个 `@SpringBootTest` 测试类必须四个属性一起置 1h**（`*-fixed-delay-ms` + `*-initial-delay-ms` × 补偿/告警）；2026-09-18 补齐了 M1/M5/MonitorStats/ApicenterApplicationTests（此前只有 M2/M3/M4/StateChain 有）——**新增测试类照此模板，漏一个就会在全量套件下偶发红（单跑永远绿，命中率约 40%）**。细节见《技术踩坑记录.md》§11。
 - **`deleteByApp` 必须带 `biz_type` 过滤（2026-09-18）**：`dead_letter.ref_id` 是多态引用（OUTBOUND→`outbound_request.id`，INBOUND→`inbound_delivery.id`），两表自增 id 空间重叠，裸 `ref_id IN (…)` 删会误删另一方向的死信。两处 `deleteByApp` 已各加 `AND biz_type='OUTBOUND'|'INBOUND'`。

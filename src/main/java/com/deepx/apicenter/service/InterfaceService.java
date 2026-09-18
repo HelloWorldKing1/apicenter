@@ -10,6 +10,7 @@ import com.deepx.apicenter.dto.InterfaceDtos.InterfaceResponse;
 import com.deepx.apicenter.dto.InterfaceDtos.MappingDto;
 import com.deepx.apicenter.dto.InterfaceDtos.ParamDto;
 import com.deepx.apicenter.dto.InterfaceDtos.RollbackRequest;
+import com.deepx.apicenter.dto.InterfaceDtos.StepDto;
 import com.deepx.apicenter.exception.BizException;
 import com.deepx.apicenter.model.InterfaceRow;
 import com.deepx.apicenter.repository.AppRepository;
@@ -25,8 +26,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 接口管理：完整定义模型落库（主表 + 5 子表，单事务）。
@@ -48,6 +52,17 @@ public class InterfaceService {
     private static final Set<String> OPS = Set.of("rename", "typeCast", "enumMap", "default", "condition", "aggregate");
     private static final Set<String> PARAM_OPS = Set.of("typeCast", "enumMap", "condition", "aggregate");
     private static final Set<String> ROLES = Set.of("MESSAGE", "AUTH", "CALLBACK_AUTH");
+
+    // ---------- 前置步骤（编排，PS-2） ----------
+
+    /** 步数上限（与前端一致） */
+    private static final int MAX_STEPS = 5;
+    /** 解析链长度上限（节点数，含宿主；口径见《前置接口编排设计方案》§10.1） */
+    private static final int MAX_STEP_CHAIN = 3;
+    /** 保留命名空间（前置步骤输出：steps.<stepCode>.<field>） */
+    private static final String RESERVED_STEPS = "steps";
+    private static final java.util.regex.Pattern STEP_CODE_PATTERN =
+            java.util.regex.Pattern.compile("^[A-Za-z0-9_]{1,32}$");
 
     // ---------- 接口级数值配置值域（2026-09-18 补：原实现无值域校验，负数 / 超大值可入库） ----------
 
@@ -103,19 +118,26 @@ public class InterfaceService {
     }
 
     public List<InterfaceResponse> list(String appId, Long groupId, String ifType, String status, String keyword) {
-        return interfaceRepository.findAll(appId, groupId, ifType, status, keyword).stream()
-                .map(r -> toResponse(r, List.of(), List.of(), List.of(), List.of(), List.of()))
+        List<InterfaceRow> rows = interfaceRepository.findAll(appId, groupId, ifType, status, keyword);
+        // 前置步骤角标：一次 IN 查询批量取数（列表不带子表，仅给 stepCount）
+        Map<Long, Integer> stepCounts = interfaceRepository.countStepsByInterfaces(
+                rows.stream().map(InterfaceRow::id).toList());
+        return rows.stream()
+                .map(r -> toResponse(r, List.of(), List.of(), List.of(), List.of(), List.of(),
+                        List.of(), stepCounts.getOrDefault(r.id(), 0)))
                 .toList();
     }
 
     public InterfaceResponse detail(long id) {
         InterfaceRow row = interfaceRepository.findById(id).orElseThrow(() -> BizException.ifaceNotFound(id));
+        List<InterfaceRow.StepView> steps = interfaceRepository.findSteps(id);
         return toResponse(row,
                 interfaceRepository.findParams(id),
                 interfaceRepository.findBodies(id),
                 interfaceRepository.findMappings(id),
                 interfaceRepository.findFieldDefs(id),
-                interfaceRepository.findBindings(id));
+                interfaceRepository.findBindings(id),
+                toStepDtos(steps), steps.size());
     }
 
     // ---------- 写入 ----------
@@ -127,7 +149,7 @@ public class InterfaceService {
 
     /** 创建（含快照 change_note，供 copy 标注来源；其余路径保持空说明） */
     private long createWithNote(InterfaceRequest req, String changeNote) {
-        validate(req);
+        validate(req, 0);
         if (interfaceRepository.existsByCode(req.code())) {
             throw BizException.fieldInvalid("接口标识已存在：" + req.code());
         }
@@ -161,7 +183,8 @@ public class InterfaceService {
                 src.protocolIn(), src.protocolOut(), src.appId(), src.groupId(),
                 upstream, callback, null, src.timeoutMs(), src.maxRetries(), desc, BASE_VERSION,
                 toParamDtos(src.params()), toBodyDtos(src.bodies()), toMappingDtos(src.mappings()),
-                toFieldDefDtos(src.fieldDefs()), toBindingDtos(src.bindings()));
+                toFieldDefDtos(src.fieldDefs()), toBindingDtos(src.bindings()),
+                src.steps() == null ? List.of() : src.steps());   // 前置步骤随复制携带（引用同一目标接口）
         return createWithNote(target, "复制自 " + src.code() + "#v" + src.version());
     }
 
@@ -235,14 +258,15 @@ public class InterfaceService {
                 interfaceRepository.findBodies(id),
                 interfaceRepository.findMappings(id),
                 interfaceRepository.findFieldDefs(id),
-                interfaceRepository.findBindings(id));
+                interfaceRepository.findBindings(id),
+                interfaceRepository.findSteps(id));
     }
 
     /** 更新持久化（校验 / 唯一性 / 乐观锁 / 全量替换 / 写快照 + 事件）；说明由调用方给定。
      * 注意：私有方法不挂事务（@Transactional 对私有无效），须在调用方事务内（update/rollback 已 @Transactional）。 */
     private void updatePersist(long id, InterfaceRequest req, String changeNote, String changeDetail) {
         InterfaceRow current = interfaceRepository.findById(id).orElseThrow(() -> BizException.ifaceNotFound(id));
-        validate(req);
+        validate(req, id);
         validateBelong(req);
         // 唯一性校验（排除自身）：避免撞 uk_interface_code / uk_interface_path 变成 500
         if (interfaceRepository.countByCode(req.code(), id) > 0) {
@@ -272,7 +296,11 @@ public class InterfaceService {
         interfaceRepository.findById(id).orElseThrow(() -> BizException.ifaceNotFound(id));
         SnapshotRepository.SnapshotDetail snap = snapshotRepository.find(id, req.targetVersion())
                 .orElseThrow(() -> BizException.snapshotNotFound(id, req.targetVersion()));
-        InterfaceRequest request = snapshotSerializer.toRequest(snap.configJson(), req.currentVersion());
+        InterfaceRequest request = snapshotSerializer.toRequest(snap.configJson(), req.currentVersion(),
+                // 快照只存 targetCode（跨环境可移植）→ 回滚时解析回 id；解析失败 → 40001（不静默丢步骤）
+                code -> interfaceRepository.findByCode(code)
+                        .orElseThrow(() -> BizException.fieldInvalid("快照引用的前置接口不存在：" + code))
+                        .id());
         // 回滚说明极简 = 「回滚至 v{目标}」；同时生成 type=ROLLBACK 的结构化变更详情
         // （回滚前当前配置 vs 目标版本配置），供版本历史「变更详情」展示（2026-09-08）
         SnapshotRepository.SnapshotDetail prev = snapshotRepository.find(id, req.currentVersion()).orElse(null);
@@ -333,9 +361,29 @@ public class InterfaceService {
         eventPublisher.publishEvent(ConfigChangedEvent.interfaceChanged(id));
     }
 
+    /**
+     * 下线前置（D-PS-10）：返回「该接口被哪些前置步骤引用」的提示清单（不阻断生命周期），
+     * 由管理面展示为强提示——引用了本接口的宿主运行时会硬失败（40001），不是静默降级。
+     */
+    public List<String> offlineWarnings(long id) {
+        return interfaceRepository.findStepRefsByTarget(id).stream()
+                .map(r -> "被前置步骤引用：" + r.hostCode() + "(步骤 " + r.stepCode() + ")"
+                        + "——其宿主运行时将报「目标接口未发布」（40001），请先检查")
+                .toList();
+    }
+
     @Transactional
     public void delete(long id) {
         interfaceRepository.findById(id).orElseThrow(() -> BizException.ifaceNotFound(id));
+        // 前置引用守卫（编排，D-PS-5）：被引为前置的接口禁止删除（引用完整性应用层保证）
+        int stepRefs = interfaceRepository.countReferencedBySteps(id);
+        if (stepRefs > 0) {
+            String refs = interfaceRepository.findStepRefsByTarget(id).stream()
+                    .map(r -> r.hostCode() + "(步骤 " + r.stepCode() + ")")
+                    .collect(Collectors.joining("、"));
+            throw BizException.fieldInvalid("接口被 " + stepRefs + " 个前置步骤引用，禁止删除：" + refs
+                    + "（请先解除引用，或改为下线）");
+        }
         // 删除守卫（schema.sql 删除策略）：存在运行数据仅允许下线，
         // 否则 outbound_request / inbound_delivery 悬空（无外键不报错，但监控/重放/对账全部失效）。
         // M3 补查 inbound_delivery（M2 仅守卫 outbound_request，评审 N4 遗留）
@@ -362,13 +410,18 @@ public class InterfaceService {
                         interfaceRepository.findBodies(interfaceId),
                         interfaceRepository.findMappings(interfaceId),
                         interfaceRepository.findFieldDefs(interfaceId),
-                        interfaceRepository.findBindings(interfaceId)),
+                        interfaceRepository.findBindings(interfaceId),
+                        interfaceRepository.findSteps(interfaceId)),
                 changeNote, changeDetail);
     }
 
     // ---------- 校验（M1 设计 §2.5 类型互斥矩阵） ----------
 
     private void validate(InterfaceRequest req) {
+        validate(req, 0);
+    }
+
+    private void validate(InterfaceRequest req, long hostId) {
         if (!IF_TYPES.contains(req.ifType())) {
             throw BizException.fieldInvalid("非法接口类型：" + req.ifType() + "（OUTBOUND / INBOUND）");
         }
@@ -462,6 +515,100 @@ public class InterfaceService {
                 throw BizException.fieldInvalid("参数化操作 " + m.op() + " 需填操作参数 param");
             }
         }
+        // ---- 前置步骤校验（编排，PS-2 / 设计方案 §10.1；hostId=0 表示新建） ----
+        validateSteps(req, hostId);
+    }
+
+    /**
+     * 前置步骤校验（权威在服务端）：宿主类型 / 步数与步骤名 / 目标可用性 / 保留字段名 /
+     * **环检测 + 解析链长度**（沿已存配置向下 DFS）。
+     */
+    private void validateSteps(InterfaceRequest req, long hostId) {
+        List<StepDto> steps = req.steps() == null ? List.of() : req.steps();
+        if (steps.isEmpty()) {
+            return;
+        }
+        if (!"OUTBOUND".equals(req.ifType())) {
+            throw BizException.fieldInvalid("入站回调接口不支持前置步骤（steps 仅出站中转可用）");
+        }
+        if (steps.size() > MAX_STEPS) {
+            throw BizException.fieldInvalid("前置步骤最多 " + MAX_STEPS + " 步，当前 " + steps.size());
+        }
+        Set<String> seen = new java.util.LinkedHashSet<>();
+        for (StepDto s : steps) {
+            String code = s.stepCode() == null ? "" : s.stepCode().trim();
+            if (code.isEmpty()) {
+                throw BizException.fieldInvalid("前置步骤名不能为空");
+            }
+            if (!STEP_CODE_PATTERN.matcher(code).matches()) {
+                throw BizException.fieldInvalid("前置步骤名仅允许字母/数字/下划线，长度 1~32：" + code);
+            }
+            if (RESERVED_STEPS.equalsIgnoreCase(code)) {
+                throw BizException.fieldInvalid("前置步骤名不得为保留名 steps（已占用为步骤输出命名空间）");
+            }
+            if (!seen.add(code.toLowerCase())) {
+                throw BizException.fieldInvalid("前置步骤名重复：" + code);
+            }
+            String policy = s.failurePolicy() == null || s.failurePolicy().isBlank()
+                    ? "ABORT" : s.failurePolicy().trim().toUpperCase();
+            if (!"ABORT".equals(policy)) {
+                throw BizException.fieldInvalid("失败策略仅支持 ABORT（CONTINUE / FALLBACK 为二期能力）：" + s.failurePolicy());
+            }
+            if (s.targetInterfaceId() == null || s.targetInterfaceId() <= 0) {
+                throw BizException.fieldInvalid("前置步骤 " + code + " 未选择前置接口");
+            }
+            if (hostId > 0 && s.targetInterfaceId() == hostId) {
+                throw BizException.fieldInvalid("前置步骤 " + code + " 不能指向接口自身");
+            }
+            InterfaceRow target = interfaceRepository.findById(s.targetInterfaceId())
+                    .orElseThrow(() -> BizException.fieldInvalid(
+                            "前置步骤 " + code + " 的前置接口不存在：" + s.targetInterfaceId()));
+            if (!"OUTBOUND".equals(target.ifType())) {
+                throw BizException.fieldInvalid("前置步骤 " + code + " 的前置接口必须是出站中转：" + target.code());
+            }
+            if (!"PUBLISHED".equals(target.status())) {
+                throw BizException.fieldInvalid("前置步骤 " + code + " 的前置接口未发布（D-PS-8）："
+                        + target.code() + "（当前 " + target.status() + "）");
+            }
+        }
+        // 保留字段名（仅在有前置时拦截：否则不惊动既有接口 —— 它们可能本就用 steps 做业务字段）
+        for (ParamDto p : req.params() == null ? List.<ParamDto>of() : req.params()) {
+            if (p.name() != null && RESERVED_STEPS.equalsIgnoreCase(p.name().trim())) {
+                throw BizException.fieldInvalid("配置了前置步骤时，参数名不得为保留名 steps（步骤输出命名空间）");
+            }
+        }
+        for (MappingDto m : req.mappings() == null ? List.<MappingDto>of() : req.mappings()) {
+            if (m.target() != null && RESERVED_STEPS.equalsIgnoreCase(m.target().trim())) {
+                throw BizException.fieldInvalid("映射 target 不得为保留名 steps（该命名空间由步骤统一管理）");
+            }
+        }
+        // 环检测 + 解析链长度（沿已存配置向下 DFS；含停用步骤 —— 它们被启用后同样成环）
+        for (StepDto s : steps) {
+            java.util.LinkedHashMap<Long, String> path = new java.util.LinkedHashMap<>();
+            path.put(hostId > 0 ? hostId : 0L, req.code());   // 宿主占位（新建时无 id，用 0 占位）
+            checkStepChain(s.targetInterfaceId(), path, s.stepCode().trim());
+        }
+    }
+
+    /**
+     * 前置链 DFS：命中已在路径中的节点 → 环；节点数（含宿主）超限 → 链太长。
+     * 口径：解析链长度 = 节点数，宿主 A=1、A→B=2、A→B→C=3（允许）、A→B→C→D=4（拒）。
+     */
+    private void checkStepChain(long nodeId, java.util.LinkedHashMap<Long, String> path, String viaStep) {
+        if (path.containsKey(nodeId)) {
+            throw BizException.fieldInvalid("前置链存在环（经步骤 " + viaStep + "）："
+                    + String.join(" → ", path.values()) + " → " + path.get(nodeId));
+        }
+        if (path.size() + 1 > MAX_STEP_CHAIN) {
+            throw BizException.fieldInvalid("前置链长度超限（最多 " + MAX_STEP_CHAIN + " 层，含宿主）："
+                    + String.join(" → ", path.values()) + " → " + viaStep);
+        }
+        InterfaceRow node = interfaceRepository.findById(nodeId).orElse(null);
+        path.put(nodeId, node == null ? ("id=" + nodeId) : node.code());
+        for (InterfaceRow.StepView next : interfaceRepository.findSteps(nodeId)) {
+            checkStepChain(next.targetInterfaceId(), path, next.stepCode());
+        }
+        path.remove(nodeId);   // 回溯
     }
 
     /** 归属校验：应用存在；分组必须属于所选应用（两级下拉，M1 测试点） */
@@ -486,7 +633,30 @@ public class InterfaceService {
     private String newSnapshotJson(InterfaceRequest req) {
         InterfaceRow row = toRow(req, "DRAFT", BASE_VERSION, 0);
         return snapshotSerializer.toJson(row,
-                paramRows(req), bodyRows(req), mappingRows(req), fieldDefRows(req), bindingRows(req));
+                paramRows(req), bodyRows(req), mappingRows(req), fieldDefRows(req), bindingRows(req),
+                stepViewsOf(req.steps()));
+    }
+
+    /** 请求侧 steps → 快照视图（补 join 展示字段；targetCode 是快照与 diff 的可移植键） */
+    private List<InterfaceRow.StepView> stepViewsOf(List<StepDto> steps) {
+        List<StepDto> sorted = (steps == null ? List.<StepDto>of() : steps).stream()
+                .sorted(java.util.Comparator.comparingInt(s -> s.seq() == null ? Integer.MAX_VALUE : s.seq()))
+                .toList();
+        List<InterfaceRow.StepView> out = new ArrayList<>(sorted.size());
+        int i = 0;
+        for (StepDto s : sorted) {
+            InterfaceRow target = s.targetInterfaceId() == null ? null
+                    : interfaceRepository.findById(s.targetInterfaceId()).orElse(null);
+            out.add(new InterfaceRow.StepView(0, 0, i++, s.stepCode(),
+                    s.targetInterfaceId() == null ? 0 : s.targetInterfaceId(),
+                    s.failurePolicy() == null ? "ABORT" : s.failurePolicy(),
+                    s.enabled() == null || s.enabled(),
+                    target == null ? s.targetCode() : target.code(),
+                    target == null ? null : target.name(),
+                    target == null ? null : target.status(),
+                    target == null ? null : target.ifType()));
+        }
+        return out;
     }
 
     // ---------- 私有 ----------
@@ -502,6 +672,34 @@ public class InterfaceService {
         interfaceRepository.insertMappings(interfaceId, toMappingRows(mappings));
         interfaceRepository.insertFieldDefs(interfaceId, toFieldDefRows(fieldDefs));
         interfaceRepository.insertBindings(interfaceId, toBindingRows(bindings));
+        interfaceRepository.insertSteps(interfaceId, toStepRows(req.steps()));
+    }
+
+    /**
+     * 前置步输出行：按客户端给的 seq 排序后**重排为 0..n-1**（防重复 seq 导致顺序不确定），
+     * 策略缺省 ABORT、启用缺省 true。
+     */
+    private List<InterfaceRow.StepRow> toStepRows(List<StepDto> steps) {
+        List<StepDto> sorted = (steps == null ? List.<StepDto>of() : steps).stream()
+                .sorted(java.util.Comparator.comparingInt(s -> s.seq() == null ? Integer.MAX_VALUE : s.seq()))
+                .toList();
+        List<InterfaceRow.StepRow> rows = new ArrayList<>(sorted.size());
+        for (int i = 0; i < sorted.size(); i++) {
+            StepDto s = sorted.get(i);
+            String policy = s.failurePolicy() == null || s.failurePolicy().isBlank()
+                    ? "ABORT" : s.failurePolicy().trim().toUpperCase();
+            rows.add(new InterfaceRow.StepRow(0, 0, i, s.stepCode().trim(), s.targetInterfaceId(),
+                    policy, s.enabled() == null || s.enabled()));
+        }
+        return rows;
+    }
+
+    /** 前置步读模型 → 响应 DTO（含 join 出的 targetCode / targetName，供管理面展示） */
+    private List<StepDto> toStepDtos(List<InterfaceRow.StepView> rows) {
+        return rows.stream()
+                .map(r -> new StepDto(r.seq(), r.stepCode(), r.targetInterfaceId(),
+                        r.failurePolicy(), r.enabled(), r.targetCode(), r.targetName()))
+                .toList();
     }
 
     /** 新快照 diff 用：请求子表 → 行模型（默认值规则与 insertChildren 完全一致，防 diff 误报） */
@@ -577,14 +775,15 @@ public class InterfaceService {
                                          List<InterfaceRow.BodyRow> bodies,
                                          List<InterfaceRow.MappingRow> mappings,
                                          List<InterfaceRow.FieldDefRow> fieldDefs,
-                                         List<InterfaceRow.BindingRow> bindings) {
+                                         List<InterfaceRow.BindingRow> bindings,
+                                         List<StepDto> steps, long stepCount) {
         return new InterfaceResponse(
                 row.id(), row.code(), row.name(), row.ifType(), row.method(), row.path(),
                 row.protocolIn(), row.protocolOut(), row.appId(), row.groupId(),
                 row.upstreamPath(), row.callbackUrl(), row.status(), row.version(),
                 row.timeoutMs(), row.maxRetries(), row.desc(),
                 row.createdAt(), row.updatedAt(), row.appName(), row.groupName(),
-                params, bodies, mappings, fieldDefs, bindings);
+                params, bodies, mappings, fieldDefs, bindings, steps, stepCount);
     }
 
     private boolean isBlank(String s) {

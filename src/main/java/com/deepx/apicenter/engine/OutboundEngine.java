@@ -1,6 +1,5 @@
 package com.deepx.apicenter.engine;
 
-import com.deepx.apicenter.adapter.message.EnvelopeMessageAdapter;
 import com.deepx.apicenter.adapter.protocol.JsonProtocolAdapter;
 import com.deepx.apicenter.aspect.CallLogContext;
 import com.deepx.apicenter.dto.ApiResult;
@@ -27,6 +26,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -50,9 +50,10 @@ public class OutboundEngine {
     private final ChainEngine chainEngine;
     private final UpstreamInvoker upstreamInvoker;
     private final AppService appService;
-    private final EnvelopeMessageAdapter envelopeMessageAdapter;
     private final ObjectMapper objectMapper;
     private final CircuitBreakerRegistry circuitBreakerRegistry;
+    /** 响应判定器（2026-09-18 从本类抽出，前置编排 PS-4）：宿主成功路径与前置步骤共用同一实现 */
+    private final ResponseJudger responseJudger;
 
     public OutboundEngine(InterfaceRepository interfaceRepository,
                           AppRepository appRepository,
@@ -60,18 +61,18 @@ public class OutboundEngine {
                           ChainEngine chainEngine,
                           UpstreamInvoker upstreamInvoker,
                           AppService appService,
-                          EnvelopeMessageAdapter envelopeMessageAdapter,
                           ObjectMapper objectMapper,
-                          CircuitBreakerRegistry circuitBreakerRegistry) {
+                          CircuitBreakerRegistry circuitBreakerRegistry,
+                          ResponseJudger responseJudger) {
         this.interfaceRepository = interfaceRepository;
         this.appRepository = appRepository;
         this.outboundRequestRepository = outboundRequestRepository;
         this.chainEngine = chainEngine;
         this.upstreamInvoker = upstreamInvoker;
         this.appService = appService;
-        this.envelopeMessageAdapter = envelopeMessageAdapter;
         this.objectMapper = objectMapper;
         this.circuitBreakerRegistry = circuitBreakerRegistry;
+        this.responseJudger = responseJudger;
     }
 
     /**
@@ -98,28 +99,19 @@ public class OutboundEngine {
         return execute(iface, body, biz, trace);
     }
 
-    // ---------- 状态链批量缓冲（主请求路径：状态列即时 updateState，节点攒批出口一次落库，
-    // 避免逐节点 SELECT+INSERT 的 WAN 往返拖慢主链路——熔断窗口 / 压测时序依赖此设计，见 §4.6 坑 3） ----------
-
-    private static final ThreadLocal<java.util.List<OutboundRequestRepository.StateChainNode>> CHAIN_BUFFER =
-            new ThreadLocal<>();
+    // ---------- 状态链批量缓冲（2026-09-18 抽出到 StateChainBuffer：前置执行器要共用同一批量契约） ----------
 
     private static void beginChain() {
-        CHAIN_BUFFER.set(new java.util.ArrayList<>());
+        StateChainBuffer.begin();
     }
 
     private static void chainAppend(String from, String to, int attempt, String errorCode,
                                     String trigger, String detail) {
-        var buf = CHAIN_BUFFER.get();
-        if (buf != null) {
-            buf.add(new OutboundRequestRepository.StateChainNode(from, to, attempt, errorCode, trigger, detail));
-        }
+        StateChainBuffer.append(from, to, attempt, errorCode, trigger, detail);
     }
 
     private static java.util.List<OutboundRequestRepository.StateChainNode> endChain() {
-        var buf = CHAIN_BUFFER.get();
-        CHAIN_BUFFER.remove();
-        return buf == null ? java.util.List.of() : buf;
+        return StateChainBuffer.drain();
     }
 
     /** 执行出站链路（首送与补偿重放共用入口）。M4：入口填充调用日志上下文（清理契约见 CallLogContext）。
@@ -127,7 +119,9 @@ public class OutboundEngine {
      *  状态链节点攒批后在本方法 finally 一次落库（每请求 1 次批量，不拖慢主链路）。 */
     public ApiResult<?> execute(InterfaceRow iface, byte[] body, String bizId, String traceId) {
         CallLogContext.set(iface.id(), iface.appId(), traceId);
-        long recordId = createRecord(iface, body, bizId, traceId);
+        // 前置宿主补偿预算下限（D-PS-11 已拍板：配置了前置的接口强制 ≥1 次补偿尝试）；
+        // hasPreSteps 读的是装配缓存链，不额外查库（本次请求随后自会走到 chainEngine.execute）
+        long recordId = createRecord(iface, body, bizId, traceId, chainEngine.hasPreSteps(iface.id()));
         beginChain();
         try {
             chainAppend(null, "INIT", 1, null, TRIGGER_FIRST_SEND, "创建出站记录");
@@ -158,8 +152,18 @@ public class OutboundEngine {
                                   boolean compensate, int attempt, String startStatus) {
         String trigger = compensate ? TRIGGER_COMPENSATE : TRIGGER_FIRST_SEND;
         String how = compensate ? "补偿重放" : "首送";
-        // 链执行：入站鉴权 → 解码 → 报文适配 → 字段映射 → 编码 → 出站鉴权（链内统一载体 payload）
-        AdapterContext ctx = chainEngine.execute(iface.id(), UnifiedModel.emptyObject(), traceId, body);
+        // 链执行：入站鉴权 → 解码 → 报文适配 → 前置步骤（编排）→ 字段映射 → 编码 → 出站鉴权
+        // 前置失败（PreStepFailure）必须在这里捕获并分类：它由 ChainEngine 的 MAPPING 闭包内的
+        // PreStepExecutor 抛出，而本行位于下方 invoker 的 try/catch **之外**（评审 v0.1.2 修正点 ①）——
+        // 不捕获则异常直接冒到 execute() 的 catch(BizException) 原样透出，A 停在 INIT，
+        // COMPENSATING / UNKNOWN 两个出口永远走不到。
+        AdapterContext ctx;
+        try {
+            ctx = chainEngine.execute(iface.id(), UnifiedModel.emptyObject(), traceId, body,
+                    Map.of("attempt", attempt, "preCallDepth", 1));
+        } catch (PreStepFailure e) {
+            throw classifyPreStepFailure(recordId, e, trigger, how, attempt);
+        }
 
         // 出站规格补全：URL / 方法 / 超时（M0-03 §1.2）+ M4 元数据与 traceId 透传（D-M4-4：
         // X-Trace-Id 平台 → 上游公共头，补齐 M2 缺口；元数据供 OUT 方向 call_log 读取）
@@ -242,30 +246,21 @@ public class OutboundEngine {
         throw new BizException(50201, "供应商拒绝（4xx）：" + reason + "，死信编号 " + deadLetterId);
     }
 
-    /** 2xx：信封适配判业务成败（M0-03 定稿 C2：业务失败也记 SUCCESS、业务码透传）；RESP 过滤仅成功路径（D-M3-3） */
+    /** 2xx：信封适配判业务成败（M0-03 定稿 C2：业务失败也记 SUCCESS、业务码透传）；RESP 过滤仅成功路径（D-M3-3）。
+     *  判定本身复用 {@link ResponseJudger}（与前置步骤同一实现，2026-09-18 抽取）。 */
     private ApiResult<?> handleSuccess(long recordId, InterfaceRow iface, byte[] respBody, String trigger, String how, int attempt) {
-        UnifiedModel respModel = parseResponse(iface.id(), respBody);
+        ResponseJudger.Judged judged = responseJudger.judge(iface, respBody);
         chainAppend("MAPPING", "SUCCESS", attempt, null, trigger, how + " 响应 " + respBody.length + " 字节");
         // resp_payload = 供应商响应【原始字节】文本（不落解码后模型）：JSON 场景与原文一致，XML 场景保留原始 XML，
         // 供监控排查「解码失败/协议选错/RESP 名称写错」时直接比对原文（链失败排查见整体测试方案 §6.6）。
         outboundRequestRepository.updateState(recordId, "SUCCESS", null, bytesText(respBody), null, null);
         log.info("出站请求 {} 成功（响应 {} 字节）", recordId, respBody.length);
-
-        JsonNode envelopeParams = envelopeParamsOf(iface);
-        if (envelopeParams == null) {
-            // 直通报文适配器（Noop）：业务成败 = HTTP 状态（已 2xx），整个响应体即业务数据
-            UnifiedModel.UNode filtered = RespFieldFilter.filter(respModel.root(), respDefs(iface), new java.util.ArrayList<>());
-            return ApiResult.ok(toJson(filtered));
-        }
-        EnvelopeMessageAdapter.EnvelopeResult envelope =
-                envelopeMessageAdapter.adaptResponse(respModel, envelopeParams);
-        if (!envelope.success()) {
+        if (!judged.success()) {
             // 业务失败：状态机 SUCCESS（传输层已获明确结果），业务码透传（C2）
-            return ApiResult.error(parseCode(envelope.code(), 50201),
-                    envelope.msg() == null ? "供应商业务失败" : envelope.msg());
+            return ApiResult.error(parseCode(judged.code(), 50201),
+                    judged.msg() == null ? "供应商业务失败" : judged.msg());
         }
-        UnifiedModel.UNode filtered = RespFieldFilter.filter(envelope.bizData(), respDefs(iface), new java.util.ArrayList<>());
-        return ApiResult.ok(toJson(filtered));
+        return ApiResult.ok(toJson(judged.data()));
     }
 
     /**
@@ -346,43 +341,61 @@ public class OutboundEngine {
 
     // ---------- 私有 ----------
 
-    /** 创建出站记录（status=INIT，首送即第 1 次尝试）。INIT 状态链首条由 execute 的
-     *  chainAppend(null→INIT) + finally flush 统一批量落库（主路径每请求仅 1 次批量，见 flushStateChain） */
-    private long createRecord(InterfaceRow iface, byte[] body, String bizId, String traceId) {
+    /**
+     * 创建出站记录（status=INIT，首送即第 1 次尝试）。INIT 状态链首条由 execute 的
+     * chainAppend(null→INIT) + finally flush 统一批量落库（主路径每请求仅 1 次批量，见 flushStateChain）。
+     *
+     * <p>补偿预算下限（D-PS-11，2026-09-18 拍板）：配置了前置步骤的宿主取 {@code max(2, maxRetries+1)}——
+     * 否则 {@code max_retries=0} 的宿主一旦进 COMPENSATING，首次扫描即判「补偿耗尽」
+     * （{@code attempt_count=1 >= max_attempts=1}），零补偿尝试直接死信，§6.4 的
+     * 「5xx / 熔断短路顺延」名存实亡。非前置宿主的原语义（max_retries=0 = 零补偿尝试）保持不变。
+     */
+    private long createRecord(InterfaceRow iface, byte[] body, String bizId, String traceId,
+                             boolean hostHasPreSteps) {
+        int maxAttempts = hostHasPreSteps
+                ? Math.max(2, iface.maxRetries() + 1)
+                : iface.maxRetries() + 1;
         return outboundRequestRepository.insert(new OutboundRequestRow(
                 0, iface.id(), iface.appId(), bizId,
                 body == null ? null : new String(body, java.nio.charset.StandardCharsets.UTF_8),
                 null, null, "INIT", 1, // 首送即第 1 次尝试
-                iface.maxRetries() + 1, null, null, traceId, null, null));
+                maxAttempts, null, null, traceId, null, null));
+    }
+
+    /**
+     * 前置步骤失败 → 宿主状态机分类（设计方案 §6.4 矩阵；复用既有三条出口，不新增状态 / 错误码）：
+     * HTTP_5XX / CIRCUIT_OPEN → COMPENSATING 顺延（50201 / 50202，不 incrementAttempt）；
+     * TIMEOUT → UNKNOWN（50401：结果不确定，不可降级为可安全重试）；
+     * 其余（CONFIG_ERROR / DEPTH_EXCEEDED / HTTP_4XX / BUSINESS_FAIL）→ 链失败（记录停留 INIT）。
+     */
+    private BizException classifyPreStepFailure(long recordId, PreStepFailure e,
+                                                String trigger, String how, int attempt) {
+        String detail = how + " 前置步骤 " + e.getStepCode() + "：" + e.getDetail();
+        return switch (e.getKind()) {
+            case HTTP_5XX, CIRCUIT_OPEN -> {
+                String code = e.getKind() == PreStepFailure.Kind.CIRCUIT_OPEN ? "50202" : "50201";
+                LocalDateTime next = LocalDateTime.now().plusSeconds(CIRCUIT_DEFER_SECONDS);
+                chainAppend("INIT", "COMPENSATING", attempt, code, trigger, detail);
+                outboundRequestRepository.updateState(recordId, "COMPENSATING", null, null, next, code);
+                log.warn("出站请求 {} 前置步骤失败 → COMPENSATING 顺延（{}，不计数）", recordId, code);
+                yield new BizException("50202".equals(code) ? 50202 : 50201,
+                        "前置步骤不可用，已进入补偿队列（" + e.getStepCode() + "）");
+            }
+            case TIMEOUT -> {
+                chainAppend("INIT", "UNKNOWN", attempt, "50401", trigger, detail);
+                outboundRequestRepository.updateState(recordId, "UNKNOWN", null, null, null, "50401");
+                log.info("出站请求 {} 前置步骤超时 → UNKNOWN 待对账", recordId);
+                yield new BizException(50401, "前置步骤超时，结果待对账（UNKNOWN）");
+            }
+            default -> {
+                log.warn("出站请求 {} 前置步骤失败（链失败，记录停留 INIT）：{}", recordId, e.getDetail());
+                yield e; // CONFIG_ERROR / DEPTH_EXCEEDED / HTTP_4XX / BUSINESS_FAIL → 40001（不推进状态机）
+            }
+        };
     }
 
     private AppRow appOf(InterfaceRow iface) {
         return appRepository.findById(iface.appId()).orElseThrow();
-    }
-
-    /** 响应协议解码（D-M3-4 收敛）：按 protocol_out 走协议适配器 DECODE（JSON/XML 同路径，不再内联解析） */
-    private UnifiedModel parseResponse(long interfaceId, byte[] body) {
-        try {
-            return chainEngine.decodeResponse(interfaceId, body);
-        } catch (BizException e) {
-            // M2 行为等价：2xx 响应解析失败按空对象处理（宽松）；4xx/5xx/超时在 classify 按 HTTP 状态分类，不走此路径
-            log.warn("响应报文解析失败（按空对象处理）：{}", e.getMessage());
-            return UnifiedModel.emptyObject();
-        }
-    }
-
-    /**
-     * MESSAGE 绑定解析（接口覆盖 → 应用默认 → 平台默认，D-M5-2 矩阵）：
-     * 取链装配烘焙的 MESSAGE 实例（与请求方向实际执行同源，响应信封适配用同一 params）；
-     * 命中 EnvelopeMessageAdapter → 返回其 params 用于响应信封适配；
-     * 未命中（Noop 直通 / 无绑定）→ 返回 null，业务成败 = HTTP 状态。
-     */
-    private JsonNode envelopeParamsOf(InterfaceRow iface) {
-        AdapterInstance inst = chainEngine.boundInstance(iface.id(), "MESSAGE");
-        if (inst != null && "EnvelopeMessageAdapter".equals(inst.impl())) {
-            return inst.params();
-        }
-        return null;
     }
 
     private long deadLetterId(long recordId) {
@@ -393,12 +406,7 @@ public class OutboundEngine {
         return new String(body, java.nio.charset.StandardCharsets.UTF_8);
     }
 
-    /** RESP 字段声明（D-M3-3 白名单过滤输入；空 = 不过滤） */
-    private List<InterfaceRow.FieldDefRow> respDefs(InterfaceRow iface) {
-        return interfaceRepository.findFieldDefs(iface.id()).stream()
-                .filter(d -> "RESP".equals(d.kind()))
-                .toList();
-    }
+    /** RESP 字段声明已随判定逻辑抽出到 {@link ResponseJudger}（2026-09-18，避免两套判定口径） */
 
     /**
      * 出站诊断字段 out_payload 取值（M0-01 D7）：映射 + 协议编码后的出站报文文本；
@@ -417,14 +425,6 @@ public class OutboundEngine {
     private JsonNode toJson(UnifiedModel.UNode node) {
         try {
             return node == null ? null : JsonProtocolAdapter.fromUnified(node, objectMapper);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private JsonNode parseLenient(String text) {
-        try {
-            return objectMapper.readTree(text);
         } catch (Exception e) {
             return null;
         }

@@ -319,15 +319,36 @@ CREATE TABLE outbound_request_state_log (
 -- （现有 idx_outreq_scan(status, next_retry_at) 对 updated_at 范围过滤只能走 status 前缀扫全部历史 SUCCESS 行）
 ALTER TABLE outbound_request ADD KEY idx_outreq_updated (updated_at);
 
+-- 20 接口前置步骤（编排，第 7 张配置子表；见《前置接口编排设计方案.md》v0.1.3）
+-- 宿主接口（仅 OUTBOUND）在自身链的 MAPPING 前，按 seq 串行复用目标接口作为前置（A → B → 第三方）：
+-- 复用 B 的链 / 凭证 / 短重试 / 熔断 / 协议 / 日志，**不**复用 B 的补偿与对账状态机（长重试由宿主驱动）。
+-- 一期列集合仅下 5 列（seq / step_code / target_interface_id / failure_policy / enabled）；二期的
+-- request_overlay / fallback_json / timeout_ms_override / condition_expr / request_mode / parallel_group 随 migration 追加。
+-- ⚠ 2026-09-18 已应用到开发库（PS-1 落地）；schema 与《表结构设计.html》同步。
+CREATE TABLE interface_step (
+    id                  BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    interface_id        BIGINT       NOT NULL COMMENT '宿主接口（仅 OUTBOUND）',
+    seq                 INT          NOT NULL DEFAULT 0 COMMENT '执行顺序（升序；顺序敏感）',
+    step_code           VARCHAR(32)  NOT NULL COMMENT '步骤名（同接口内唯一；= steps.<步骤名> 命名空间与日志标识）',
+    target_interface_id BIGINT       NOT NULL COMMENT '前置接口（必须 OUTBOUND；存数字主键，防上游改 code 断链）',
+    failure_policy      VARCHAR(16)  NOT NULL DEFAULT 'ABORT' COMMENT '一期仅 ABORT；CONTINUE/FALLBACK 二期',
+    enabled             TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '停用 = 保留配置不执行',
+    created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_step (interface_id, step_code),
+    KEY idx_step_target (target_interface_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='接口前置步骤（编排）';
+
 -- ============================================================
 -- 删除策略约定（不设数据库外键，引用完整性由应用层保证）
 --   · 删适配器     → app.auth_adapter_id / callback_auth_adapter_id /
 --                    default_message_adapter_id、binding.adapter_id 置 NULL
 --                    （回退「无鉴权 / 平台默认」）
 --   · 删应用       → 级联删其分组与凭证（app_credential）；存在接口时禁止删除（接口以「下线」为主）
---   · 删接口       → 级联删 6 张配置子表（snapshot/param/body/mapping/field_def/binding）；
+--   · 删接口       → 级联删 7 张配置子表（snapshot/param/body/mapping/field_def/binding/**step**）；
 --                    存在运行数据（outbound_request / inbound_delivery）时仅允许下线
 --   · 删接口       → call_log.interface_id 置 NULL（日志保留，可观测数据不丢）
+--   · 删被引为前置的接口 → **禁止**（interface_step.target_interface_id 引用存在时；提示引用方）
 --   · dead_letter.ref_id 为多态引用（指向 outbound_request.id 或 inbound_delivery.id），不约束
 -- ============================================================
 

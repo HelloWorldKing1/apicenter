@@ -92,4 +92,28 @@ public record InterfaceRow(
                 rs.getLong("id"), rs.getString("role"),
                 rs.getString("adapter_id"), rs.getString("version"));
     }
+
+    /** 前置步骤写入行（interface_step 本表字段；无 join 展示列） */
+    public record StepRow(long id, long interfaceId, int seq, String stepCode,
+                          long targetInterfaceId, String failurePolicy, boolean enabled) {
+    }
+
+    /**
+     * 前置步骤（interface_step，第 7 张配置子表；见《前置接口编排设计方案》）：
+     * 宿主接口（仅 OUTBOUND）在自身链的 MAPPING 前，按 `seq` 串行复用目标接口作为前置。
+     * 目标展示字段（targetCode/targetName/targetStatus/targetIfType）来自 join，仅供管理面展示与校验。
+     */
+    public record StepView(long id, long interfaceId, int seq, String stepCode,
+                           long targetInterfaceId, String failurePolicy, boolean enabled,
+                           String targetCode, String targetName, String targetStatus, String targetIfType) {
+        public static final RowMapper<StepView> MAPPER = (rs, i) -> new StepView(
+                rs.getLong("id"), rs.getLong("interface_id"), rs.getInt("seq"), rs.getString("step_code"),
+                rs.getLong("target_interface_id"), rs.getString("failure_policy"), rs.getBoolean("enabled"),
+                rs.getString("target_code"), rs.getString("target_name"),
+                rs.getString("target_status"), rs.getString("target_if_type"));
+    }
+
+    /** 前置步骤引用者（删除守卫提示用）：宿主 code + 步骤名 */
+    public record StepRefView(long hostInterfaceId, String hostCode, String stepCode) {
+    }
 }

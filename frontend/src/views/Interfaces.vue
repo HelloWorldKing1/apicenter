@@ -60,6 +60,12 @@
           <template #default="{ row }">{{ row.protocolIn }}→{{ row.protocolOut }}</template>
         </el-table-column>
         <el-table-column prop="appName" label="应用" width="130" show-overflow-tooltip />
+        <el-table-column label="前置" width="86">
+          <template #default="{ row }">
+            <el-tag v-if="row.stepCount > 0" size="small" effect="plain">⇢ {{ row.stepCount }} 步</el-tag>
+            <span v-else class="tip">—</span>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
             <el-tag size="small" :type="row.status === 'PUBLISHED' ? 'success' : row.status === 'OFFLINE' ? 'info' : 'warning'">
@@ -247,7 +253,12 @@
           <el-button size="small" class="add-btn" @click="addFieldDef">＋ 添加字段</el-button>
         </el-tab-pane>
 
-        <!-- ===== Tab 4 高级（协议 / 超时 / 适配器绑定，原型折叠区平移） ===== -->
+        <!-- ===== Tab 4 前置步骤（编排，仅出站中转；PS-7） ===== -->
+        <el-tab-pane label="前置步骤" name="steps" v-if="form.ifType === 'OUTBOUND'">
+          <InterfaceStepsTab :form="form" :ifaces="ifaces" :self-id="dialog.editId" />
+        </el-tab-pane>
+
+        <!-- ===== Tab 5 高级（协议 / 超时 / 适配器绑定，原型折叠区平移） ===== -->
         <el-tab-pane label="高级" name="adv">
           <div class="adv-grid">
             <div class="adv-item">
@@ -375,6 +386,25 @@
         </el-timeline-item>
       </el-timeline>
 
+      <template v-if="detail.row.ifType === 'OUTBOUND' && (detail.row.steps || []).length">
+        <h4>前置步骤（编排：按顺序复用其他接口，结果合入 steps.&lt;步骤名&gt;）</h4>
+        <el-table :data="detail.row.steps" size="small">
+          <el-table-column label="#" width="44">
+            <template #default="{ $index }">{{ $index + 1 }}</template>
+          </el-table-column>
+          <el-table-column label="步骤名" width="100">
+            <template #default="{ row }"><span class="mono">{{ row.stepCode }}</span></template>
+          </el-table-column>
+          <el-table-column label="前置接口" min-width="180">
+            <template #default="{ row }">
+              <span class="mono">{{ row.targetCode || '—' }}</span>
+              <span class="tip"> {{ row.targetName }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="策略" width="70"><template #default>ABORT</template></el-table-column>
+        </el-table>
+      </template>
+
       <div class="detail-actions">
         <el-button type="primary" @click="openEdit(detail.row)">编辑</el-button>
         <el-button type="primary" plain @click="openVersionHistory(detail.row)">版本历史</el-button>
@@ -481,6 +511,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute } from 'vue-router'
 import http, { LONG_RUNNING_TIMEOUT } from '@/api/http'
 import InterfaceParamsTab from '@/components/InterfaceParamsTab.vue'
+import InterfaceStepsTab from '@/components/InterfaceStepsTab.vue'
 
 const route = useRoute()
 
@@ -567,7 +598,9 @@ function emptyForm() {
     inBodyType: 'none', inBodyRaw: '', inFormRows: [],
     outBodyType: 'none', outBodyRaw: '', outFormRows: [],
     mappings: [], fieldDefs: [], messageAdapterId: null, messageVersion: null,
-    authAdapterId: null, authVersion: null, changeNote: ''
+    authAdapterId: null, authVersion: null, changeNote: '',
+    // 前置步骤（编排，仅 OUTBOUND）：{seq, stepCode, targetInterfaceId, failurePolicy, enabled}
+    steps: []
   }
 }
 
@@ -643,6 +676,7 @@ async function openEdit(row) {
     messageVersion: d.bindings?.find((b) => b.role === 'MESSAGE')?.version || null,
     authAdapterId: (d.bindings?.find((b) => b.role === 'AUTH') || d.bindings?.find((b) => b.role === 'CALLBACK_AUTH'))?.adapterId || null,
     authVersion: (d.bindings?.find((b) => b.role === 'AUTH') || d.bindings?.find((b) => b.role === 'CALLBACK_AUTH'))?.version || null,
+    steps: (d.steps || []).map((s) => ({ ...s })),
     changeNote: ''
   })
   mainTab.value = 'params'
@@ -678,6 +712,7 @@ function onTypeChange() {
   form.upstreamPath = ''
   form.callbackUrl = ''
   form.fieldDefs = []
+  form.steps = []          // 编排仅出站中转：切类型时清空（避免残留步骤跟着提交）
   form.authAdapterId = null
   form.authVersion = null
   form.messageVersion = null
@@ -787,7 +822,14 @@ async function save() {
     callbackUrl: form.ifType === 'INBOUND' ? form.callbackUrl : null,
     status: null, timeoutMs: form.timeoutMs, maxRetries: form.maxRetries, desc: form.desc,
     version: form.version, params, bodies, mappings: passthrough ? [] : form.mappings,
-    fieldDefs: form.fieldDefs, bindings
+    fieldDefs: form.fieldDefs, bindings,
+    // 前置步骤（编排）：仅出站中转提交；seq 按当前顺序归一
+    steps: form.ifType === 'OUTBOUND'
+      ? form.steps.map((s, i) => ({
+        seq: i, stepCode: s.stepCode, targetInterfaceId: s.targetInterfaceId,
+        failurePolicy: s.failurePolicy || 'ABORT', enabled: s.enabled !== false
+      }))
+      : []
   }
   if (dialog.isEdit) {
     // M5 D-M5-1：变更说明经 X-Change-Note 随保存生成新版本快照（不扩展请求体 DTO，头透传）
@@ -808,15 +850,20 @@ async function save() {
 }
 
 async function act(row, action) {
-  await http.post(`/interfaces/${row.id}/${action}`)
-  ElMessage.success('操作成功')
+  const data = await http.post(`/interfaces/${row.id}/${action}`)
+  // 下线被引用为前置的接口：后端回 warnings[]（D-PS-10 强提示，不阻断）
+  if (action === 'offline' && Array.isArray(data) && data.length) {
+    ElMessage.warning('该接口被前置步骤引用：' + data.join('；'))
+  } else {
+    ElMessage.success('操作成功')
+  }
   if (detail.visible) {
     detail.row = await http.get(`/interfaces/${row.id}`)
   }
   load()
 }
 async function remove(row) {
-  await ElMessageBox.confirm(`删除接口「${row.name}」？其 6 张配置子表将级联删除`, '确认', { type: 'warning' })
+  await ElMessageBox.confirm(`删除接口「${row.name}」？其 7 张配置子表将级联删除`, '确认', { type: 'warning' })
   await http.delete(`/interfaces/${row.id}`)
   ElMessage.success('已删除')
   load()

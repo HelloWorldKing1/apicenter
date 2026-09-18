@@ -10,10 +10,12 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * M5 快照序列化器保护网（D-M5-1 定稿内容即契约）：config_json ↔ 六段（main/params/bodies/mappings/fieldDefs/bindings）
+ * 接口配置快照序列化器保护网（M5 D-M5-1 定稿内容即契约）：config_json ↔ 七段（main/params/bodies/mappings/fieldDefs/bindings/steps）
  * 序列化往返等价 / 空子表容忍 / 未知字段忽略（向前兼容，防结构漂移——未来加子表必须回改序列化器并更新本测试）。
+ * steps（前置编排，2026-09-18 PS-5）：快照存 targetCode → 回滚时经 resolver 解析回 id；解析失败报 40001。
  */
 class SnapshotSerializerTest {
 
@@ -21,12 +23,13 @@ class SnapshotSerializerTest {
     private final SnapshotSerializer serializer = new SnapshotSerializer(mapper);
 
     @Test
-    void 往返等价_六段内容_空子表与全量子表() throws Exception {
+    void 往返等价_七段内容_空子表与全量子表() throws Exception {
         // 空子表往返
         InterfaceRow empty = row("IF-X", 2);
-        String jsonEmpty = serializer.toJson(empty, List.of(), List.of(), List.of(), List.of(), List.of());
+        String jsonEmpty = serializer.toJson(empty, List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
         InterfaceRequest reqEmpty = serializer.toRequest(jsonEmpty, BigDecimal.valueOf(5));
         assertThat(reqEmpty.params()).isEmpty();
+        assertThat(reqEmpty.steps()).isEmpty();   // 无 steps 字段 → 空表（向前兼容）
         assertThat(reqEmpty.bindings()).isEmpty();
         assertThat(reqEmpty.mappings()).isEmpty();
         assertThat(reqEmpty.fieldDefs()).isEmpty();
@@ -43,9 +46,11 @@ class SnapshotSerializerTest {
                 List.of(new InterfaceRow.MappingRow(0, "state", "rename", "order_state", null, "KEEP", 1),
                         new InterfaceRow.MappingRow(0, null, "default", "fixed", "v1", "KEEP", 2)),
                 List.of(new InterfaceRow.FieldDefRow(0, "RESP", "total", "number", "总数", 1)),
-                List.of(new InterfaceRow.BindingRow(0, "MESSAGE", "ADP-X", "9.1")));
+                List.of(new InterfaceRow.BindingRow(0, "MESSAGE", "ADP-X", "9.1")),
+                List.of(new InterfaceRow.StepView(5, 9, 0, "auth", 42L, "ABORT", true,
+                        "IF-AUTH", "取 token", "PUBLISHED", "OUTBOUND")));
 
-        InterfaceRequest parsed = serializer.toRequest(json1, BigDecimal.valueOf(7));
+        InterfaceRequest parsed = serializer.toRequest(json1, BigDecimal.valueOf(7), code -> 42L);
         // 重建行必须由 parsed（main 快照）构造：校验含 appId / callbackUrl——换过应用的接口回滚不恢复错归属
         assertThat(parsed.appId()).isEqualTo("M5-APP");
         assertThat(parsed.groupId()).isEqualTo(11L);
@@ -58,6 +63,10 @@ class SnapshotSerializerTest {
         assertThat(parsed.params()).hasSize(2);
         assertThat(parsed.fieldDefs().get(0).kind()).isEqualTo("RESP");
         assertThat(parsed.bodies().get(0).bodyType()).isEqualTo("json");
+        // 前置步骤：快照存 targetCode；无 resolver 时默认 resolver 会报错（本用例传 resolver）
+        assertThat(parsed.steps()).hasSize(1);
+        assertThat(parsed.steps().get(0).stepCode()).isEqualTo("auth");
+        assertThat(parsed.steps().get(0).targetCode()).isEqualTo("IF-AUTH");
 
         InterfaceRow rebuilt = new InterfaceRow(9, parsed.code(), parsed.name(), parsed.ifType(), parsed.method(), parsed.path(),
                 parsed.protocolIn() == null || parsed.protocolIn().isBlank() ? "JSON" : parsed.protocolIn(),
@@ -77,8 +86,36 @@ class SnapshotSerializerTest {
                         m.sortOrder() == null ? 0 : m.sortOrder())).toList(),
                 parsed.fieldDefs().stream().map(f -> new InterfaceRow.FieldDefRow(0, f.kind(), f.name(),
                         f.type() == null ? "string" : f.type(), f.desc(), f.sortOrder() == null ? 0 : f.sortOrder())).toList(),
-                parsed.bindings().stream().map(b -> new InterfaceRow.BindingRow(0, b.role(), b.adapterId(), b.version())).toList());
+                parsed.bindings().stream().map(b -> new InterfaceRow.BindingRow(0, b.role(), b.adapterId(), b.version())).toList(),
+                parsed.steps().stream().map(s -> new InterfaceRow.StepView(0, 0, s.seq() == null ? 0 : s.seq(),
+                        s.stepCode(), s.targetInterfaceId() == null ? 0 : s.targetInterfaceId(),
+                        s.failurePolicy(), Boolean.TRUE.equals(s.enabled()), s.targetCode(), null, null, null)).toList());
         assertTreeEqual(json1, json2);
+    }
+
+    /**
+     * 前置步骤（编排 PS-5）：快照只存 targetCode（跨环境可移植）→ 回滚经 resolver 解析回 id；
+     * 解析失败必须报 40001（不静默丢步骤）。
+     */
+    @Test
+    void 前置步骤_targetCode回滚解析_失败报40001() {
+        String json = """
+                {"main":{"code":"IF-S","name":"n","ifType":"OUTBOUND","method":"POST","path":"/s",
+                          "appId":"M5-APP","groupId":1,"timeoutMs":3000,"maxRetries":4},
+                 "steps":[{"seq":0,"stepCode":"auth","targetCode":"IF-AUTH","failurePolicy":"ABORT","enabled":true},
+                          {"seq":1,"stepCode":"route","targetCode":"IF-ROUTE","failurePolicy":"ABORT","enabled":false}]}
+                """;
+        // 解析成功：resolver 把 code 映射为 id
+        InterfaceRequest ok = serializer.toRequest(json, BigDecimal.valueOf(3), code -> "IF-AUTH".equals(code) ? 42L : 43L);
+        assertThat(ok.steps()).hasSize(2);
+        assertThat(ok.steps().get(0).targetInterfaceId()).isEqualTo(42L);
+        assertThat(ok.steps().get(1).targetInterfaceId()).isEqualTo(43L);
+        assertThat(ok.steps().get(1).enabled()).isFalse();
+
+        // 解析失败：默认 resolver（无仓储）→ 40001，而非静默丢步骤
+        assertThatThrownBy(() -> serializer.toRequest(json, BigDecimal.valueOf(3)))
+                .isInstanceOf(com.deepx.apicenter.exception.BizException.class)
+                .hasMessageContaining("快照引用的前置接口不存在");
     }
 
     @Test

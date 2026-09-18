@@ -39,6 +39,22 @@ public final class InterfaceDtos {
     }
 
     /**
+     * 前置步骤（interface_step，编排）：宿主按 `seq` 升序串行调用 `targetInterfaceId` 指向的出站接口，
+     * 其结果合入模型命名空间 `steps.<stepCode>` 供字段映射 / condition 引用。
+     *
+     * <p>`targetCode` / `targetName` 为**响应侧展示字段**（detail 时 join 出来），请求侧忽略；
+     * 快照回滚场景下由 `SnapshotSerializer` 按 `targetCode` 解析回 id。
+     */
+    public record StepDto(Integer seq, String stepCode, Long targetInterfaceId, String failurePolicy,
+                          Boolean enabled, String targetCode, String targetName) {
+        /** 兼容构造：请求侧（无展示字段） */
+        public StepDto(Integer seq, String stepCode, Long targetInterfaceId,
+                       String failurePolicy, Boolean enabled) {
+            this(seq, stepCode, targetInterfaceId, failurePolicy, enabled, null, null);
+        }
+    }
+
+    /**
      * 接口复制请求（方案 B，2026-09-07 拍板）：code/path 必填（全局唯一）；name/desc/upstreamPath/callbackUrl
      * 可空 = 沿用源；归属固定 = 源应用/源分组（不支持跨应用）；产物 = DRAFT v1.0。
      */
@@ -86,9 +102,11 @@ public final class InterfaceDtos {
             List<BodyDto> bodies,
             List<MappingDto> mappings,
             List<FieldDefDto> fieldDefs,
-            List<BindingDto> bindings
+            List<BindingDto> bindings,
+            /** 前置步骤（编排，可空 = 无）；仅 OUTBOUND 支持 */
+            List<StepDto> steps
     ) {
-        /** 兼容构造：历史/测试以整值传版本（如 1）时自动转 BigDecimal */
+        /** 兼容构造：历史/测试以整值传版本（如 1）时自动转 BigDecimal；steps 缺省 = 无 */
         public InterfaceRequest(
                 String code, String name, String ifType, String method, String path,
                 String protocolIn, String protocolOut, String appId, Long groupId,
@@ -98,7 +116,20 @@ public final class InterfaceDtos {
                 List<FieldDefDto> fieldDefs, List<BindingDto> bindings) {
             this(code, name, ifType, method, path, protocolIn, protocolOut, appId, groupId,
                     upstreamPath, callbackUrl, status, timeoutMs, maxRetries, desc,
-                    BigDecimal.valueOf(version), params, bodies, mappings, fieldDefs, bindings);
+                    BigDecimal.valueOf(version), params, bodies, mappings, fieldDefs, bindings, null);
+        }
+
+        /** 兼容构造：BigDecimal 版本 + 无 steps（快照回滚等旧调用形态） */
+        public InterfaceRequest(
+                String code, String name, String ifType, String method, String path,
+                String protocolIn, String protocolOut, String appId, Long groupId,
+                String upstreamPath, String callbackUrl, String status,
+                Integer timeoutMs, Integer maxRetries, String desc, BigDecimal version,
+                List<ParamDto> params, List<BodyDto> bodies, List<MappingDto> mappings,
+                List<FieldDefDto> fieldDefs, List<BindingDto> bindings) {
+            this(code, name, ifType, method, path, protocolIn, protocolOut, appId, groupId,
+                    upstreamPath, callbackUrl, status, timeoutMs, maxRetries, desc,
+                    version, params, bodies, mappings, fieldDefs, bindings, null);
         }
     }
 
@@ -113,7 +144,11 @@ public final class InterfaceDtos {
             List<InterfaceRow.BodyRow> bodies,
             List<InterfaceRow.MappingRow> mappings,
             List<InterfaceRow.FieldDefRow> fieldDefs,
-            List<InterfaceRow.BindingRow> bindings
+            List<InterfaceRow.BindingRow> bindings,
+            /** 前置步骤明细（编排；list 场景恒空，列表只带 stepCount） */
+            List<StepDto> steps,
+            /** 前置步骤数（列表角标用；detail 场景 = steps.size()） */
+            long stepCount
     ) {
     }
 }

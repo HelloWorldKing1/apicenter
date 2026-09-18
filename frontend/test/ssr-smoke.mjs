@@ -12,6 +12,7 @@ import { renderToString } from 'vue/server-renderer'
 import PayloadViewer from '../src/components/PayloadViewer.vue'
 import ParamImportDialog from '../src/components/ParamImportDialog.vue'
 import InterfaceParamsTab from '../src/components/InterfaceParamsTab.vue'
+import InterfaceStepsTab from '../src/components/InterfaceStepsTab.vue'
 
 function decode(html) {
   return html
@@ -51,6 +52,9 @@ const paramsForm = {
   outBodyType: 'none', outBodyRaw: '', outFormRows: []
 }
 
+/** 前置步骤 tab 的表单夹具（编排 PS-7） */
+const stepsForm = { ifType: 'OUTBOUND', steps: [] }
+
 const CASES = [
   // [标签, props, 断言]
   ['JSON 美化 + 高亮标记', { text: '{"a":1,"seller_id":7494312521977267257}' },
@@ -75,13 +79,29 @@ const CASES = [
     { text: ['入站侧', '出站侧', '来源 → 平台', '平台 → 目标', '快速导入参数', '透传（出站 = 入站原样）', '暂无参数'] }],
   ['请求参数 Tab（透传模式提示）',
     { __component: 'InterfaceParamsTab', form: { ...paramsForm, passthrough: true } },
-    { text: ['透传模式：出站报文 = 入站报文原样转发'] }]
+    { text: ['透传模式：出站报文 = 入站报文原样转发'] }],
+  // 前置步骤 Tab（编排，PS-7）：空态 + 上限口径 + 入口按钮（含 <script setup> 里 .value/绑定回归防线）
+  ['前置步骤 Tab（空态）', { __component: 'InterfaceStepsTab', form: stepsForm, ifaces: [] },
+    { text: ['前置步骤', '暂无前置步骤', '添加前置步骤', '最多 5 步', '不配 = 与现在行为完全一致'] }],
+  // 注：ElStub 给 el-table-column 作用域插槽传的是空 row，行内文案（步骤名 / 目标 code）无法在此断言——
+  // 那一层由 PreStepIntegrationTest（后端）与界面手测覆盖；此处只验证「有步骤分支 + 操作入口 + 弹窗渲染」
+  ['前置步骤 Tab（有步骤）',
+    { __component: 'InterfaceStepsTab',
+      form: { ifType: 'OUTBOUND', steps: [
+        { seq: 0, stepCode: 'auth', targetInterfaceId: 7, failurePolicy: 'ABORT', enabled: true }
+      ] },
+      ifaces: [{ id: 7, code: 'IF-AUTH', name: '取 token', ifType: 'OUTBOUND', status: 'PUBLISHED' }],
+      selfId: 99 },
+    { text: ['阻断后续', '可用字段', '添加前置步骤', '编辑'] }],
+  ['前置步骤 Tab（入站接口不支持）',
+    { __component: 'InterfaceStepsTab', form: { ifType: 'INBOUND', steps: [] }, ifaces: [] },
+    { text: ['入站回调接口不支持前置步骤'] }]
 ]
 
 async function main() {
   let failed = 0
   for (const [label, props, expect] of CASES) {
-    const COMPONENTS = { ParamImportDialog, InterfaceParamsTab }
+    const COMPONENTS = { ParamImportDialog, InterfaceParamsTab, InterfaceStepsTab }
     const component = COMPONENTS[props.__component] || PayloadViewer
     const app = createSSRApp({ render: () => h(component, props) })
     EL_COMPONENTS.forEach((name) => app.component(name, ElStub))

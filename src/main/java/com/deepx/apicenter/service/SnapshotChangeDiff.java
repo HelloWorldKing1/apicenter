@@ -92,6 +92,7 @@ public final class SnapshotChangeDiff {
         diffFieldDefs(oldRoot, newRoot, detail, parts);
         diffBindings(oldRoot, newRoot, detail, parts);
         diffBodies(oldRoot, newRoot, detail, parts);
+        diffSteps(oldRoot, newRoot, detail, parts);
 
         detail.put("manual", manual == null ? "" : manual);
 
@@ -111,7 +112,60 @@ public final class SnapshotChangeDiff {
         return new DiffResult(sb.toString(), detail.toString());
     }
 
+    /**
+     * 前置步骤（编排）：key = stepCode，增删三态 + 目标 / 策略变化。
+     * `seq` 不参与比较——插入/删除一步会把后续步骤重新编号，比 seq 会满屏噪声；
+     * 顺序变化由「新增 / 删除 + 摘要里的步数」体现。旧快照无 steps 字段 → 视为空（向前兼容）。
+     */
+    private static void diffSteps(JsonNode oldRoot, JsonNode newRoot, ObjectNode detail, List<String> parts) {
+        Map<String, JsonNode> oldM = index(oldRoot.path("steps"), n -> n.path("stepCode").asText());
+        Map<String, JsonNode> newM = index(newRoot.path("steps"), n -> n.path("stepCode").asText());
+        ArrayNode arr = detail.putArray("steps");
+        int add = 0, del = 0, upd = 0;
+        List<String> addNames = new ArrayList<>(), delNames = new ArrayList<>();
+        for (Map.Entry<String, JsonNode> e : newM.entrySet()) {
+            JsonNode oldN = oldM.get(e.getKey());
+            if (oldN == null) {
+                add++;
+                if (addNames.size() < 2) {
+                    addNames.add(e.getKey());
+                }
+                arr.addObject().put("action", "ADD").put("key", e.getKey())
+                        .put("targetCode", text(e.getValue().get("targetCode")));
+            } else if (changed(oldN, e.getValue(), "targetCode", "failurePolicy", "enabled")) {
+                upd++;
+                arr.addObject().put("action", "UPD").put("key", e.getKey())
+                        .put("old", text(oldN.get("targetCode")))
+                        .put("new", text(e.getValue().get("targetCode")));
+            }
+        }
+        for (Map.Entry<String, JsonNode> e : oldM.entrySet()) {
+            if (!newM.containsKey(e.getKey())) {
+                del++;
+                if (delNames.size() < 2) {
+                    delNames.add(e.getKey());
+                }
+                arr.addObject().put("action", "DEL").put("key", e.getKey());
+            }
+        }
+        if (add + del + upd > 0) {
+            StringBuilder sb = new StringBuilder("前置步骤 ");
+            sb.append(oldM.size()).append("→").append(newM.size());
+            if (!addNames.isEmpty()) {
+                sb.append("（新增 ").append(String.join("/", addNames)).append("）");
+            }
+            if (!delNames.isEmpty()) {
+                sb.append("（移除 ").append(String.join("/", delNames)).append("）");
+            }
+            if (upd > 0) {
+                sb.append("（改动 ").append(upd).append(" 步）");
+            }
+            parts.add(sb.toString());
+        }
+    }
+
     // ---------- params：key = side/name，增删 + 必填/类型变化计数 ----------
+
     private static void diffParams(JsonNode oldRoot, JsonNode newRoot, ObjectNode detail, List<String> parts) {
         Map<String, JsonNode> oldM = index(oldRoot.path("params"), n -> n.path("side").asText() + "/" + n.path("name").asText());
         Map<String, JsonNode> newM = index(newRoot.path("params"), n -> n.path("side").asText() + "/" + n.path("name").asText());

@@ -99,7 +99,7 @@
    ┌──────────────┐                  │  RestClient 直调      │
    │    MySQL     │◄─────────────────│  UpstreamInvoker      │
    │  PolarDB     │   config + 运行   │  @Retryable + 熔断闸门 │
-   │  19 张表      │                  └──────────┬───────────┘
+   │  20 张表      │                  └──────────┬───────────┘
    └──────────────┘                             ▼
    ┌──────────────────────────────────────────────────────────┐
    │ Worker：CallLogWriter（异步日志）/ CompensationWorker（补偿 │
@@ -113,7 +113,7 @@
 |---|---|
 | `controller/` | 接入层路由 `GatewayController` + 管理面 REST（`controller/admin` 7 个 Controller） |
 | `service/` | 业务编排：配置校验、状态机流转、凭证管理、接入层防护 `GatewayGuard`、版本快照 `SnapshotSerializer` |
-| `repository/` | JdbcTemplate 数据访问（19 张表，无 JPA） |
+| `repository/` | JdbcTemplate 数据访问（20 张表，无 JPA） |
 | `engine/` | 适配器链引擎 `ChainEngine` + 出站 `OutboundEngine` / 入站 `InboundEngine` + `CircuitBreakerRegistry` |
 | `adapter/` | 三类适配器实现：`auth` / `protocol` / `message` |
 | `mapping/` | 动态字段映射引擎（M0-02 规范，Aviator 5 解释器） |
@@ -241,7 +241,7 @@ sequenceDiagram
 
 ## 6. 数据模型
 
-共 **19 张表**（配置 11 + 运行 8），无数据库外键（引用完整性应用层保证，引用列建索引）。DDL 见 [`schema.sql`](schema.sql)，可视化见 [`表结构设计.html`](表结构设计.html)。
+共 **20 张表**（配置 12 + 运行 8；其中 interface_step 为前置步骤编排，2026-09-18 落地），无数据库外键（引用完整性应用层保证，引用列建索引）。DDL 见 [`schema.sql`](schema.sql)，可视化见 [`表结构设计.html`](表结构设计.html)。
 
 **配置表（11）**：`app`、`app_credential`、`app_group`、`interface`、`interface_param`、`interface_body`、`interface_field_mapping`、`interface_field_def`、`interface_adapter_binding`、`interface_snapshot`、`adapter`。
 
@@ -360,7 +360,7 @@ RECEIVED → ACKED / PENDING → ACKED / DEAD_LETTER
 | `API中心设计方案.md` | 设计总纲（必读） |
 | `技术架构和实现方案.md` | 分层架构、技术选型、ADR |
 | `可行性报告.md` | 可行性评估与工作量估算 |
-| `表结构设计.html` + `schema.sql` | 19 张表结构 |
+| `表结构设计.html` + `schema.sql` | 20 张表结构 |
 | `API中心时序图与流程图.md` | 配置流程、Flow A / B 时序、容错流程 |
 | `API中心原型.html` | 可交互管理面原型 |
 | `开发计划.md` | M0–M5 里程碑 |

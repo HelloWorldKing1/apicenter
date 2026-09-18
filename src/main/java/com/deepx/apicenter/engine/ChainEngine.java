@@ -16,6 +16,8 @@ import com.deepx.apicenter.repository.AppRepository;
 import com.deepx.apicenter.repository.CredentialRepository;
 import com.deepx.apicenter.repository.InterfaceRepository;
 import com.deepx.apicenter.service.CryptoService;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -60,6 +62,17 @@ public class ChainEngine {
 
     private final Map<Long, CachedChain> chainCache = new ConcurrentHashMap<>();
 
+    /**
+     * 前置步骤执行器（前置编排 PS-4）：用 {@link ObjectProvider} 拿延迟句柄——
+     * PreStepExecutor → ResponseJudger → ChainEngine 存在依赖环，构造期直接注入会循环；
+     * 延迟到请求期解析（此时本 Bean 已构造完成）自然解开，且不引入 @Lazy 代理。
+     */
+    private final ObjectProvider<PreStepExecutor> preStepExecutorProvider;
+
+    /** 前置编排全局开关（D-PS-7）：false 时装配期忽略 steps（配置保留、不执行）——线上应急回退 */
+    @Value("${app.api-center.pre-step.enabled:true}")
+    private boolean preStepEnabled;
+
     public ChainEngine(InterfaceRepository interfaceRepository,
                        AppRepository appRepository,
                        AdapterRepository adapterRepository,
@@ -69,7 +82,8 @@ public class ChainEngine {
                        List<Adapter> adapters,
                        ObjectMapper objectMapper,
                        ObservationRegistry observationRegistry,
-                       ApplicationEventPublisher eventPublisher) {
+                       ApplicationEventPublisher eventPublisher,
+                       ObjectProvider<PreStepExecutor> preStepExecutorProvider) {
         this.interfaceRepository = interfaceRepository;
         this.appRepository = appRepository;
         this.adapterRepository = adapterRepository;
@@ -82,6 +96,7 @@ public class ChainEngine {
         this.objectMapper = objectMapper;
         this.observationRegistry = observationRegistry;
         this.eventPublisher = eventPublisher;
+        this.preStepExecutorProvider = preStepExecutorProvider;
     }
 
     /**
@@ -192,6 +207,12 @@ public class ChainEngine {
         List<InterfaceRow.BindingRow> binds = interfaceRepository.findBindings(iface.id());
         AppRow app = appRepository.findById(iface.appId()).orElseThrow();
 
+        // 前置步骤（编排，PS-4）：装配期一次读取并烘焙进缓存链（与 mapping rules 同源，INTERFACE 事件
+        // 已覆盖即时失效）；仅 OUTBOUND 支持；全局开关关闭时忽略（配置保留不执行）
+        List<InterfaceRow.StepView> preSteps = "OUTBOUND".equals(ifType) && preStepEnabled
+                ? interfaceRepository.findSteps(iface.id())
+                : List.of();
+
         // 1. 入站鉴权：Flow A 调用方鉴权属平台统一能力（范围外）→ Noop 占位；
         //    Flow B 回调验签（M3 交付）：CALLBACK_AUTH 角色解析（接口覆盖 → 应用默认 → 平台默认 Noop）
         AdapterInstance callbackAuth = "INBOUND".equals(ifType)
@@ -218,6 +239,10 @@ public class ChainEngine {
         steps.put(ChainPhase.DECODE, ctx -> {
             ctx.attrs().put("adapterParams", objectMapper.createObjectNode());
             ctx.attrs().put("paramTypes", inParamTypes);
+            // 前置调用（invocationRole=PRE / preDecoded=true）：payload 已由 PreStepExecutor 注入，跳过解码
+            if (Boolean.TRUE.equals(ctx.attrs().get("preDecoded"))) {
+                return ctx;
+            }
             return decodeIn.process(ctx);
         });
 
@@ -228,11 +253,21 @@ public class ChainEngine {
 
         // 4. 字段映射（固定步骤，非适配器，M0-01 D3）：映射规则随装配烘焙（不再每请求查库）
         List<InterfaceRow.MappingRow> rules = interfaceRepository.findMappings(iface.id());
-        steps.put(ChainPhase.MAPPING, ctx -> mappingEngine.apply(ctx, rules));
+        steps.put(ChainPhase.MAPPING, ctx -> {
+            if (!preSteps.isEmpty()) {
+                // 前置步骤必须早于字段映射：宿主的映射规则 / condition 要引用 steps.<stepCode>.<field>
+                preStepExecutorProvider.getObject().execute(ctx, preSteps);
+            }
+            return mappingEngine.apply(ctx, rules);
+        });
 
         // 5. 协议编码（protocol_out 自动推导）
         Adapter encodeOut = protocolAdapter(iface.protocolOut(), "编码");
         steps.put(ChainPhase.ENCODE, ctx -> {
+            if (!preSteps.isEmpty()) {
+                // 保留键剥离（透传防护）：宿主映射为空（整体透传）时，steps 子树会被原样编给第三方
+                ReservedKeys.stripSteps(ctx.payload());
+            }
             ctx.attrs().put("adapterParams", objectMapper.createObjectNode());
             return encodeOut.process(ctx);
         });
@@ -255,7 +290,7 @@ public class ChainEngine {
             return authFinal.process(ctx);
         });
 
-        return new Chain(steps, bound);
+        return new Chain(steps, bound, !preSteps.isEmpty());
     }
 
     /** 协议适配器自动推导（M0-01 §5.1）：JSON / XML 双实现（XML 为 M3 交付） */
@@ -438,8 +473,17 @@ public class ChainEngine {
         AdapterContext execute(AdapterContext ctx);
     }
 
-    /** 装配结果链：steps（含烘焙的实例与规则）+ 绑定角色 → 实例明细（留痕 / span tag / 一致性读取） */
-    private record Chain(Map<ChainPhase, ChainStep> steps, Map<String, AdapterInstance> boundByRole) {
+    /** 装配结果链：steps（含烘焙的实例与规则）+ 绑定角色 → 实例明细（留痕 / span tag / 一致性读取）
+     *  + hasPreSteps（是否配置了前置步骤，供 OutboundEngine 决定补偿预算下限，D-PS-11） */
+    private record Chain(Map<ChainPhase, ChainStep> steps, Map<String, AdapterInstance> boundByRole,
+                         boolean hasPreSteps) {
+    }
+
+    /** 接口是否配置了前置步骤（读缓存链；与装配同源，不额外查库） */
+    public boolean hasPreSteps(long interfaceId) {
+        InterfaceRow iface = interfaceRepository.findById(interfaceId)
+                .orElseThrow(() -> BizException.ifaceNotFound(interfaceId));
+        return chain(iface).hasPreSteps();
     }
 
     private record CachedChain(Chain chain, long expireAt) {
