@@ -36,8 +36,16 @@ class AdminUserServiceTest {
     private static final long OTHER = 2L;
 
     private AdminUserRow user(long id, String username, String status) {
-        return new AdminUserRow(id, username, "名字", "pbkdf2$1$x$y", status, 0, null, null, null);
+        return user(id, username, status, RoleRules.VIEWER);
     }
+
+    private AdminUserRow user(long id, String username, String status, String role) {
+        return new AdminUserRow(id, username, "名字", "pbkdf2$1$x$y", role, status, 0, null, null, null);
+    }
+
+    private static final String OWNER = RoleRules.OWNER;
+    private static final String ADMIN = RoleRules.ADMIN;
+    private static final String VIEWER = RoleRules.VIEWER;
 
     // ---------- 守卫 ①：最后一个可用账号 ----------
 
@@ -46,7 +54,7 @@ class AdminUserServiceTest {
         when(userRepository.findById(OTHER)).thenReturn(Optional.of(user(OTHER, "other", "ENABLED")));
         when(userRepository.countEnabled()).thenReturn(1);
 
-        assertThatThrownBy(() -> service.update(ME, OTHER, null, "DISABLED"))
+        assertThatThrownBy(() -> service.update(ME, OWNER, OTHER, null, "DISABLED", null))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("最后一个可用账号")
                 .hasMessageContaining("停用");
@@ -59,7 +67,7 @@ class AdminUserServiceTest {
         when(userRepository.findById(OTHER)).thenReturn(Optional.of(user(OTHER, "other", "ENABLED")));
         when(userRepository.countEnabled()).thenReturn(1);
 
-        assertThatThrownBy(() -> service.delete(ME, OTHER))
+        assertThatThrownBy(() -> service.delete(ME, OWNER, OTHER))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("最后一个可用账号");
 
@@ -70,7 +78,7 @@ class AdminUserServiceTest {
     void 已停用账号不受最后账号守卫限制_可直接删除() {
         when(userRepository.findById(OTHER)).thenReturn(Optional.of(user(OTHER, "other", "DISABLED")));
 
-        service.delete(ME, OTHER);
+        service.delete(ME, OWNER, OTHER);
 
         verify(userRepository).delete(OTHER);
         verify(sessionRepository).deleteByUserId(OTHER);
@@ -83,7 +91,7 @@ class AdminUserServiceTest {
         when(userRepository.findById(ME)).thenReturn(Optional.of(user(ME, "me", "ENABLED")));
         when(userRepository.countEnabled()).thenReturn(2);
 
-        assertThatThrownBy(() -> service.update(ME, ME, null, "DISABLED"))
+        assertThatThrownBy(() -> service.update(ME, OWNER, ME, null, "DISABLED", null))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("不能停用当前登录的账号");
     }
@@ -93,7 +101,7 @@ class AdminUserServiceTest {
         when(userRepository.findById(ME)).thenReturn(Optional.of(user(ME, "me", "ENABLED")));
         when(userRepository.countEnabled()).thenReturn(5);
 
-        assertThatThrownBy(() -> service.delete(ME, ME))
+        assertThatThrownBy(() -> service.delete(ME, OWNER, ME))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("不能删除当前登录的账号");
     }
@@ -102,7 +110,7 @@ class AdminUserServiceTest {
     void 重置自己被拒_引导走修改密码() {
         when(userRepository.findById(ME)).thenReturn(Optional.of(user(ME, "me", "ENABLED")));
 
-        assertThatThrownBy(() -> service.resetPassword(ME, ME, "NewPassw0rd"))
+        assertThatThrownBy(() -> service.resetPassword(ME, OWNER, ME, "NewPassw0rd"))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("修改密码");
 
@@ -116,7 +124,7 @@ class AdminUserServiceTest {
         when(userRepository.findById(OTHER)).thenReturn(Optional.of(user(OTHER, "other", "ENABLED")));
         when(userRepository.countEnabled()).thenReturn(3);
 
-        service.update(ME, OTHER, "新显示名", "disabled");   // 小写状态也应接受
+        service.update(ME, OWNER, OTHER, "新显示名", "disabled", null);   // 小写状态也应接受
 
         verify(userRepository).updateProfile(OTHER, "新显示名", "DISABLED");
         verify(sessionRepository).deleteByUserId(OTHER);
@@ -126,7 +134,7 @@ class AdminUserServiceTest {
     void 仅改显示名不动状态时不吊销会话() {
         when(userRepository.findById(OTHER)).thenReturn(Optional.of(user(OTHER, "other", "ENABLED")));
 
-        service.update(ME, OTHER, "只改名", null);
+        service.update(ME, OWNER, OTHER, "只改名", null, null);
 
         verify(userRepository).updateProfile(OTHER, "只改名", "ENABLED");
         verify(sessionRepository, never()).deleteByUserId(anyLong());
@@ -136,7 +144,7 @@ class AdminUserServiceTest {
     void 重置他人口令_写摘要并吊销会话() {
         when(userRepository.findById(OTHER)).thenReturn(Optional.of(user(OTHER, "other", "ENABLED")));
 
-        service.resetPassword(ME, OTHER, "NewPassw0rd");
+        service.resetPassword(ME, OWNER, OTHER, "NewPassw0rd");
 
         verify(userRepository).updatePassword(eq(OTHER), any());
         verify(sessionRepository).deleteByUserId(OTHER);
@@ -146,13 +154,13 @@ class AdminUserServiceTest {
     void 新建账号_重名40901_非法用户名与弱口令40001() {
         when(userRepository.findByUsername("dup")).thenReturn(Optional.of(user(OTHER, "dup", "ENABLED")));
 
-        assertThatThrownBy(() -> service.create(ME, "dup", "Passw0rd", null))
+        assertThatThrownBy(() -> service.create(ME, OWNER, "dup", "Passw0rd", null, null))
                 .isInstanceOfSatisfying(BizException.class,
                         e -> assertThat(e.getCode()).isEqualTo(BizException.USERNAME_TAKEN));
-        assertThatThrownBy(() -> service.create(ME, "ab", "Passw0rd", null))
+        assertThatThrownBy(() -> service.create(ME, OWNER, "ab", "Passw0rd", null, null))
                 .isInstanceOfSatisfying(BizException.class,
                         e -> assertThat(e.getCode()).isEqualTo(BizException.FIELD_INVALID));
-        assertThatThrownBy(() -> service.create(ME, "ok_name", "abcdefgh", null))
+        assertThatThrownBy(() -> service.create(ME, OWNER, "ok_name", "abcdefgh", null, null))
                 .isInstanceOfSatisfying(BizException.class,
                         e -> assertThat(e.getCode()).isEqualTo(BizException.FIELD_INVALID));
     }
@@ -161,7 +169,7 @@ class AdminUserServiceTest {
     void 不存在的账号_40405() {
         when(userRepository.findById(999L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.update(ME, 999L, null, "DISABLED"))
+        assertThatThrownBy(() -> service.update(ME, OWNER, 999L, null, "DISABLED", null))
                 .isInstanceOfSatisfying(BizException.class,
                         e -> assertThat(e.getCode()).isEqualTo(BizException.ADMIN_USER_NOT_FOUND));
     }
@@ -170,8 +178,113 @@ class AdminUserServiceTest {
     void 非法状态值被拒() {
         when(userRepository.findById(OTHER)).thenReturn(Optional.of(user(OTHER, "other", "ENABLED")));
 
-        assertThatThrownBy(() -> service.update(ME, OTHER, null, "CANCELLED"))
+        assertThatThrownBy(() -> service.update(ME, OWNER, OTHER, null, "CANCELLED", null))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("ENABLED 或 DISABLED");
+    }
+
+    // ---------- 角色（RBAC 第一层） ----------
+
+    @Test
+    void ADMIN不能删除账号_需要OWNER() {
+        when(userRepository.findById(OTHER)).thenReturn(Optional.of(user(OTHER, "other", "ENABLED", VIEWER)));
+
+        assertThatThrownBy(() -> service.delete(ME, ADMIN, OTHER))
+                .isInstanceOfSatisfying(BizException.class, e -> {
+                    assertThat(e.getCode()).isEqualTo(BizException.NO_ACCOUNT_ADMIN);
+                    assertThat(e.getMessage()).contains("删除账号需要 OWNER");
+                });
+
+        verify(userRepository, never()).delete(anyLong());
+    }
+
+    @Test
+    void ADMIN不能变更角色() {
+        when(userRepository.findById(OTHER)).thenReturn(Optional.of(user(OTHER, "other", "ENABLED", VIEWER)));
+
+        assertThatThrownBy(() -> service.update(ME, ADMIN, OTHER, null, null, ADMIN))
+                .isInstanceOfSatisfying(BizException.class,
+                        e -> assertThat(e.getCode()).isEqualTo(BizException.NO_ACCOUNT_ADMIN));
+
+        verify(userRepository, never()).updateRole(anyLong(), any());
+    }
+
+    @Test
+    void ADMIN不能操作OWNER账号() {
+        when(userRepository.findById(OTHER)).thenReturn(Optional.of(user(OTHER, "boss", "ENABLED", OWNER)));
+
+        // 停用 / 重置口令 / 解锁 / 删除 全部越权
+        assertThatThrownBy(() -> service.update(ME, ADMIN, OTHER, null, "DISABLED", null))
+                .isInstanceOfSatisfying(BizException.class,
+                        e -> assertThat(e.getCode()).isEqualTo(BizException.NO_ACCOUNT_ADMIN));
+        assertThatThrownBy(() -> service.resetPassword(ME, ADMIN, OTHER, "NewPassw0rd"))
+                .isInstanceOfSatisfying(BizException.class,
+                        e -> assertThat(e.getCode()).isEqualTo(BizException.NO_ACCOUNT_ADMIN));
+        assertThatThrownBy(() -> service.unlock(ME, ADMIN, OTHER))
+                .isInstanceOfSatisfying(BizException.class,
+                        e -> assertThat(e.getCode()).isEqualTo(BizException.NO_ACCOUNT_ADMIN));
+    }
+
+    @Test
+    void ADMIN新建只能给VIEWER_不能提权() {
+        assertThatThrownBy(() -> service.create(ME, ADMIN, "newbie", "Passw0rd", null, ADMIN))
+                .isInstanceOfSatisfying(BizException.class,
+                        e -> assertThat(e.getCode()).isEqualTo(BizException.NO_ACCOUNT_ADMIN));
+
+        when(userRepository.findByUsername("newbie")).thenReturn(Optional.empty());
+        when(userRepository.insert(eq("newbie"), any(), any(), eq(VIEWER))).thenReturn(9L);
+        assertThat(service.create(ME, ADMIN, "newbie", "Passw0rd", null, null)).isEqualTo(9L);   // 缺省 = VIEWER
+    }
+
+    @Test
+    void OWNER不能修改自己的角色() {
+        when(userRepository.findById(ME)).thenReturn(Optional.of(user(ME, "me", "ENABLED", OWNER)));
+        when(userRepository.countOwners()).thenReturn(3);
+
+        assertThatThrownBy(() -> service.update(ME, OWNER, ME, null, null, ADMIN))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("不能修改自己的角色");
+    }
+
+    @Test
+    void 最后一个OWNER不能降级() {
+        when(userRepository.findById(OTHER)).thenReturn(Optional.of(user(OTHER, "boss", "ENABLED", OWNER)));
+        when(userRepository.countOwners()).thenReturn(1);
+
+        assertThatThrownBy(() -> service.update(ME, OWNER, OTHER, null, null, ADMIN))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("最后一个 OWNER");
+    }
+
+    @Test
+    void 最后一个OWNER不能删除() {
+        when(userRepository.findById(OTHER)).thenReturn(Optional.of(user(OTHER, "boss", "ENABLED", OWNER)));
+        when(userRepository.countOwners()).thenReturn(1);
+        when(userRepository.countEnabled()).thenReturn(5);
+
+        assertThatThrownBy(() -> service.delete(ME, OWNER, OTHER))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("最后一个 OWNER");
+    }
+
+    @Test
+    void OWNER变更他人角色_并吊销其会话避免旧权限残留() {
+        when(userRepository.findById(OTHER)).thenReturn(Optional.of(user(OTHER, "other", "ENABLED", VIEWER)));
+        when(userRepository.countOwners()).thenReturn(2);
+
+        service.update(ME, OWNER, OTHER, null, null, "admin");   // 小写也应接受
+
+        verify(userRepository).updateRole(OTHER, ADMIN);
+        verify(userRepository).updateProfile(OTHER, null, "ENABLED");
+        verify(sessionRepository).deleteByUserId(OTHER);
+    }
+
+    @Test
+    void 非法角色值被拒() {
+        when(userRepository.findById(OTHER)).thenReturn(Optional.of(user(OTHER, "other", "ENABLED", VIEWER)));
+
+        assertThatThrownBy(() -> service.update(ME, OWNER, OTHER, null, null, "SUPER"))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("角色只能是");
     }
 }

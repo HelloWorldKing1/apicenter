@@ -10,7 +10,7 @@
         <el-menu-item index="/interfaces"><span class="ico">⇄</span>接口管理</el-menu-item>
         <el-menu-item index="/monitor"><span class="ico">◎</span>接口监控</el-menu-item>
         <el-menu-item index="/adapters"><span class="ico">⚙</span>适配器</el-menu-item>
-        <el-menu-item index="/users"><span class="ico">◈</span>账号管理</el-menu-item>
+        <el-menu-item v-if="canManage" index="/users"><span class="ico">◈</span>账号管理</el-menu-item>
       </el-menu>
       <div class="foot">API 中心 · 管理控制台</div>
     </el-aside>
@@ -25,6 +25,7 @@
           <el-dropdown trigger="click" @command="onAccountCommand">
             <span class="account-name">
               <span class="avatar">{{ initial }}</span>{{ displayName || '未登录' }}
+              <span class="role">{{ roleLabel(currentRole) }}</span>
             </span>
             <template #dropdown>
               <el-dropdown-menu>
@@ -68,12 +69,16 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '@/api/http'
 import { authStore, passwordIssue } from '@/utils/auth.mjs'
+import { canManageAccounts, roleLabel } from '@/utils/roles.mjs'
 
 // 主布局：侧边导航 + 顶部栏（含账号区）+ 页面出口
 // 视觉口径来自 doc/API中心原型.html（侧边栏 #1d2129 / 主色 #2f54eb / 页面内边距 24px）
 const router = useRouter()
 const displayName = computed(() => authStore.displayName())
 const initial = computed(() => (displayName.value || '?').slice(0, 1).toUpperCase())
+// 角色（RBAC 第一层）：菜单按角色隐藏；服务端仍会拦无权操作
+const currentRole = computed(() => authStore.getUser()?.role)
+const canManage = computed(() => canManageAccounts(currentRole.value))
 
 const pwd = reactive({ visible: false, oldPassword: '', newPassword: '', confirm: '', loading: false })
 
@@ -197,6 +202,9 @@ async function submitPassword() {
 .avatar {
   width: 22px; height: 22px; border-radius: 50%; background: #2f54eb; color: #fff;
   font-size: 12px; display: inline-flex; align-items: center; justify-content: center; flex: none;
+}
+.role {
+  font-size: 11px; color: #6b7280; background: #f2f3f5; border-radius: 3px; padding: 1px 5px;
 }
 .crumb { color: #86909c; }
 .title { font-size: 16px; font-weight: 600; color: #1f2329; }

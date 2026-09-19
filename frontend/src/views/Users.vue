@@ -22,6 +22,11 @@
             <el-tag v-if="row.id === meId" size="small" type="primary" effect="plain" class="self-tag">当前账号</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="角色" width="110">
+          <template #default="{ row }">
+            <el-tag :type="ROLE_TAG[row.role] || 'info'" size="small" effect="plain">{{ roleLabel(row.role) }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="显示名" width="140">
           <template #default="{ row }">{{ row.displayName || '—' }}</template>
         </el-table-column>
@@ -38,7 +43,7 @@
         </el-table-column>
         <el-table-column label="锁定" width="150">
           <template #default="{ row }">
-            <span :class="{ locked: accountGuard(row, meId).canUnlock }">{{ lockRemainText(row.lockedUntil) }}</span>
+            <span :class="{ locked: accountGuard(row, meId, meRole).canUnlock }">{{ lockRemainText(row.lockedUntil) }}</span>
           </template>
         </el-table-column>
         <el-table-column label="创建时间" width="150">
@@ -47,17 +52,20 @@
         <el-table-column label="操作" min-width="260">
           <template #default="{ row }">
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-            <el-button link type="warning" :disabled="!accountGuard(row, meId).canToggleStatus"
+            <el-button link type="warning" :disabled="!accountGuard(row, meId, meRole).canToggleStatus"
                        @click="toggleStatus(row)">
               {{ row.status === 'ENABLED' ? '停用' : '启用' }}
             </el-button>
-            <el-button link type="primary" :disabled="!accountGuard(row, meId).canResetPassword"
+            <el-button link type="primary" :disabled="!accountGuard(row, meId, meRole).canResetPassword"
                        @click="openReset(row)">重置密码</el-button>
-            <el-button link type="success" v-if="accountGuard(row, meId).canUnlock"
+            <el-button link type="success" v-if="accountGuard(row, meId, meRole).canUnlock"
                        @click="unlock(row)">解锁</el-button>
-            <el-button link type="danger" :disabled="!accountGuard(row, meId).canDelete"
+            <el-button link type="danger" :disabled="!accountGuard(row, meId, meRole).canDelete"
                        @click="askRemove(row)">删除</el-button>
             <div v-if="row.id === meId" class="self-hint">当前账号：改口令请用右上角「账号名 → 修改密码」</div>
+            <div v-else-if="!accountGuard(row, meId, meRole).canToggleStatus" class="self-hint">
+              {{ accountGuard(row, meId, meRole).toggleReason }}
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -75,6 +83,11 @@
         </el-form-item>
         <el-form-item label="显示名">
           <el-input v-model="create.displayName" placeholder="可选，如 张三" />
+        </el-form-item>
+        <el-form-item label="角色">
+          <el-select v-model="create.role" style="width: 100%">
+            <el-option v-for="o in creatableRoles" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -95,8 +108,16 @@
             <el-option label="停用（立即吊销其全部会话）" value="DISABLED" />
           </el-select>
         </el-form-item>
+        <el-form-item label="角色">
+          <el-select v-model="edit.role" style="width: 100%" :disabled="!edit.canChangeRole">
+            <el-option v-for="o in ROLE_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+        </el-form-item>
       </el-form>
-      <div class="dialog-tip">停用后该账号无法登录，且已登录的会话立即失效。</div>
+      <div class="dialog-tip">
+        停用后该账号无法登录，且已登录的会话立即失效。
+        <template v-if="!edit.canChangeRole"><br>角色变更需要 <b>OWNER</b> 角色（当前：{{ roleLabel(meRole) }}）<template v-if="edit.id === meId">；也不能修改自己的角色</template>。</template>
+      </div>
       <template #footer>
         <el-button @click="edit.visible = false">取消</el-button>
         <el-button type="primary" :loading="edit.loading" @click="submitEdit">保存</el-button>
@@ -127,6 +148,7 @@ import { authStore, passwordIssue, usernameIssue } from '@/utils/auth.mjs'
 import {
   NO_RBAC_NOTICE, USER_STATUS_LABEL, accountGuard, fmtTime, lockRemainText, sessionText, statusTagType
 } from '@/utils/users.mjs'
+import { ROLE_OPTIONS, ROLE_TAG, VIEWER, assignableRoles, canChangeRole, roleLabel } from '@/utils/roles.mjs'
 
 // 账号管理（v1，2026-09-18）：列表 / 新建 / 编辑（显示名·启停用）/ 重置口令 / 解锁 / 删除。
 // 服务端守卫：不能停用/删除最后一个可用账号、不能动自己（前端只做按钮禁用与提示）。
@@ -134,9 +156,12 @@ const rows = ref([])
 const loading = ref(false)
 const keyword = ref('')
 const meId = computed(() => authStore.getUser()?.id)
+const meRole = computed(() => authStore.getUser()?.role)
+/** 新建时可分配的角色：OWNER 全部；ADMIN 只能建只读（服务端同样强制 40303） */
+const creatableRoles = computed(() => ROLE_OPTIONS.filter((o) => assignableRoles(meRole.value).includes(o.value)))
 
-const create = reactive({ visible: false, username: '', password: '', displayName: '', loading: false })
-const edit = reactive({ visible: false, id: null, username: '', displayName: '', status: 'ENABLED', loading: false })
+const create = reactive({ visible: false, username: '', password: '', displayName: '', role: VIEWER, loading: false })
+const edit = reactive({ visible: false, id: null, username: '', displayName: '', status: 'ENABLED', role: VIEWER, canChangeRole: false, loading: false })
 const reset = reactive({ visible: false, id: null, username: '', password: '', loading: false })
 
 let keywordTimer = null
@@ -161,6 +186,7 @@ function openCreate() {
   create.username = ''
   create.password = ''
   create.displayName = ''
+  create.role = VIEWER
   create.visible = true
 }
 
@@ -181,7 +207,8 @@ async function submitCreate() {
     await http.post('/users', {
       username,
       password: create.password,
-      displayName: (create.displayName || '').trim() || null
+      displayName: (create.displayName || '').trim() || null,
+      role: create.role
     })
     ElMessage.success(`账号 ${username} 已创建（请把初始密码告知本人）`)
     create.visible = false
@@ -198,6 +225,8 @@ function openEdit(row) {
   edit.username = row.username
   edit.displayName = row.displayName || ''
   edit.status = row.status
+  edit.role = row.role
+  edit.canChangeRole = canChangeRole(meRole.value) && row.id !== meId.value
   edit.visible = true
 }
 
@@ -206,7 +235,8 @@ async function submitEdit() {
   try {
     await http.put(`/users/${edit.id}`, {
       displayName: (edit.displayName || '').trim() || null,
-      status: edit.status
+      status: edit.status,
+      role: edit.canChangeRole ? edit.role : null      // 无权限时不提交角色（服务端也会拒）
     })
     ElMessage.success('已保存')
     edit.visible = false
@@ -231,7 +261,7 @@ async function toggleStatus(row) {
     return
   }
   try {
-    await http.put(`/users/${row.id}`, { displayName: row.displayName || null, status: next })
+    await http.put(`/users/${row.id}`, { displayName: row.displayName || null, status: next, role: null })
     ElMessage.success(`已${label}`)
     await load()
   } catch (e) {

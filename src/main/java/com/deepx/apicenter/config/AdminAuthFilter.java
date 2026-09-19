@@ -5,6 +5,7 @@ import com.deepx.apicenter.exception.BizException;
 import com.deepx.apicenter.model.AdminUserRow;
 import com.deepx.apicenter.service.AuthService;
 import com.deepx.apicenter.service.PasswordHasher;
+import com.deepx.apicenter.service.RoleRules;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -28,6 +29,14 @@ import java.util.Set;
  *
  * <p><b>豁免</b>：`/api/admin/auth/{login,register,status}`（登录页自身需要）+ `OPTIONS` 预检
  * （CORS 预检不带凭据，拦掉会让浏览器所有写操作失败，是 2026-09-18 CORS 事故的同类坑）。
+ *
+ * <p><b>角色强制（RBAC 第一层，2026-09-18）</b>：认证通过后再判角色，**只有两条规则**（其余权限差异在
+ * {@code AdminUserService} 做语义级校验）：
+ * <ul>
+ *   <li>`VIEWER`（只读）执行**非 GET** 管理面请求 → 403 `40302`（`/api/admin/auth/**` 除外：
+ *       改自己口令、退出登录属于个人操作，任何角色都该能做）；</li>
+ *   <li>`/api/admin/users/**` 要求 `OWNER` / `ADMIN` → 否则 403 `40303`（VIEWER 连入口都不可达）。</li>
+ * </ul>
  *
  * <p><b>失败语义</b>：统一信封 `{code:40104,...}` + HTTP 401（前端据此清 token 并跳登录页）；
  * 源码级开关 `auth.enabled=false` 时**完全不校验**（集成测试与线上应急回退用）。
@@ -80,7 +89,21 @@ public class AdminAuthFilter extends OncePerRequestFilter {
             reject(response, "登录已失效，请重新登录");
             return;
         }
-        request.setAttribute(ATTR_USER, user.get());
+        AdminUserRow me = user.get();
+        String role = me.role();
+        // 规则 1：只读角色不能执行写操作（个人账号操作 /auth/** 除外）
+        if (RoleRules.isReadOnly(role) && !isReadMethod(request) && !path.startsWith(PREFIX + "/auth/")) {
+            rejectRole(response, BizException.READ_ONLY_ROLE,
+                    "当前角色（" + role + "）为只读，不能执行该写操作（需要 ADMIN 或 OWNER）");
+            return;
+        }
+        // 规则 2：账号管理仅 OWNER / ADMIN
+        if (path.startsWith(PREFIX + "/users") && !RoleRules.canManageAccounts(role)) {
+            rejectRole(response, BizException.NO_ACCOUNT_ADMIN,
+                    "当前角色（" + role + "）无账号管理权限（需要 ADMIN 或 OWNER）");
+            return;
+        }
+        request.setAttribute(ATTR_USER, me);
         request.setAttribute(ATTR_TOKEN_HASH, hasher.sha256Hex(token));
         filterChain.doFilter(request, response);
     }
@@ -111,9 +134,24 @@ public class AdminAuthFilter extends OncePerRequestFilter {
 
     /** 401 + 统一信封（与 GlobalExceptionHandler 同构：code=40104 → HTTP 401） */
     private void reject(HttpServletResponse response, String msg) throws IOException {
-        response.setStatus(BizException.UNAUTHORIZED / 100);
+        write(response, BizException.UNAUTHORIZED, msg);
+    }
+
+    /** 403 + 统一信封（角色不足） */
+    private void rejectRole(HttpServletResponse response, int code, String msg) throws IOException {
+        write(response, code, msg);
+    }
+
+    /** HTTP 状态码 = 业务码 / 100（全库统一约定） */
+    private void write(HttpServletResponse response, int code, String msg) throws IOException {
+        response.setStatus(code / 100);
         response.setContentType("application/json;charset=UTF-8");
-        response.getWriter().write(objectMapper.writeValueAsString(
-                ApiResult.error(BizException.UNAUTHORIZED, msg)));
+        response.getWriter().write(objectMapper.writeValueAsString(ApiResult.error(code, msg)));
+    }
+
+    /** 只读方法判定（GET/HEAD；OPTIONS 已在前面放行） */
+    private boolean isReadMethod(HttpServletRequest request) {
+        String m = request.getMethod();
+        return "GET".equalsIgnoreCase(m) || "HEAD".equalsIgnoreCase(m);
     }
 }

@@ -42,7 +42,7 @@ public class AdminUserController {
     @GetMapping
     public ApiResult<List<UserRowView>> list(@RequestParam(required = false) String keyword) {
         return ApiResult.ok(userService.list(keyword).stream()
-                .map(r -> new UserRowView(r.id(), r.username(), r.displayName(), r.status(), r.failedAttempts(),
+                .map(r -> new UserRowView(r.id(), r.username(), r.displayName(), r.role(), r.status(), r.failedAttempts(),
                         r.lockedUntil(), r.lastLoginAt(), r.passwordUpdatedAt(), r.createdAt(), r.sessionCount()))
                 .toList());
     }
@@ -50,13 +50,14 @@ public class AdminUserController {
     /** 新建账号（不自动建会话：新账号自行登录） */
     @PostMapping
     public ApiResult<Long> create(@Valid @RequestBody CreateUserRequest req, HttpServletRequest request) {
-        return ApiResult.ok(userService.create(operatorId(request), req.username(), req.password(), req.displayName()));
+        return ApiResult.ok(userService.create(operatorId(request), operatorRole(request), req.username(),
+                req.password(), req.displayName(), req.role()));
     }
 
     @PutMapping("/{id}")
     public ApiResult<Void> update(@PathVariable long id, @RequestBody UpdateUserRequest req,
                                   HttpServletRequest request) {
-        userService.update(operatorId(request), id, req.displayName(), req.status());
+        userService.update(operatorId(request), operatorRole(request), id, req.displayName(), req.status(), req.role());
         return ApiResult.ok();
     }
 
@@ -64,29 +65,38 @@ public class AdminUserController {
     @PostMapping("/{id}/password")
     public ApiResult<Void> resetPassword(@PathVariable long id, @Valid @RequestBody ResetPasswordRequest req,
                                          HttpServletRequest request) {
-        userService.resetPassword(operatorId(request), id, req.newPassword());
+        userService.resetPassword(operatorId(request), operatorRole(request), id, req.newPassword());
         return ApiResult.ok();
     }
 
     /** 解除锁定（连续失败达阈值后的恢复口） */
     @PostMapping("/{id}/unlock")
     public ApiResult<Void> unlock(@PathVariable long id, HttpServletRequest request) {
-        userService.unlock(operatorId(request), id);
+        userService.unlock(operatorId(request), operatorRole(request), id);
         return ApiResult.ok();
     }
 
     @DeleteMapping("/{id}")
     public ApiResult<Void> delete(@PathVariable long id, HttpServletRequest request) {
-        userService.delete(operatorId(request), id);
+        userService.delete(operatorId(request), operatorRole(request), id);
         return ApiResult.ok();
     }
 
     /** 操作者 = 当前登录账号（过滤器已注入；理论上不会为空） */
     private long operatorId(HttpServletRequest request) {
+        return me(request).id();
+    }
+
+    /** 操作者角色（语义级校验用：ADMIN 不能动 OWNER、不能删账号等） */
+    private String operatorRole(HttpServletRequest request) {
+        return me(request).role();
+    }
+
+    private AdminUserRow me(HttpServletRequest request) {
         AdminUserRow me = AdminAuthFilter.currentUser(request);
         if (me == null) {
             throw new BizException(BizException.UNAUTHORIZED, "未登录或登录已过期，请重新登录");
         }
-        return me.id();
+        return me;
     }
 }

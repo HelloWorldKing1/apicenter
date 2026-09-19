@@ -475,13 +475,14 @@
 
 <section class="table" id="t-admin-user">
   <div class="t-head"><span class="no">21</span><h2>管理面账号</h2><span class="en">admin_user</span></div>
-  <div class="t-desc">管理面（<span class="mono">/api/admin/**</span>）的登录账号。<b>只做认证，不做权限</b>（v1 无角色/资源授权）；口令以 <b>PBKDF2-HMAC-SHA256</b> 摘要存储（每用户随机盐，格式 <span class="mono">pbkdf2$iterations$salt$hash</span>，不可逆），任何接口与日志都不回显口令。连续失败达阈值写锁定时间（成功登录清零）。用户名统一小写存储：3-32 位字母/数字/下划线/点/连字符。设计详见《开发文档/账号登录设计方案.md》。</div>
+  <div class="t-desc">管理面（<span class="mono">/api/admin/**</span>）的登录账号。<b>认证 + 三个角色的粗粒度权限</b>（RBAC 第一层：OWNER/ADMIN/VIEWER，无资源级授权）；口令以 <b>PBKDF2-HMAC-SHA256</b> 摘要存储（每用户随机盐，格式 <span class="mono">pbkdf2$iterations$salt$hash</span>，不可逆），任何接口与日志都不回显口令。连续失败达阈值写锁定时间（成功登录清零）。用户名统一小写存储：3-32 位字母/数字/下划线/点/连字符。设计详见《开发文档/账号登录设计方案.md》。</div>
   <table class="f">
     <tr><th style="width:22%">字段</th><th style="width:20%">类型</th><th style="width:16%">约束</th><th>说明</th></tr>
     <tr><td class="c pk">id</td><td class="c">BIGINT</td><td>PK 自增</td><td>主键</td></tr>
     <tr><td class="c">username</td><td class="c">VARCHAR(64)</td><td>NOT NULL，UK</td><td>登录名（3-32 位小写字母/数字/_.-，统一小写）</td></tr>
     <tr><td class="c">display_name</td><td class="c">VARCHAR(64)</td><td>—</td><td>界面展示名（缺省回落到 username）</td></tr>
     <tr><td class="c">password_hash</td><td class="c">VARCHAR(255)</td><td>NOT NULL</td><td>PBKDF2-HMAC-SHA256 摘要（含算法与迭代次数，便于日后升级）</td></tr>
+    <tr><td class="c">role</td><td class="c">VARCHAR(16)</td><td>NOT NULL DEFAULT 'VIEWER'</td><td>角色（RBAC 第一层，2026-09-18）：<b>OWNER</b> 拥有者 / <b>ADMIN</b> 管理员 / <b>VIEWER</b> 只读；首个账号=OWNER，其余默认 VIEWER（最小权限）</td></tr>
     <tr><td class="c">status</td><td class="c">VARCHAR(16)</td><td>NOT NULL DEFAULT 'ENABLED'</td><td>ENABLED / DISABLED（v1 无界面切换，预留）</td></tr>
     <tr><td class="c">failed_attempts</td><td class="c">INT</td><td>NOT NULL DEFAULT 0</td><td>连续失败次数（达阈值触发锁定；成功登录清零）</td></tr>
     <tr><td class="c">locked_until</td><td class="c">DATETIME</td><td>—</td><td>锁定截止时间（NULL = 未锁定）；锁定期内密码正确也拒</td></tr>

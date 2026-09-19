@@ -2,6 +2,8 @@ import { createRouter, createWebHistory } from 'vue-router'
 import MainLayout from '@/layout/MainLayout.vue'
 import http from '@/api/http'
 import { authStore } from '@/utils/auth.mjs'
+import { canManageAccounts, roleLabel } from '@/utils/roles.mjs'
+import { ElMessage } from 'element-plus'
 
 // 管理面路由(对应原型 7 个导航:概览/应用/分组/接口/适配器/监控)
 const router = createRouter({
@@ -20,7 +22,7 @@ const router = createRouter({
         { path: 'interfaces', name: 'interfaces', component: () => import('@/views/Interfaces.vue'), meta: { title: '接口管理' } },
         { path: 'adapters', name: 'adapters', component: () => import('@/views/Adapters.vue'), meta: { title: '适配器' } },
         { path: 'monitor', name: 'monitor', component: () => import('@/views/Monitor.vue'), meta: { title: '接口监控' } },
-        { path: 'users', name: 'users', component: () => import('@/views/Users.vue'), meta: { title: '账号管理' } }
+        { path: 'users', name: 'users', component: () => import('@/views/Users.vue'), meta: { title: '账号管理', roles: ['OWNER', 'ADMIN'] } }
       ]
     },
     // 兜底：未知路径回概览（未登录则由守卫转登录页）
@@ -55,6 +57,16 @@ router.beforeEach(async (to) => {
     return authStore.getToken() ? '/dashboard' : true
   }
   if (authStore.getToken()) {
+    // 角色控制（RBAC 第一层，2026-09-18）：meta.roles 命中的页面按当前角色放行；无权限回概览并提示
+    // （服务端仍会拦 40303/40302，前端只是不让人进到「点了必失败」的页面）
+    const need = to.meta?.roles
+    if (Array.isArray(need) && need.length) {
+      const role = authStore.getUser()?.role
+      if (!canManageAccounts(role)) {
+        ElMessage.warning(`当前角色（${roleLabel(role)}）无权访问「${to.meta?.title || to.path}」`)
+        return '/dashboard'
+      }
+    }
     return true
   }
   if ((await authEnabled()) === false) {

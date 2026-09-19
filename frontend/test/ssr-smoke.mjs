@@ -108,7 +108,8 @@ const CASES = [
     { text: ['API 中心', '管理控制台', '登录', '注册', '用户名', '密码', '登 录', '还没有账号？'] }],
   // 注意：placeholder 是**属性**，不进文本 → 用 html 断言；「无权限分级」是 el-alert 的默认插槽
   ['账号管理（空态）', { __component: 'Users' },
-    { text: ['新建账号', '刷新', '无权限分级', '没有匹配的账号'],
+    { text: ['新建账号', '刷新', '角色模型（OWNER / ADMIN / VIEWER）', '没有匹配的账号',
+             '只读（VIEWER）', '拥有者（OWNER）'],
       html: ['placeholder="按用户名 / 显示名搜索"'] }],
   ['前置步骤 Tab（入站接口不支持）',
     { __component: 'InterfaceStepsTab', form: { ifType: 'INBOUND', steps: [] }, ifaces: [] },

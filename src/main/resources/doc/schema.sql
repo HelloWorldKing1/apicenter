@@ -355,6 +355,7 @@ CREATE TABLE admin_user (
     username            VARCHAR(64)  NOT NULL COMMENT '登录名（3-32 位字母数字与 _ . -；统一小写存储）',
     display_name        VARCHAR(64)  COMMENT '显示名（界面展示用）',
     password_hash       VARCHAR(255) NOT NULL COMMENT 'PBKDF2-HMAC-SHA256 口令摘要（禁明文/禁可逆）',
+    role                VARCHAR(16)  NOT NULL DEFAULT 'VIEWER' COMMENT '角色（RBAC 第一层，2026-09-18）：OWNER 拥有者 / ADMIN 管理员 / VIEWER 只读；首个账号=OWNER',
     status              VARCHAR(16)  NOT NULL DEFAULT 'ENABLED' COMMENT 'ENABLED/DISABLED（v1 无界面切换，预留）',
     failed_attempts     INT          NOT NULL DEFAULT 0 COMMENT '连续失败次数（成功登录清零）',
     locked_until        DATETIME     COMMENT '锁定截止时间（NULL = 未锁定）',
@@ -415,6 +416,14 @@ CREATE TABLE admin_session (
 --      多实例并发下每 (app_id, kind) 仍可能出现双 ACTIVE/ROTATING（v1.1 分布式锁或升级 MySQL 8 后补索引）。
 -- ALTER TABLE app_credential ADD UNIQUE KEY uk_credential_live
 --   ((app_id), (kind), (IF(status IN ('ACTIVE','ROTATING'), status, NULL)));
+-- ============================================================
+
+-- ============================================================
+-- 2026-09-18 账号角色（RBAC 第一层）：admin_user 新增 role 列
+--   OWNER（拥有者）/ ADMIN（管理员）/ VIEWER（只读）；**首个账号（MIN(id)）提升为 OWNER**，
+--   其余既有账号与新建账号默认 VIEWER（最小权限）。已应用到开发库。
+-- ALTER TABLE admin_user ADD COLUMN role VARCHAR(16) NOT NULL DEFAULT 'VIEWER' AFTER password_hash;
+-- UPDATE admin_user SET role = 'OWNER' ORDER BY id LIMIT 1;
 -- ============================================================
 
 -- ============================================================

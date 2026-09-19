@@ -30,7 +30,7 @@ public final class AuthDtos {
     public record LoginView(String token, LocalDateTime expiresAt, UserView user) {
     }
 
-    public record UserView(long id, String username, String displayName, LocalDateTime lastLoginAt) {
+    public record UserView(long id, String username, String displayName, String role, LocalDateTime lastLoginAt) {
     }
 
     /** 登录页引导信息（免鉴权）：是否开启认证 / 是否已有账号（首次初始化）/ 是否允许注册 */

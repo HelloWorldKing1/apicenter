@@ -114,8 +114,10 @@ public class AuthService {
         if (userRepository.findByUsername(username).isPresent()) {
             throw new BizException(BizException.USERNAME_TAKEN, "用户名已存在：" + username);
         }
-        long id = userRepository.insert(username, AccountRules.blankToNull(displayName), hasher.hash(password));
-        log.info("管理面账号注册成功：username={}{}", username, firstUser ? "（首个账号=首次初始化）" : "");
+        // 角色（RBAC 第一层）：首个账号 = OWNER（否则没人能管账号/分配角色）；其余注册 = VIEWER（最小权限）
+        String role = firstUser ? RoleRules.OWNER : RoleRules.VIEWER;
+        long id = userRepository.insert(username, AccountRules.blankToNull(displayName), hasher.hash(password), role);
+        log.info("管理面账号注册成功：username={} role={}{}", username, role, firstUser ? "（首个账号=首次初始化）" : "（开放注册默认只读）");
         return newSession(id, clientInfo);
     }
 
@@ -168,7 +170,7 @@ public class AuthService {
 
     public Optional<UserView> currentUser(long userId) {
         return userRepository.findById(userId)
-                .map(u -> new UserView(u.id(), u.username(), u.displayName(), u.lastLoginAt()));
+                .map(u -> new UserView(u.id(), u.username(), u.displayName(), u.role(), u.lastLoginAt()));
     }
 
     public AuthStatusView status() {
@@ -185,7 +187,7 @@ public class AuthService {
         sessionRepository.insert(userId, hasher.sha256Hex(token), truncate(clientInfo, 200), expiresAt);
         AdminUserRow user = userRepository.findById(userId).orElseThrow();
         return new LoginView(token, expiresAt,
-                new UserView(user.id(), user.username(), user.displayName(), user.lastLoginAt()));
+                new UserView(user.id(), user.username(), user.displayName(), user.role(), user.lastLoginAt()));
     }
 
     /** 惰性续期：距上次续期超过 renew-interval-minutes 才写一次（最多 1 次/会话·间隔，控制写放大） */

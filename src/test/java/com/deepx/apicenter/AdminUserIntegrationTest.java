@@ -68,6 +68,18 @@ class AdminUserIntegrationTest {
         operatorUsername = "it_usr_op_" + SUFFIX;
         operatorToken = register(operatorUsername, "操作者");
         operatorId = idOf(operatorUsername);
+        // 共享开发库上「开放注册」通常拿不到首个账号身份 → 角色为 VIEWER；
+        // 本类测「账号管理」需要 OWNER，故直接改库提升（角色每请求实时读，无需重新登录）。
+        setRole(operatorId, "OWNER");
+    }
+
+    /** 测试脚手架：直接改库设角色 */
+    private void setRole(long id, String role) {
+        jdbcTemplate.update("UPDATE admin_user SET role = ? WHERE id = ?", role, id);
+    }
+
+    private String roleOf(long id) {
+        return jdbcTemplate.queryForObject("SELECT role FROM admin_user WHERE id = ?", String.class, id);
     }
 
     @AfterEach
@@ -92,6 +104,7 @@ class AdminUserIntegrationTest {
         assertThat(mine).as("列表中应含当前账号 %s，实际返回：%s", operatorUsername, rows).isNotNull();
         assertThat(mine.get("username").asString()).isEqualTo(operatorUsername);
         assertThat(mine.get("status").asString()).isEqualTo("ENABLED");
+        assertThat(mine.get("role").asString()).isEqualTo("OWNER");   // 夹具已提升操作者为 OWNER
         assertThat(mine.get("sessionCount").asInt()).isGreaterThanOrEqualTo(1);
         // 列表行不得含口令摘要（注意 passwordUpdatedAt 内含 "password" 子串，故按摘要特征断言）
         assertThat(mine.toString()).doesNotContain("passwordHash").doesNotContain("pbkdf2");
@@ -285,6 +298,102 @@ class AdminUserIntegrationTest {
         assertThat(resp.getBody()).contains("40405");
     }
 
+    // ---------- 7. 角色（RBAC 第一层） ----------
+
+    @Test
+    void VIEWER只读_写操作40302_账号管理40303_但可读且能改自己口令与退出() {
+        String viewerName = "it_usr_view_" + SUFFIX;
+        long viewerId = createWithRole(viewerName, "VIEWER");
+        String viewerToken = login(viewerName, PASSWORD);
+
+        // 读：允许
+        assertThat(get("/api/admin/apps", viewerToken).getStatusCode().value()).isEqualTo(200);
+        // 写：403 + 40302
+        ResponseEntity<String> write = post("/api/admin/groups", viewerToken,
+                Map.of("appId", "fastmoss", "name", "只读试写" + SUFFIX, "sortOrder", 99));
+        assertThat(write.getStatusCode().value()).isEqualTo(403);
+        assertThat(write.getBody()).contains("40302").contains("只读");
+        // 账号管理：403 + 40303（连入口都不可达）
+        ResponseEntity<String> users = get("/api/admin/users", viewerToken);
+        assertThat(users.getStatusCode().value()).isEqualTo(403);
+        assertThat(users.getBody()).contains("40303");
+        // 个人账号操作（改自己口令 / 退出）任何角色都允许
+        assertThat(post("/api/admin/auth/password", viewerToken,
+                Map.of("oldPassword", PASSWORD, "newPassword", "NewPassw0rd")).getStatusCode().value()).isEqualTo(200);
+        assertThat(post("/api/admin/auth/logout", viewerToken, Map.of()).getStatusCode().value()).isEqualTo(200);
+        assertThat(roleOf(viewerId)).isEqualTo("VIEWER");
+    }
+
+    @Test
+    void ADMIN可管理低等级账号_但不能删账号或改角色或动OWNER() {
+        String adminName = "it_usr_adm_" + SUFFIX;
+        long adminId = createWithRole(adminName, "ADMIN");
+        String adminToken = login(adminName, PASSWORD);
+
+        // 可列表、可建 VIEWER、可停用/重置/启用
+        assertThat(get("/api/admin/users", adminToken).getStatusCode().value()).isEqualTo(200);
+        String victim = "it_usr_v_" + SUFFIX;
+        long victimId = createWithRole(victim, "VIEWER");
+        assertThat(put("/api/admin/users/" + victimId, adminToken, Map.of("status", "DISABLED")).getStatusCode().value())
+                .isEqualTo(200);
+        assertThat(post("/api/admin/users/" + victimId + "/password", adminToken,
+                Map.of("newPassword", "NewPassw0rd")).getStatusCode().value()).isEqualTo(200);
+        assertThat(put("/api/admin/users/" + victimId, adminToken, Map.of("status", "ENABLED")).getStatusCode().value())
+                .isEqualTo(200);
+
+        // 不能提权建号（只能建 VIEWER）
+        ResponseEntity<String> escalate = post("/api/admin/users", adminToken,
+                Map.of("username", "it_usr_esc_" + SUFFIX, "password", PASSWORD, "role", "ADMIN"));
+        assertThat(escalate.getStatusCode().value()).isEqualTo(403);
+        assertThat(escalate.getBody()).contains("40303");
+
+        // 不能删除账号
+        ResponseEntity<String> del = delete("/api/admin/users/" + victimId, adminToken);
+        assertThat(del.getStatusCode().value()).isEqualTo(403);
+        assertThat(del.getBody()).contains("删除账号需要 OWNER");
+
+        // 不能变更角色
+        assertThat(put("/api/admin/users/" + victimId, adminToken, Map.of("role", "ADMIN")).getStatusCode().value())
+                .isEqualTo(403);
+
+        // 不能操作 OWNER（操作者 operator 是 OWNER）
+        ResponseEntity<String> touchOwner = put("/api/admin/users/" + operatorId, adminToken, Map.of("status", "DISABLED"));
+        assertThat(touchOwner.getStatusCode().value()).isEqualTo(403);
+        assertThat(touchOwner.getBody()).contains("40303");
+        assertThat(roleOf(adminId)).isEqualTo("ADMIN");
+    }
+
+    @Test
+    void OWNER可变更角色_变更后旧会话立即失效_但不能改自己角色() {
+        String target = "it_usr_promo_" + SUFFIX;
+        long targetId = createWithRole(target, "VIEWER");
+        String targetToken = login(target, PASSWORD);
+        assertThat(get("/api/admin/apps", targetToken).getStatusCode().value()).isEqualTo(200);
+
+        assertThat(put("/api/admin/users/" + targetId, operatorToken, Map.of("role", "ADMIN")).getStatusCode().value())
+                .isEqualTo(200);
+        assertThat(roleOf(targetId)).isEqualTo("ADMIN");
+        // 角色变更 → 吊销既有会话（避免旧权限残留），重新登录即拿到新权限
+        assertThat(get("/api/admin/auth/me", targetToken).getStatusCode().value()).isEqualTo(401);
+        String newToken = login(target, PASSWORD);
+        assertThat(get("/api/admin/users", newToken).getStatusCode().value()).isEqualTo(200);
+
+        // 不能改自己的角色
+        ResponseEntity<String> self = put("/api/admin/users/" + operatorId, operatorToken, Map.of("role", "ADMIN"));
+        assertThat(self.getStatusCode().value()).isEqualTo(400);
+        assertThat(self.getBody()).contains("不能修改自己的角色");
+    }
+
+    @Test
+    void 非法角色被拒40001() {
+        long targetId = createWithRole("it_usr_badrole_" + SUFFIX, "VIEWER");
+
+        ResponseEntity<String> resp = put("/api/admin/users/" + targetId, operatorToken, Map.of("role", "SUPER"));
+
+        assertThat(resp.getStatusCode().value()).isEqualTo(400);
+        assertThat(resp.getBody()).contains("角色只能是");
+    }
+
     // ---------- 工具 ----------
 
     private String register(String username, String displayName) {
@@ -296,9 +405,20 @@ class AdminUserIntegrationTest {
     }
 
     private long create(String username) {
+        return createWithRole(username, "VIEWER");
+    }
+
+    /** 建账号并指定角色（role=null → 服务端默认 VIEWER 最小权限） */
+    private long createWithRole(String username, String role) {
         createdUsers.add(username);
-        ResponseEntity<String> resp = post("/api/admin/users", operatorToken,
-                Map.of("username", username, "password", PASSWORD, "displayName", "被管理账号"));
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("username", username);
+        body.put("password", PASSWORD);
+        body.put("displayName", "被管理账号");
+        if (role != null) {
+            body.put("role", role);
+        }
+        ResponseEntity<String> resp = post("/api/admin/users", operatorToken, body);
         assertThat(resp.getStatusCode().value()).as("建账号失败：%s", resp.getBody()).isEqualTo(200);
         return json(resp).get("data").asLong();
     }

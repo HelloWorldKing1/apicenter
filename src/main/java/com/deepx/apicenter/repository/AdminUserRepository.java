@@ -20,7 +20,7 @@ import java.util.Optional;
 public class AdminUserRepository {
 
     private static final String COLS = """
-            SELECT id, username, display_name, password_hash, status, failed_attempts,
+            SELECT id, username, display_name, password_hash, role, status, failed_attempts,
                    locked_until, last_login_at, created_at
             FROM admin_user
             """;
@@ -46,7 +46,7 @@ public class AdminUserRepository {
     public java.util.List<AdminUserRow.ListRow> findAll(String keyword) {
         String kw = keyword == null || keyword.isBlank() ? null : "%" + keyword.trim() + "%";
         String sql = """
-                SELECT u.id, u.username, u.display_name, u.status, u.failed_attempts, u.locked_until,
+                SELECT u.id, u.username, u.display_name, u.role, u.status, u.failed_attempts, u.locked_until,
                        u.last_login_at, u.password_updated_at, u.created_at,
                        (SELECT COUNT(*) FROM admin_session s WHERE s.user_id = u.id AND s.expires_at > NOW()) AS session_count
                 FROM admin_user u
@@ -70,15 +70,16 @@ public class AdminUserRepository {
         return n == null ? 0 : n;
     }
 
-    public long insert(String username, String displayName, String passwordHash) {
+    public long insert(String username, String displayName, String passwordHash, String role) {
         KeyHolder keys = new GeneratedKeyHolder();
         jdbc.update(con -> {
             PreparedStatement ps = con.prepareStatement(
-                    "INSERT INTO admin_user (username, display_name, password_hash, password_updated_at) VALUES (?, ?, ?, NOW())",
+                    "INSERT INTO admin_user (username, display_name, password_hash, role, password_updated_at) VALUES (?, ?, ?, ?, NOW())",
                     Statement.RETURN_GENERATED_KEYS);
             ps.setString(1, username);
             ps.setString(2, displayName);
             ps.setString(3, passwordHash);
+            ps.setString(4, role);
             return ps;
         }, keys);
         Number key = keys.getKey();
@@ -102,6 +103,18 @@ public class AdminUserRepository {
     /** 改资料：显示名 + 状态（账号管理「编辑 / 启停用」） */
     public void updateProfile(long id, String displayName, String status) {
         jdbc.update("UPDATE admin_user SET display_name = ?, status = ? WHERE id = ?", displayName, status, id);
+    }
+
+    /** 变更角色（仅 OWNER 可调用，守卫在 service） */
+    public void updateRole(long id, String role) {
+        jdbc.update("UPDATE admin_user SET role = ? WHERE id = ?", role, id);
+    }
+
+    /** 仍具备 OWNER 角色的账号数：守卫「不能降级/删除最后一个 OWNER」（否则没人能再管账号/分配角色） */
+    public int countOwners() {
+        Integer n = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM admin_user WHERE role = 'OWNER' AND status = 'ENABLED'", Integer.class);
+        return n == null ? 0 : n;
     }
 
     /** 解除锁定（清失败计数与锁定时间）——暴力破解误伤后的自助恢复口 */

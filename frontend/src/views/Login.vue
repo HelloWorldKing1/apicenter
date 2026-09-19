@@ -17,6 +17,9 @@
       <div v-if="authDisabled" class="notice">
         平台未启用登录校验（<span class="mono">auth.enabled=false</span>），可直接进入管理面。
       </div>
+      <div v-else-if="mode === 'register'" class="notice">
+        注册得到的账号为 <b>只读角色（VIEWER）</b>：可查看管理面但不能修改配置。如需管理权限，请联系拥有者在「账号管理」中调整。
+      </div>
       <div v-else-if="firstRun" class="notice">
         首次使用：还没有任何账号，请先创建管理员账号（用户名 3-32 位小写字母/数字/_.-，密码 8-64 位含字母与数字）。
       </div>
