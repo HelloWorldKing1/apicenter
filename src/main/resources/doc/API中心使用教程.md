@@ -748,6 +748,18 @@ mysql -h <host> -u <user> -p apicenter < src/main/resources/doc/reset-dev.sql
 
 ## 11. 常见问题 FAQ
 
+**Q0：点「保存 / 测试接口」报 `Invalid CORS request`（HTTP 403）？**
+
+不是业务故障，是**跨域来源未被允许**——请求在 CORS 层就被拒了（不进引擎，所以监控里看不到 call_log）。
+最常见触发：用 **`http://127.0.0.1:5173`** 打开前端（`127.0.0.1` 与 `localhost` 是不同 Origin），
+或 5173 被占用后 Vite 自动改用 **5174**。只有 POST/PUT/DELETE 会带 Origin，所以看起来「只有写操作报错」。
+
+2026-09-18 起默认已改为**本机回环任意端口**（配置项 `app.api-center.cors.allowed-origin-patterns`，
+默认 `http://localhost:[*],http://127.0.0.1:[*]`）。若仍报错：
+- 后端未重启 → 重启加载新配置；
+- 用局域网 IP / 域名访问 → 把该 Origin 加进上面这个配置项（逗号分隔），或改用 `localhost`；
+- 生产同源部署（静态资源由本服务提供）或反向代理**无需**该配置（置空即可）。
+
 **Q1：调用返回 `40102 应用未启用`？**
 应用处于 DRAFT / DISABLED。到「应用管理」点「启用」（ENABLED 才可路由）。
 

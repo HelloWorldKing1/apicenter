@@ -78,4 +78,41 @@ class HttpErrorSemanticsTest {
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
         assertThat(resp.getBody()).contains("40001");
     }
+
+    /**
+     * CORS 回归（2026-09-18 真实缺陷）：写死单个 `http://localhost:5173` 的白名单会让
+     * `http://127.0.0.1:5173`（与 localhost **不同 Origin**）、以及 Vite 端口自增后的 `:5174`
+     * 全部被 CORS 层回 **403 "Invalid CORS request"**——请求进不了引擎（无 call_log，易误判为业务故障）。
+     * 修后默认模式为 `http://localhost:[*],http://127.0.0.1:[*]`（本机回环任意端口）。
+     */
+    @Test
+    void 本机回环任意端口的Origin_不被CORS拒绝() {
+        for (String origin : new String[]{"http://127.0.0.1:5173", "http://localhost:5173",
+                "http://127.0.0.1:5174", "http://localhost:5199"}) {
+            ResponseEntity<String> resp = rest.post()
+                    .uri(url("/api/admin/interfaces/999999/test"))   // 路径不存在也无妨：要验证的是「没被 CORS 拦」
+                    .header("Origin", origin)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body("{}")
+                    .retrieve().toEntity(String.class);
+
+            assertThat(resp.getStatusCode().value())
+                    .as("Origin=%s 不应被 CORS 拒绝（403 Invalid CORS request）", origin)
+                    .isNotEqualTo(403);
+            assertThat(resp.getHeaders().getFirst("Access-Control-Allow-Origin"))
+                    .as("Origin=%s 应回 ACAO", origin)
+                    .isEqualTo(origin);
+        }
+    }
+
+    /** 非白名单来源：*不*回 ACAO（浏览器自行阻断跨域读取），但不得是 500。 */
+    @Test
+    void 非白名单Origin_不回ACAO() {
+        ResponseEntity<String> resp = rest.get().uri(url("/api/admin/apps"))
+                .header("Origin", "http://evil.example.com")
+                .retrieve().toEntity(String.class);
+
+        assertThat(resp.getHeaders().getFirst("Access-Control-Allow-Origin")).isNull();
+        assertThat(resp.getStatusCode().value()).isLessThan(500);
+    }
 }
