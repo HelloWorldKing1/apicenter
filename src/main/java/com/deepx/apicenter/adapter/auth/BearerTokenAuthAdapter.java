@@ -31,9 +31,14 @@ public class BearerTokenAuthAdapter implements Adapter {
         String prefix = text(params, "prefix", "Bearer");
         Object token = ctx.attrs().get("outboundCredential");
         if (token != null && !token.toString().isBlank()) {
-            ctx.outbound().header(headerName, prefix + " " + token);
+            // prefix 为空 = 直发 token（2026-09-18 修复：原实现无条件 `prefix + " " + token`，
+            // 当供应商要求裸 token（如 `Authorization: <token>` 或自定义头）时会把 prefix 置空，
+            // 结果出现**前导空格** `" token"` → 多数服务端视为无效凭证）
+            String value = prefix == null || prefix.isBlank() ? token.toString() : prefix + " " + token;
+            ctx.outbound().header(headerName, value);
         } else {
-            ctx.warn("BearerTokenAuthAdapter：出站凭证缺失（app_credential 无 ACTIVE OUTBOUND 凭证），未附加 Authorization 头");
+            ctx.warn("BearerTokenAuthAdapter：出站凭证缺失（app_credential 无 ACTIVE OUTBOUND 凭证），未附加 "
+                    + headerName + " 头");
         }
         return ctx;
     }

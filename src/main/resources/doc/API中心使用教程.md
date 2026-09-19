@@ -748,6 +748,34 @@ mysql -h <host> -u <user> -p apicenter < src/main/resources/doc/reset-dev.sql
 
 ## 11. 常见问题 FAQ
 
+**Q0.1：调用 fastmoss 返回 `{"code":1002,"msg":"invalid client_secret"}`？**
+
+这不是平台故障，是 **FastMoss 侧业务拒绝：密钥无效**。判断依据（三步取证）：
+
+```bash
+# ① 看平台持有的凭证是不是还是 seed 占位值（只回尾 4，不回显明文）
+curl -s http://localhost:8080/api/admin/apps/fastmoss | grep -o '"fingerprint":"[^"]*"'
+#    期望：换过真 token 后尾 4 会变；若仍是 "oken" = 还是 fastmoss-test-token 占位值
+
+# ② 看上游真实响应（列表已瘦身，body 走详情）
+curl -s 'http://localhost:8080/api/admin/monitor/call-logs?direction=OUT&pageSize=1'   # 取 id
+curl -s http://localhost:8080/api/admin/monitor/call-logs/<id>      # respBody 里就是 FastMoss 的原文
+#    典型：{"code":1002,"data":null,"message":"invalid client_secret",...}
+
+# ③ 绕过平台直连，二分定位（平台配置 or FastMoss 侧）
+curl -s -X POST 'https://openapi.fastmoss.com/shop/v1/creatorList' \
+  -H 'Content-Type: application/json' -H "Authorization: Bearer <你的真 token>" \
+  -d '{"filter":{"seller_id":"7494312521977267257"},"page":1,"pagesize":1}'
+```
+
+- ③ 也报 1002 → **token 本身无效/未开通/环境不对**（去 FastMoss 控制台确认 API 已开通、token 未过期、账号有该接口权限）；
+- ③ 正常但平台报 1002 → 平台凭证没更新成功：应用管理 → `fastmoss` → 编辑 → 凭证卡片填真 token 保存（或 `POST /api/admin/apps/fastmoss/credentials/update` body `{"kind":"OUTBOUND","credential":"<真 token>"}`）。
+  **凭证每请求实时读，无需重启**；用 ① 复核指纹已变。
+
+> 若 FastMoss 要求**不带 `Bearer` 前缀**（或换自定义头），在「适配器管理 → `ADP-101`」里把 `prefix` 置空（或改 `headerName`）；
+> 2026-09-18 起 `prefix` 置空会发送**裸 token（无前导空格）**。另：业务失败（如 1002）按设计记 `SUCCESS` 并透传业务码
+> —— 排查要看响应体，不要只看状态机状态。
+
 **Q0：点「保存 / 测试接口」报 `Invalid CORS request`（HTTP 403）？**
 
 不是业务故障，是**跨域来源未被允许**——请求在 CORS 层就被拒了（不进引擎，所以监控里看不到 call_log）。
