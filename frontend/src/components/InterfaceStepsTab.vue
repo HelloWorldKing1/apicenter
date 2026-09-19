@@ -6,6 +6,21 @@
       最多 {{ MAX_STEPS }} 步 · 最多 3 层；<b>不配 = 与现在行为完全一致</b>。
     </div>
 
+    <!-- 入参语义提示（2026-09-18 真实事故：被调接口声明了 filter.seller_id，但入参取的是宿主模型 → 第三方 params error） -->
+    <el-alert v-if="form.ifType === 'OUTBOUND' && steps.length" type="info" :closable="false" show-icon
+              class="steps-alert">
+      <div class="steps-alert-body">
+        前置调用的入参 = <b>本接口的入站报文原样</b>（已剥离 <span class="mono">steps.*</span>）；
+        <b>被调接口自己的字段映射</b>负责把它适配成第三方的报文。<br>
+        · 被调接口的「入站参数」声明<b>不参与取值</b>（它只描述别人直调它时的入站契约）——
+        例如被调接口声明了 <span class="mono">filter.seller_id</span>，而本接口入站是扁平
+        <span class="mono">seller_id</span>，则被调接口需要一条 <span class="mono">rename: seller_id → filter.seller_id</span>；
+        不配映射 = <b>整体透传</b>，本接口的无关字段也会被发给第三方（常见后果：第三方报 <span class="mono">params error</span>）。<br>
+        · 反过来：步骤结果只在<b>本接口</b>的映射里可用（<span class="mono">steps.&lt;步骤名&gt;.&lt;字段&gt;</span>），
+        且本接口的映射无法影响前置调用的入参（前置在本接口映射<b>之前</b>执行）。
+      </div>
+    </el-alert>
+
     <div v-if="form.ifType !== 'OUTBOUND'" class="empty-hint">入站回调接口不支持前置步骤</div>
 
     <template v-else>
@@ -238,6 +253,8 @@ async function copy(text) {
 
 <style scoped>
 .steps-tip { font-size: 12px; color: #6b7280; line-height: 1.7; margin: 4px 0 10px; }
+.steps-alert { margin-bottom: 10px; }
+.steps-alert-body { font-size: 12px; color: #6b7280; line-height: 1.8; }
 .step-target-name { margin-left: 6px; color: #6b7280; }
 .step-item { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .step-item .basic-label { width: 76px; flex: none; }

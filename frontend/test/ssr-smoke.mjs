@@ -39,7 +39,7 @@ const ElStub = {
 }
 const EL_COMPONENTS = ['el-tag', 'el-button', 'el-radio-group', 'el-radio-button',
   'el-dropdown', 'el-dropdown-menu', 'el-dropdown-item', 'el-dialog', 'el-input',
-  'el-table', 'el-table-column', 'el-switch', 'el-select', 'el-option', 'el-input-number']
+  'el-table', 'el-table-column', 'el-switch', 'el-select', 'el-option', 'el-input-number', 'el-alert']
 
 const longJson = '{"items":[' + Array.from({ length: 80 }, (_, i) => `{"id":${i}}`).join(',') + ']}'
 const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/wFvpM0AAAAASUVORK5CYII='
@@ -92,7 +92,8 @@ const CASES = [
       ] },
       ifaces: [{ id: 7, code: 'IF-AUTH', name: '取 token', ifType: 'OUTBOUND', status: 'PUBLISHED' }],
       selfId: 99 },
-    { text: ['阻断后续', '可用字段', '添加前置步骤', '编辑'] }],
+    { text: ['阻断后续', '可用字段', '添加前置步骤', '编辑',
+             '本接口的入站报文原样', '不参与取值', 'rename: seller_id → filter.seller_id'] }],
   ['前置步骤 Tab（入站接口不支持）',
     { __component: 'InterfaceStepsTab', form: { ifType: 'INBOUND', steps: [] }, ifaces: [] },
     { text: ['入站回调接口不支持前置步骤'] }]

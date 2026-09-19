@@ -61,6 +61,7 @@ curl -s -X POST 'https://api.evolink.ai/v1/images/generations' \
 | 平台路径 → 供应商路径 | `/fastmoss/creatorList` → `/shop/v1/creatorList` |
 | 应用 `fastmoss` | 服务地址 `https://openapi.fastmoss.com`；出站签名 `ADP-101`（Bearer）；报文适配 `ADP-201`（信封 `data`） |
 | 凭证 | `app_credential` kind=OUTBOUND（seed 为占位 token，**真实联调时在「应用 → 凭证」更新为真 token**） |
+| 字段映射 | seed 建时为**空 = 整体透传**（黄金用例基线，M0-02 D3）；**做前置复用前必须先按 §1.2.1 补 5 条映射**，否则第三方报 `params error` |
 
 > 无凭据路径：把应用 `fastmoss` 的**服务地址**临时改成 `http://localhost:18080`（stub），并按附录 A 注册 `/shop/v1/creatorList`；跑完记得改回。
 
@@ -90,6 +91,49 @@ curl -s -X POST 'https://api.evolink.ai/v1/images/generations' \
 | 3 | `seller_id` | `rename` | `seller_id` | — | `KEEP` | 宿主**自己的入站字段**（用于验证「宿主模型未被前置污染」） |
 | 4 | `prompt` | `rename` | `prompt` | — | `KEEP` | 同上，纯透传字段 |
 
+### 1.2.1 前置接口 B 自己的字段映射（★ 必配；2026-09-18 实测踩坑补正）
+
+> **事故复盘**：B（`IF-FM-001`）的字段映射留空 = **整体透传**，于是前置调用把**宿主 A 的入站报文原样**发给了 FastMoss：
+> `{"seller_id":"7494312521977267257","prompt":"达人简报"}` → FastMoss 回 `{"code":1,"data":[],"message":"params error"}`（HTTP **200**），
+> 宿主因 `failurePolicy=ABORT` 整单失败：`{"code":40001,"msg":"前置步骤 fm 失败：业务失败（HTTP 200，code=1：params error）"}`。
+> 定位证据 = 调用日志里**「步骤=fm」那条的请求体**（`GET /api/admin/monitor/call-logs/{id}` 的 `reqBody`），它天然就是「发给第三方什么」的实录。
+
+**语义（务必先理解，否则必然复现）**
+
+| 事实 | 说明 |
+|---|---|
+| 前置调用的入参 = **宿主的入站报文原样** | `PreStepExecutor` 取 `ReservedKeys.withoutSteps(宿主模型)`，且跳过 DECODE（模型已就绪） |
+| 被调接口的「入站参数」声明**不参与取值** | 它只描述「别人直调 B」时的入站契约（解码类型提示 / 文档 / 校验），不会去宿主模型里按 `filter.seller_id` 找值 |
+| 谁负责适配 = **B 自己的字段映射** | B 收到宿主字段后，用自己的映射加工成**自己供应商要的报文形态** |
+| 映射**空 = 整体透传** | 宿主的多余字段（`prompt`）也会被发给第三方 → 常见后果就是第三方的 `params error` |
+| 映射**非空 = 白名单** | 只输出 `target` 命中的字段（`MappingEngine.apply`）——补映射顺带解决了字段外泄 |
+| 宿主 A 的映射**在前置之后执行** | 所以 A 的映射**无法影响**前置调用的入参（想做「A 先把入参整形成 B 的契约」在本版本不可行） |
+
+**B（`IF-FM-001`）应配 5 条映射**（界面：接口管理 → `IF-FM-001` → 编辑 → 字段映射；保存即生成新版本快照 + 变更说明）
+
+| # | source | op | target | nullStrategy | 作用 |
+|---|---|---|---|---|---|
+| 1 | `seller_id` | `rename` | `filter.seller_id` | `NULL` | **前置路径**：宿主扁平入参 → FastMoss 嵌套契约（点路径自动创建中间对象） |
+| 2 | `filter.seller_id` | `rename` | `filter.seller_id` | `NULL` | **直调路径**：保持 B 原有嵌套契约不变（缺席即省略，两条互不干扰） |
+| 3 | `page` | `rename` | `page` | `NULL` | 可选字段透传；调用方不传 → **省略** → FastMoss 用默认值 |
+| 4 | `pagesize` | `rename` | `pagesize` | `NULL` | 同上（想要 1 条就在调用方传 `pagesize=1`） |
+| 5 | `orderby` | `rename` | `orderby` | `NULL` | 数组整块透传（D1 不支持下标，但整块搬移可用） |
+
+> **为什么必须用 `NULL`（而不是 `KEEP`）**：`KEEP` 在「源缺失」时会写出 **JSON null**（`{"page":null}`），第三方常判为参数错误；
+> `NULL` 的语义是**输出省略该字段**（`MappingEngine.applyNullStrategy`：`KEEP`→写 null，`NULL`→不写，`DEFAULT`→零值 `""`，`ERROR`→抛错）。
+>
+> **也不要**用 `default` 给 `page`/`pagesize` 补 `1`：`default` 写的是**字符串** `"1"`，数字字段会被第三方拒（本次同类坑）。
+
+**配好后 B 发出的报文（两种调用形态都成立）**
+
+| 调用方式 | B 收到的入参 | B → FastMoss 实际报文 |
+|---|---|---|
+| 被 A 当前置调用 | `{"seller_id":"…","prompt":"达人简报"}` | `{"filter":{"seller_id":"…"}}`（`prompt` 被白名单丢弃；`page/pagesize/orderby` 未传 → 省略） |
+| 直调 `/fastmoss/creatorList` | `{"filter":{"seller_id":"…"},"page":1,"pagesize":1}` | `{"filter":{"seller_id":"…"},"page":1,"pagesize":1}`（原契约不变） |
+
+> 若某个接口**只**作为前置复用、不做直调，可以省掉第 2 条；反之若只想保留直调契约，就把宿主 A 的入参命名改成与 B 一致。
+> 更彻底的解法（编排二期）：给步骤加「入参显式声明 / overlay」，由宿主侧决定传给 B 什么，而不是「原样传宿主模型」。
+
 ### 1.3 调用与期望
 
 ```bash
@@ -104,7 +148,10 @@ curl -s -X POST http://localhost:8080/brief/create -H 'Content-Type: application
 | 平台响应 | `{"code":0,"msg":"ok","data":{…}}`（A 的 RESP 未声明 → 不过滤，原样回第三方响应） |
 | 第三方实际收到 | `{"creator_total":822,"creators":[{"seller_id":"7494312521977267257","unique_id":"megandd1","nickname":"megan!","units_sold":1135,"gmv":70283.55,…}],"seller_id":"7494312521977267257","prompt":"达人简报"}` |
 | 第三方报文**不含** | `steps` 键（保留键已在 ENCODE 前剥离） |
+| 第三方实际收到的真机报文 | `{"seller_id":"7494312521977267257","prompt":"达人简报","creator_total":899,"creators":[{"seller_id":"…","unique_id":"megandd1","nickname":"megan!","units_sold":1158,"gmv":71696.25,…}]}`（**步骤输出已被宿主映射消费**：`total→creator_total`、`list→creators`） |
 | 前置 B 实际收到 | A 的入站报文原样：`{"seller_id":"…","prompt":"达人简报"}`（**不含** `steps`：模型隔离） |
+| **B 实际发给 FastMoss** | `{"filter":{"seller_id":"7494312521977267257"}}`——B 自己映射的产物（`prompt` 白名单丢弃、未传字段省略）。**修复前**此处是原样透传 → FastMoss `code=1 params error`，宿主 `40001` |
+| B 的响应 → `steps.fm.*` | FastMoss 回 `{"code":0,"data":{"total":899,"list":[…]}}`；B 走信封适配（`envelope=data`）⇒ `steps.fm.total=899`、`steps.fm.list=[…]`（**只含 `data` 内字段**，取不到信封外的 `code`） |
 | Monitor → 调用日志（按 traceId `tr-brief-1` 过滤） | 共 **3 条**：① `IN`（interface=IF-BRIEF-001）② `OUT`（interface=**IF-FM-001**，**「步骤」列 = `前置·fm`**）③ `OUT`（interface=IF-BRIEF-001） |
 | 步骤筛选 | 调用日志「前置步骤名」填 `fm` → 只剩第 ② 条 |
 | 脱敏 | 第 ② 条的请求头里 `Authorization: Bea*****`（**无明文 token**） |
@@ -112,6 +159,12 @@ curl -s -X POST http://localhost:8080/brief/create -H 'Content-Type: application
 | **B 不落独立运行记录** | `SELECT COUNT(*) FROM outbound_request WHERE interface_id = (SELECT id FROM interface WHERE code='IF-FM-001')` → **0**（前置不落子记录，避免孤儿补偿重放） |
 | **前置调用不过接入层防护（可判别）** | 给**前置所属应用 `fastmoss`** 设 `ip_whitelist=10.0.0.1`：<br>① 直接调 B 的平台路径 `/fastmoss/creatorList` → 应 **40103 来源 IP 被拒**（接入层防护生效）；<br>② 调 A（前置走内部直调）→ **成功**（前置不经 GatewayGuard，也不消耗/占用任何应用的配额）；<br>跑完清空 `fastmoss` 的 `ip_whitelist` |
 | 慢响应与超时口径 | 把 `IF-FM-001` 的读超时改成 `300ms`（stub 加固定延迟 1500ms）→ A 转 `UNKNOWN`（50401）；改回 3000ms 恢复 |
+
+> **真机实测（2026-09-18，真实 token + 真实 FastMoss，均已回填到上表）**：
+> `steps.fm.total = 899`。两条 `call_log` 证据：
+> ① `id=4960`（`step=fm`，trace `tr-brief-fix1`）req `{"filter":{"seller_id":"7494312521977267257"}}` → resp `code=0`；
+> ② `id=4961`（宿主 A 的 OUT）req 含 `creator_total:899` 与 `creators:[{…"nickname":"megan!"…}]`。
+> 同批「直调 B」黄金用例（`POST /fastmoss/creatorList`）返回 `code=0`/`total=899` ⇒ **B 的两种入参形态同时成立**（§1.2.1 第 1、2 条映射）。
 
 ### 1.4 无凭据 stub 回放（可选，等价执行）
 
@@ -178,6 +231,9 @@ curl -s -X POST http://localhost:8080/poster/publish -H 'Content-Type: applicati
 | `40001 目标接口未发布` | B 被下线 | 重新发布 B；注意下线时服务端会返回 `warnings[]` 强提示引用方 |
 | `40001 前置链长度超限` | `A→B→C→D`（节点数 > 3） | 收敛层级，或改为「B 自己不做前置」 |
 | `40001 前置响应体超过上限` | 前置响应 > 256KB（FastMoss `pagesize` 调大即可复现） | 让 B 裁剪字段/缩小 `pagesize`，或调 `pre-step.max-response-bytes`（**不截断**是刻意选择） |
+| `40001 前置步骤 fm 失败：业务失败（HTTP 200，code=1：params error）` | 🔴 被调接口 B **映射为空 = 整体透传** → 把宿主 A 的入站报文原样发给 FastMoss（扁平 `seller_id` + 多余 `prompt`） | 按 **§1.2.1** 给 B 补映射（`rename: seller_id → filter.seller_id`，`NULL` 策略）；非空映射自动切**白名单**，多余字段不再外泄。证据 = 调用日志「步骤=fm」那条的 `reqBody` |
+| `50201 供应商拒绝（4xx）：…404…，死信编号 N`（**前置已成功**） | 宿主 A 的**第三方地址/路径不匹配**：如服务地址 `https://httpbin.org` + 供应商路径 `/brief/report`（httpbin 无此端点） | 路径改 `/post`，或服务地址改 `https://httpbin.org/anything`（则 `/anything/brief/report` 回显 200）；演示建议指向本地 stub（附录 A） |
+| `40001 字段缺失：seller_id`（或 `page` 变 `null`） | 映射的 `nullStrategy` 用错：`ERROR` 过严（两种入参形态只要有一条不匹配就抛）、`KEEP` 写 JSON null | 可选/多形态字段统一用 `NULL`（省略语义）；只有「确实必填」的字段才用 `ERROR` |
 | A 的入站字段变成 `null` | 🔴 历史缺陷（已修）：`withoutSteps` 共享实例导致前置映射写回宿主载体 | 已修复并有用例守护（`PreStepIntegrationTest#前置接口自身带映射_不得污染宿主模型`）；若在旧版本复现，升级即可 |
 
 ---
@@ -191,6 +247,8 @@ curl -s -X POST http://localhost:8080/poster/publish -H 'Content-Type: applicati
 # 2) 恢复被临时改动的配置
 #    - fastmoss 应用「服务地址」改回 https://openapi.fastmoss.com（若走 stub 路径）
 #    - IF-FM-001 读超时改回 3000ms；BRIEF 的 qps_limit 清空（若做过 §1.3 配额验证）
+#    - IF-FM-001 的 5 条映射（§1.2.1）是**持久修复**（不是临时改动），不要清理；
+#      若要恢复「纯透传黄金用例」基线（开发计划 §2.2），把这些映射删掉即可
 #    - EVOLINK 服务地址改回 https://api.evolink.ai（若走 stub 路径）
 
 # 3) 清桩与请求计数

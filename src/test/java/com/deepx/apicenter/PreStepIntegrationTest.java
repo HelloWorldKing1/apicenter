@@ -219,6 +219,38 @@ class PreStepIntegrationTest {
                 .withRequestBody(notContaining("steps")));
     }
 
+    /**
+     * 回归（2026-09-18 真实事故）：**被调接口自己的映射负责把「宿主入站模型」适配成它自己的报文**。
+     *
+     * <p>背景：前置调用的入参 = 宿主当前模型**原样**（`ReservedKeys.withoutSteps`，DECODE 跳过），
+     * 被调接口的 IN 参数声明**不参与取值**；若被调接口映射为空 → 整体透传 → 宿主的多余字段与扁平字段名
+     * 会被原样发给第三方（真实场景：FastMoss 收到 `{"seller_id":…,"prompt":…}` 返回 `code=1 params error`）。
+     *
+     * <p>本用例断言三件事：① 映射能构造**嵌套**报文字段（`seller_id` → `filter.seller_id`）；
+     * ② 非空规则 = **白名单**，宿主多余字段（`prompt`）不得泄漏；
+     * ③ `nullStrategy=NULL` 的缺席字段**省略**（写成 JSON null 也会被第三方判为参数错误）。
+     */
+    @Test
+    void 前置接口映射把宿主扁平报文适配成第三方嵌套报文_白名单且缺席字段省略() {
+        long adapt = createIface("IF-PS-ADAPT", "/ps/adapt", "/up-adapt", 0, 3000, List.of(),
+                List.of(new MappingDto("seller_id", "rename", "filter.seller_id", null, "KEEP", 0),
+                        new MappingDto("page", "rename", "page", null, "NULL", 1)));
+        createIface("IF-PS-ADAPT-MAIN", "/ps/adapt-main", "/up-adapt-main", 0, 3000,
+                List.of(new StepDto(0, "fm", adapt, "ABORT", true)));   // 宿主无映射 → 宿主侧仍整体透传
+
+        stubFor(post("/up-adapt").willReturn(okJson("{\"code\":0,\"data\":{\"total\":3}}")));
+        stubFor(post("/up-adapt-main").willReturn(okJson("{\"ok\":true}")));
+
+        assertThat(outboundEngine.dispatch("/ps/adapt-main", "POST",
+                "{\"seller_id\":\"S-1\",\"prompt\":\"达人简报\"}".getBytes(StandardCharsets.UTF_8),
+                "biz-ps-adapt", "trace-ps-adapt").code()).isZero();
+
+        wireMock.verify(postRequestedFor(urlEqualTo("/up-adapt"))
+                .withRequestBody(equalToJson("{\"filter\":{\"seller_id\":\"S-1\"}}"))   // 严格相等
+                .withRequestBody(notContaining("prompt"))       // 白名单：宿主字段不外泄
+                .withRequestBody(notContaining("null")));        // NULL 策略 = 省略，而非写 null
+    }
+
     // ---------- 2. 透传防护（宿主无映射 = 整体透传） ----------
 
     @Test

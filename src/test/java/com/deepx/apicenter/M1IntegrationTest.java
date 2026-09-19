@@ -129,10 +129,17 @@ class M1IntegrationTest {
         List<CredentialView> creds = app.credentials().stream()
                 .filter(c -> "OUTBOUND".equals(c.kind()))
                 .toList();
-        assertThat(creds).hasSize(1);
-        CredentialView cred = creds.get(0);
-        assertThat(cred.status()).isEqualTo("ACTIVE");
+        // 真实联调会走「更新凭证」（新→ACTIVE，旧→ROTATING 并存 24h，M0-04 轮换语义）⇒ 总条数不固定；
+        // 故断言的是**语义**：恰有 1 条 ACTIVE，其余只能是轮换过渡态 ROTATING。
+        List<CredentialView> activeCreds = creds.stream()
+                .filter(c -> "ACTIVE".equals(c.status()))
+                .toList();
+        assertThat(activeCreds).hasSize(1);
+        CredentialView cred = activeCreds.get(0);
         assertThat(cred.fingerprint()).isNotBlank();
+        // 旧值只能是轮换过渡态（ROTATING，验签并存 24h）或历史态（RETIRED，已被新轮换顶替）
+        assertThat(creds.stream().filter(c -> !"ACTIVE".equals(c.status())).map(CredentialView::status))
+                .allMatch(s -> "ROTATING".equals(s) || "RETIRED".equals(s));
 
         // 接口定义（seed 导入或此前已存在；按 code 定位后取 detail——列表不带子表）
         InterfaceResponse iface = interfaceService.detail(interfaceService.list("fastmoss", null).stream()
@@ -145,7 +152,13 @@ class M1IntegrationTest {
         assertThat(iface.status()).isEqualTo("PUBLISHED");
         assertThat(iface.upstreamPath()).isEqualTo("/shop/v1/creatorList");
         assertThat(iface.params()).hasSize(8); // IN 4 + OUT 4（透传）
-        assertThat(iface.mappings()).isEmpty(); // 空映射 = 整体透传
+        // 字段映射有两种合法库态：① seed 原生 = 空（空 = 整体透传，M0-02 D3；开发计划 §2.2 黄金用例基线）；
+        // ② 真实联调后被补齐「前置复用适配」映射（2026-09-18：seller_id → filter.seller_id 等，
+        // 见《前置接口编排真实接口案例》§1.2.1）。开发库即测试库，故只断言「二者必居其一」而不写死条数。
+        List<String> mappingTargets = iface.mappings().stream().map(InterfaceRow.MappingRow::target).toList();
+        assertThat(mappingTargets.isEmpty() || mappingTargets.contains("filter.seller_id"))
+                .as("IF-FM-001 映射库态应为空（seed 透传）或含前置复用适配目标，实际：%s", mappingTargets)
+                .isTrue();
         assertThat(iface.fieldDefs()).extracting(InterfaceRow.FieldDefRow::name)
                 .containsExactlyInAnyOrder("total", "list");
         assertThat(iface.bindings()).extracting(InterfaceRow.BindingRow::role)
