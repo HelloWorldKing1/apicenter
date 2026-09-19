@@ -15,6 +15,7 @@ import ParamImportDialog from '../src/components/ParamImportDialog.vue'
 import InterfaceParamsTab from '../src/components/InterfaceParamsTab.vue'
 import InterfaceStepsTab from '../src/components/InterfaceStepsTab.vue'
 import Login from '../src/views/Login.vue'
+import Users from '../src/views/Users.vue'
 
 function decode(html) {
   return html
@@ -46,7 +47,7 @@ const ElStub = {
 const EL_COMPONENTS = ['el-tag', 'el-button', 'el-radio-group', 'el-radio-button',
   'el-dropdown', 'el-dropdown-menu', 'el-dropdown-item', 'el-dialog', 'el-input',
   'el-table', 'el-table-column', 'el-switch', 'el-select', 'el-option', 'el-input-number', 'el-alert',
-  'el-form', 'el-form-item']
+  'el-form', 'el-form-item', 'el-card']
 
 const longJson = '{"items":[' + Array.from({ length: 80 }, (_, i) => `{"id":${i}}`).join(',') + ']}'
 const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/wFvpM0AAAAASUVORK5CYII='
@@ -105,6 +106,10 @@ const CASES = [
   ['登录页（默认登录态）',
     { __component: 'Login' },
     { text: ['API 中心', '管理控制台', '登录', '注册', '用户名', '密码', '登 录', '还没有账号？'] }],
+  // 注意：placeholder 是**属性**，不进文本 → 用 html 断言；「无权限分级」是 el-alert 的默认插槽
+  ['账号管理（空态）', { __component: 'Users' },
+    { text: ['新建账号', '刷新', '无权限分级', '没有匹配的账号'],
+      html: ['placeholder="按用户名 / 显示名搜索"'] }],
   ['前置步骤 Tab（入站接口不支持）',
     { __component: 'InterfaceStepsTab', form: { ifType: 'INBOUND', steps: [] }, ifaces: [] },
     { text: ['入站回调接口不支持前置步骤'] }]
@@ -113,7 +118,7 @@ const CASES = [
 async function main() {
   let failed = 0
   for (const [label, props, expect] of CASES) {
-    const COMPONENTS = { ParamImportDialog, InterfaceParamsTab, InterfaceStepsTab, Login }
+    const COMPONENTS = { ParamImportDialog, InterfaceParamsTab, InterfaceStepsTab, Login, Users }
     const component = COMPONENTS[props.__component] || PayloadViewer
     const app = createSSRApp({ render: () => h(component, props) })
     EL_COMPONENTS.forEach((name) => app.component(name, ElStub))

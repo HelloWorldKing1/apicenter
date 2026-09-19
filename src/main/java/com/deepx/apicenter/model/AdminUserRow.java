@@ -36,4 +36,29 @@ public record AdminUserRow(
             return new View(row.id(), row.username(), row.displayName(), row.lastLoginAt());
         }
     }
+
+    /**
+     * 账号管理列表行（2026-09-18）：多带「有效会话数」与时间字段，供账号管理页展示。
+     * 仍**不含**口令摘要（列表接口永不返回摘要）。
+     */
+    public record ListRow(long id, String username, String displayName, String status, int failedAttempts,
+                          LocalDateTime lockedUntil, LocalDateTime lastLoginAt, LocalDateTime passwordUpdatedAt,
+                          LocalDateTime createdAt, int sessionCount) {
+
+        public static final RowMapper<ListRow> LIST_MAPPER = (rs, i) -> new ListRow(
+                rs.getLong("id"),
+                rs.getString("username"),
+                rs.getString("display_name"),
+                rs.getString("status"),
+                rs.getInt("failed_attempts"),
+                toTime(rs.getTimestamp("locked_until")),
+                toTime(rs.getTimestamp("last_login_at")),
+                toTime(rs.getTimestamp("password_updated_at")),
+                toTime(rs.getTimestamp("created_at")),
+                rs.getInt("session_count"));
+    }
+
+    private static LocalDateTime toTime(java.sql.Timestamp ts) {
+        return ts == null ? null : ts.toLocalDateTime();
+    }
 }

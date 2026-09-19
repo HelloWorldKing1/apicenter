@@ -19,7 +19,6 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.Optional;
-import java.util.regex.Pattern;
 
 /**
  * 管理面账号服务（2026-09-18）：登录 / 注册 / 退出 / 改密 + 令牌校验。
@@ -40,10 +39,6 @@ public class AuthService {
 
     private static final Logger log = LoggerFactory.getLogger(AuthService.class);
 
-    /** 用户名：3-32 位，字母/数字/下划线/点/连字符（统一小写存储，避免大小写混淆） */
-    private static final Pattern USERNAME = Pattern.compile("^[a-z0-9][a-z0-9_.-]{2,31}$");
-    private static final int PASSWORD_MIN = 8;
-    private static final int PASSWORD_MAX = 64;
     private static final String BAD_CREDENTIALS_MSG = "用户名或密码错误";
 
     private final AdminUserRepository userRepository;
@@ -71,7 +66,7 @@ public class AuthService {
      * 半途失败无副作用，逐条自动提交才是正确语义。
      */
     public LoginView login(String usernameRaw, String password, String clientInfo) {
-        String username = normalize(usernameRaw);
+        String username = AccountRules.normalize(usernameRaw);
         AdminUserRow user = userRepository.findByUsername(username).orElse(null);
         if (user == null) {
             // 防枚举：与密码错误同一文案（耗时差异不进关键路径，不做恒定时间占位）
@@ -108,18 +103,18 @@ public class AuthService {
     /** 注册：允许开放注册时任意注册；**系统尚无账号时永远允许**（首次初始化，避免锁死自己） */
     @Transactional
     public LoginView register(String usernameRaw, String password, String displayName, String clientInfo) {
-        String username = normalize(usernameRaw);
+        String username = AccountRules.normalize(usernameRaw);
         boolean firstUser = userRepository.count() == 0;
         if (!props.allowRegisterOrDefault() && !firstUser) {
             throw new BizException(BizException.REGISTER_DISABLED,
-                    "注册已关闭（如需新增账号，请先登录后用现有账号创建，或把 app.api-center.auth.allow-register 置 true）");
+                    "注册已关闭（请联系管理员在「账号管理」页新建账号，或把 app.api-center.auth.allow-register 置 true）");
         }
-        validateUsername(username);
-        validatePassword(password);
+        AccountRules.validateUsername(username);
+        AccountRules.validatePassword(password);
         if (userRepository.findByUsername(username).isPresent()) {
             throw new BizException(BizException.USERNAME_TAKEN, "用户名已存在：" + username);
         }
-        long id = userRepository.insert(username, blankToNull(displayName), hasher.hash(password));
+        long id = userRepository.insert(username, AccountRules.blankToNull(displayName), hasher.hash(password));
         log.info("管理面账号注册成功：username={}{}", username, firstUser ? "（首个账号=首次初始化）" : "");
         return newSession(id, clientInfo);
     }
@@ -142,7 +137,7 @@ public class AuthService {
         if (!hasher.verify(oldPassword, user.passwordHash())) {
             throw new BizException(BizException.BAD_CREDENTIALS, "原密码不正确");
         }
-        validatePassword(newPassword);
+        AccountRules.validatePassword(newPassword);
         if (hasher.verify(newPassword, user.passwordHash())) {
             throw new BizException(BizException.FIELD_INVALID, "新密码不能与原密码相同");
         }
@@ -199,31 +194,6 @@ public class AuthService {
         LocalDateTime newExpiry = now.plusHours(props.sessionTtlHoursOrDefault());
         // 续期判据放在 SQL 侧（避免为判断读一次再写一次）
         sessionRepository.renewIfDue(tokenHash, newExpiry, now.minusMinutes(props.renewIntervalMinutesOrDefault()));
-    }
-
-    private void validateUsername(String username) {
-        if (!USERNAME.matcher(username).matches()) {
-            throw BizException.fieldInvalid("用户名需 3-32 位小写字母/数字/_.- 且以字母或数字开头");
-        }
-    }
-
-    private void validatePassword(String password) {
-        if (password == null || password.length() < PASSWORD_MIN || password.length() > PASSWORD_MAX) {
-            throw BizException.fieldInvalid("密码长度需 " + PASSWORD_MIN + "-" + PASSWORD_MAX + " 位");
-        }
-        boolean hasLetter = password.chars().anyMatch(Character::isLetter);
-        boolean hasDigit = password.chars().anyMatch(Character::isDigit);
-        if (!hasLetter || !hasDigit) {
-            throw BizException.fieldInvalid("密码需同时包含字母与数字");
-        }
-    }
-
-    private String normalize(String username) {
-        return username == null ? "" : username.trim().toLowerCase();
-    }
-
-    private String blankToNull(String s) {
-        return s == null || s.isBlank() ? null : s.trim();
     }
 
     private String truncate(String s, int max) {

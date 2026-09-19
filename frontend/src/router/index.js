@@ -19,7 +19,8 @@ const router = createRouter({
         { path: 'groups', name: 'groups', component: () => import('@/views/Groups.vue'), meta: { title: '分组管理' } },
         { path: 'interfaces', name: 'interfaces', component: () => import('@/views/Interfaces.vue'), meta: { title: '接口管理' } },
         { path: 'adapters', name: 'adapters', component: () => import('@/views/Adapters.vue'), meta: { title: '适配器' } },
-        { path: 'monitor', name: 'monitor', component: () => import('@/views/Monitor.vue'), meta: { title: '接口监控' } }
+        { path: 'monitor', name: 'monitor', component: () => import('@/views/Monitor.vue'), meta: { title: '接口监控' } },
+        { path: 'users', name: 'users', component: () => import('@/views/Users.vue'), meta: { title: '账号管理' } }
       ]
     },
     // 兜底：未知路径回概览（未登录则由守卫转登录页）

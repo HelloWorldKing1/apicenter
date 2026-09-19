@@ -54,6 +54,11 @@ public class AdminSessionRepository {
         return jdbc.update("DELETE FROM admin_session WHERE user_id = ? AND token_hash <> ?", userId, keepTokenHash);
     }
 
+    /** 按账号删除全部会话（重置口令 / 删除账号 / 停用账号时调用 → 该账号所有设备立即掉线） */
+    public int deleteByUserId(long userId) {
+        return jdbc.update("DELETE FROM admin_session WHERE user_id = ?", userId);
+    }
+
     /** 机会式清理过期会话（登录时调用；无定时任务，避免为一个几乎不增长的表引入调度） */
     public int deleteExpired() {
         return jdbc.update("DELETE FROM admin_session WHERE expires_at <= NOW()");

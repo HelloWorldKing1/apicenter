@@ -31,6 +31,8 @@ public class BizException extends RuntimeException {
     public static final int REGISTER_DISABLED = 40301;
     /** 40901 用户名已存在（HTTP 409） */
     public static final int USERNAME_TAKEN = 40901;
+    /** 40405 账号不存在（账号管理，HTTP 404） */
+    public static final int ADMIN_USER_NOT_FOUND = 40405;
 
     private final int code;
 

@@ -39,6 +39,31 @@ public class AdminUserRepository {
         return jdbc.query(COLS + " WHERE id = ?", AdminUserRow.MAPPER, id).stream().findFirst();
     }
 
+    /**
+     * 账号管理列表（keyword 模糊匹配用户名 / 显示名）。
+     * 会话数用相关子查询一次带出（账号数量级很小，不值得引入 JOIN + GROUP BY 的复杂度）。
+     */
+    public java.util.List<AdminUserRow.ListRow> findAll(String keyword) {
+        String kw = keyword == null || keyword.isBlank() ? null : "%" + keyword.trim() + "%";
+        String sql = """
+                SELECT u.id, u.username, u.display_name, u.status, u.failed_attempts, u.locked_until,
+                       u.last_login_at, u.password_updated_at, u.created_at,
+                       (SELECT COUNT(*) FROM admin_session s WHERE s.user_id = u.id AND s.expires_at > NOW()) AS session_count
+                FROM admin_user u
+                """;
+        if (kw == null) {
+            return jdbc.query(sql + " ORDER BY u.id", AdminUserRow.ListRow.LIST_MAPPER);
+        }
+        return jdbc.query(sql + " WHERE u.username LIKE ? OR u.display_name LIKE ? ORDER BY u.id",
+                AdminUserRow.ListRow.LIST_MAPPER, kw, kw);
+    }
+
+    /** 可用（ENABLED）账号数：账号管理守卫「不能停用/删除最后一个可用账号」的判据 */
+    public int countEnabled() {
+        Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM admin_user WHERE status = 'ENABLED'", Integer.class);
+        return n == null ? 0 : n;
+    }
+
     /** 账号总数（注册开关的「首次初始化」判据） */
     public int count() {
         Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM admin_user", Integer.class);
@@ -72,6 +97,20 @@ public class AdminUserRepository {
     public void recordLoginFailure(long id, int failedAttempts, LocalDateTime lockedUntil) {
         jdbc.update("UPDATE admin_user SET failed_attempts = ?, locked_until = ? WHERE id = ?",
                 failedAttempts, lockedUntil == null ? null : Timestamp.valueOf(lockedUntil), id);
+    }
+
+    /** 改资料：显示名 + 状态（账号管理「编辑 / 启停用」） */
+    public void updateProfile(long id, String displayName, String status) {
+        jdbc.update("UPDATE admin_user SET display_name = ?, status = ? WHERE id = ?", displayName, status, id);
+    }
+
+    /** 解除锁定（清失败计数与锁定时间）——暴力破解误伤后的自助恢复口 */
+    public void unlock(long id) {
+        jdbc.update("UPDATE admin_user SET failed_attempts = 0, locked_until = NULL WHERE id = ?", id);
+    }
+
+    public int delete(long id) {
+        return jdbc.update("DELETE FROM admin_user WHERE id = ?", id);
     }
 
     public void updatePassword(long id, String passwordHash) {
