@@ -96,17 +96,23 @@ class M1IntegrationTest {
     // ---------- DDL 落库 ----------
 
     @Test
-    void 二十张表已落库_含前置步骤表() {
+    void 二十二张表已落库_含前置步骤与账号表() {
         // 16 张（设计 §表结构）+ M4 新增 alert_rule / reconcile_audit / alert_event
         // + M5 后新增 outbound_request_state_log（19）+ 前置编排新增 interface_step（20）
+        // + 账号登录新增 admin_user / admin_session（21/22，2026-09-18）
         Integer n = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'apicenter'", Integer.class);
-        assertThat(n).isEqualTo(20);
-        // 前置步骤表（编排 PS-1）存在且具备唯一键约束
-        Integer step = jdbcTemplate.queryForObject(
+        assertThat(n).isEqualTo(22);
+        // 前置步骤表（编排 PS-1）与账号/会话表（账号登录）均存在
+        Integer tables = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'apicenter' "
-                        + "AND table_name = 'interface_step'", Integer.class);
-        assertThat(step).isEqualTo(1);
+                        + "AND table_name IN ('interface_step', 'admin_user', 'admin_session')", Integer.class);
+        assertThat(tables).isEqualTo(3);
+        // 账号表唯一键（用户名）——防止「同名账号」这类静默数据问题
+        Integer uk = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = 'apicenter' "
+                        + "AND table_name = 'admin_user' AND index_name = 'uk_admin_user_username'", Integer.class);
+        assertThat(uk).isEqualTo(1);
     }
 
     // ---------- 黄金用例回读（开发计划 M2 出口基准的配置部分） ----------

@@ -2,7 +2,7 @@ spring:
   application:
     name: apicenter
   datasource:
-    # API 中心 · MySQL（PolarDB，MySQL 5.7/8.0 双兼容）。建库脚本：doc/schema.sql（20 张表，已双兼容）
+    # API 中心 · MySQL（PolarDB，MySQL 5.7/8.0 双兼容）。建库脚本：doc/schema.sql（22 张表，已双兼容）
     # 安全建议：提交前将密码改为环境变量占位，如 password: ${APICENTER_DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://alicloud.mysql.polardb.rds.aliyuncs.com:3306/apicenter?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&autoReconnect=true&failOverReadOnly=false
@@ -15,6 +15,16 @@ server:
 # API 中心运行参数（业务配置全部落库，此处仅基础设施参数）
 app:
   api-center:
+    # 管理面账号登录（2026-09-18）：保护 /api/admin/**（/auth/login|register|status 豁免），
+    # 只做认证、v1 不做权限；令牌 = 不透明 Bearer（库内只存 SHA-256 摘要），改密吊销其他会话、登出即时失效。
+    # enabled=false = 完全不校验（集成测试与线上应急回退用）；allow-register=false 时仍允许「首个账号」初始化。
+    auth:
+      enabled: true
+      allow-register: true
+      session-ttl-hours: 12
+      renew-interval-minutes: 60
+      max-failed-attempts: 5
+      lock-minutes: 5
     # 种子数据（fastmoss 黄金用例）导入开关：默认 false = 启动不自动导入；
     # 需要演示基线时手动调用 POST /api/admin/seed/import，或临时置 true 重启后自动导入（完成后可改回）
     seed:

@@ -25,7 +25,7 @@ API 三方接口统一调用平台组件 —— 只做 **连接 + 适配 + 可�
 - **M4 完成（编码与自动化测试）**：熔断器三态（闸门前置，OPEN 短路转补偿顺延不计数）+ UNKNOWN 人工对账与 TTL 自动降级（reconcile_audit 审计）+ 死信查看与重放 + QPS 限流 / 日配额 / IP 黑白名单 + call_log 双向落库（脱敏 + traceId 三方贯穿）+ Micrometer 指标 / OTel span / 告警规则；schema 增至 18 张表（reconcile_audit / alert_event）。
 - **M5 完成（版本快照 / 回滚与适配器绑定切换，自动化测试通过）**：接口版本快照与回滚（config_json 序列化 / 版本历史端点 / 回滚复用全量替换 + 乐观锁，版本号每次变更/回滚 +0.1（只增不回退）、status 不变）；适配器 **D6'（2026-09-08 定稿：adapter.name 全表唯一；同 (impl, version) 允许多启用；绑定即实例，binding.version 仅记录不再路由）+ 解析时机上移烘焙缓存链 + `ConfigChangedEvent` 事件失效 + test 端点 chainTrace**；管理面版本历史弹窗 / 变更说明。压测调优（M5.3）与压测报告待执行（脚本已随仓库 `src/test/resources/m5-load/`）。
 - **M5 后状态链完成（观测增强，2026-09-08）**：`outbound_request_state_log` 事件溯源（INIT/MAPPING/终态 + trigger/detail，SENDING/RETRYING 不落库）；主路径请求级批量落链（低延迟）；Monitor 详情抽屉状态链时间线。
-- **测试**：全库归属 **228 个 @Test**（2026-09-18 基准；含 D-PS-0 读超时 8+3 例、接口级数值值域 2 例、补偿预算语义 1 例、前置编排 `PreStepIntegrationTest` 15 例、快照 steps 往返 1 例、HTTP 错误语义 4 例）。受成本约束本轮**只跑针对性批次**（编排 15 / 错误语义 4 / M1 19 / 告警 10 / M2-M5+StateChain+MonitorStats+单测 60，全绿），**未跑全量**；前端 `npm run lint` + `npm test`（单测 58 + SSR 冒烟 16）+ `npm run build` 全绿。
+- **测试**：全库归属 **247 个 @Test**（2026-09-18 基准；含 D-PS-0 读超时 8+3 例、接口级数值值域 2 例、补偿预算语义 1 例、前置编排 `PreStepIntegrationTest` 15 例、快照 steps 往返 1 例、HTTP 错误语义 4 例、**账号登录 `AuthIntegrationTest` 14 + `PasswordHasherTest` 5**）。受成本约束本轮**只跑针对性批次**（编排 15 / 错误语义 4 / M1 19 / 告警 10 / M2-M5+StateChain+MonitorStats+单测 60，全绿），**未跑全量**；前端 `npm run lint` + `npm test`（单测 67 + SSR 冒烟 17）+ `npm run build` 全绿。
 - **评审遗留修复 + 编排可观测二期（2026-09-18）**：修 2 个真 bug（告警规则删除后冷却不清、响应里的「死信编号」实为出站记录 id 会误导重放）+ 一批健壮性（死信查询全参数化、对账/死信重放补事务、HTTP 错误语义补 400/404/405、`base_url` 与出站路径保存期校验、ACTIVE 凭证读取确定化、列表截断可见、统计缓存有界、XML reader 关闭）+ `call_log.step_code`（调用日志按前置步骤筛选）+ 前置响应体上限 + `/test` 弹窗步骤留痕表。
 - **前置接口编排（2026-09-18）**：出站接口可挂「前置步骤」，按 `seq` 串行复用另一个出站接口（如取 token / 主数据 / 额度校验），结果合入 `steps.<步骤名>.<字段>` 供字段映射引用，再调自己的第三方；复用前置接口的链 / 凭证 / 短重试 / 熔断，长重试由宿主状态机驱动。入口：接口弹窗「前置步骤」Tab（详见《开发文档/前置接口编排设计方案.md》）。
 - **下一步**：M4 手动验收（方案已备）→ M5.3 压测执行与 M5 手动验收 → 联调验收；多鉴权并行线继续。
@@ -39,10 +39,10 @@ API 三方接口统一调用平台组件 —— 只做 **连接 + 适配 + 可�
 | 设计总纲 | [API中心设计方案.md](src/main/resources/doc/API中心设计方案.md) | 5 模块；接口定义模型（出站中转 / 入站回调）；三类适配器（鉴权 / 协议 / 报文）+ 接口级字段映射；状态机 / 错误码 / 容错附录 |
 | 实现方案 | [技术架构和实现方案.md](src/main/resources/doc/技术架构和实现方案.md) | 分层架构、技术选型、适配器链引擎、出 / 入站执行引擎、M1–M5 路线图、ADR |
 | 可行性报告 | [可行性报告.md](src/main/resources/doc/可行性报告.md) | 技术可行性评估、工作量估算（约 81 人日）、风险与应对 |
-| 表结构设计 | [表结构设计.html](src/main/resources/doc/表结构设计.html) | 20 张表（配置 12 + 运行 8，M4 增 reconcile_audit / alert_event，M5 后增 outbound_request_state_log，前置编排增 interface_step）+ 枚举汇总 + 原型数据模型映射对照 |
+| 表结构设计 | [表结构设计.html](src/main/resources/doc/表结构设计.html) | 22 张表（配置 12 + 运行 8 + 管理面账号 2，M4 增 reconcile_audit / alert_event，M5 后增 outbound_request_state_log，前置编排增 interface_step，账号登录增 admin_user / admin_session）+ 枚举汇总 + 原型数据模型映射对照 |
 | 时序与流程 | [API中心时序图与流程图.md](src/main/resources/doc/API中心时序图与流程图.md) | 配置流程、Flow A / B 时序、请求处理 + 容错流程图 |
 | 交互原型 | [API中心原型.html](src/main/resources/doc/API中心原型.html) | 可交互管理面原型（数据模型与交互即事实来源） |
-| 建表脚本 | [schema.sql](src/main/resources/doc/schema.sql) | MySQL 5.7/8.0 双兼容，20 张表（与《表结构设计.html》一一对应） |
+| 建表脚本 | [schema.sql](src/main/resources/doc/schema.sql) | MySQL 5.7/8.0 双兼容，22 张表（与《表结构设计.html》一一对应） |
 | 开发计划 | [开发计划.md](src/main/resources/doc/开发计划.md) | M0–M5 里程碑 + 第一个可演示版本（fastmoss 黄金用例，断言 G1–G4） |
 | M0 契约（已评审通过） | [doc/开发文档/](src/main/resources/doc/开发文档/) | 链引擎契约 / 动态映射语义规范 / 通用客户端与对账协议 / 凭证轮换存储方案 |
 | 里程碑计划 | [doc/开发文档/](src/main/resources/doc/开发文档/) | M3 / M4 / M5 开发计划（D-M3-1~4、D-M4-1~6、D-M5-1~3 即编码依据；M3/M4 已实施，M5 已定稿待开工） |
@@ -71,5 +71,5 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 ## 事实来源
 
 - **现行设计**：`src/main/resources/doc/` 六份文档（设计方案为总纲，表结构 / 实现方案 / 排期配套）+ `doc/开发文档/` M0 契约、里程碑计划（M3–M5）、验收 / 评审 / 踩坑记录
-- **工程**：`src/main/resources/application.yaml`（基础设施参数 + M4 熔断 / 告警参数，业务配置落库）；`pom.xml`（Spring Boot 4.1 / Java 21 / MapStruct 1.6.3 / Aviator 5.4.3 / WireMock 3.9.1 / `jackson-dataformat-xml`）；`src/main/resources/doc/schema.sql`（20 张表）
+- **工程**：`src/main/resources/application.yaml`（基础设施参数 + M4 熔断 / 告警参数，业务配置落库）；`pom.xml`（Spring Boot 4.1 / Java 21 / MapStruct 1.6.3 / Aviator 5.4.3 / WireMock 3.9.1 / `jackson-dataformat-xml`）；`src/main/resources/doc/schema.sql`（22 张表）
 - **旧版 demo**（已删除，git 历史 `ed95446` 及之前）：ERP 订单连接器实现参考（@HttpExchange / @Retryable / AOP / OTel 已验证经验）

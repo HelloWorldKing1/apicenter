@@ -8,11 +8,13 @@
  * 说明：Element Plus 组件在此不注册（渲染为空占位）；断言针对组件整体渲染出的文本/HTML 片段。
  */
 import { createSSRApp, h } from 'vue'
+import { routeLocationKey, routerKey } from 'vue-router'
 import { renderToString } from 'vue/server-renderer'
 import PayloadViewer from '../src/components/PayloadViewer.vue'
 import ParamImportDialog from '../src/components/ParamImportDialog.vue'
 import InterfaceParamsTab from '../src/components/InterfaceParamsTab.vue'
 import InterfaceStepsTab from '../src/components/InterfaceStepsTab.vue'
+import Login from '../src/views/Login.vue'
 
 function decode(html) {
   return html
@@ -31,15 +33,20 @@ function textOf(rawHtml) {
 /** Element Plus 轻量替身：渲染默认插槽为 span，使依赖 el-* 的文案也能断言（本冒烟不引入 Element Plus 运行时） */
 const ElStub = {
   name: 'ElStub',
-  setup(props, { slots }) {
-    // 传一个空 scope：el-table-column 之类的作用域插槽会解构 { row }，不传会直接抛错
-    return () => h('span', { class: 'el-stub' },
-      slots.default ? slots.default({ row: {}, column: {}, $index: 0 }) : [])
+  setup(props, { slots, attrs }) {
+    // 传一个空 scope：el-table-column 之类的作用域插槽会解构 { row }，不传会直接抛错；
+    // 顺带渲染 label 属性：表单控件标签（如「用户名」）是属性而非插槽内容，不渲染就断言不到。
+    // 注意：本替身未声明 props ⇒ 传入的属性全在 **attrs** 上（props 里是空的）。
+    return () => h('span', { class: 'el-stub' }, [
+      attrs.label ? h('span', String(attrs.label)) : null,
+      slots.default ? slots.default({ row: {}, column: {}, $index: 0 }) : []
+    ])
   }
 }
 const EL_COMPONENTS = ['el-tag', 'el-button', 'el-radio-group', 'el-radio-button',
   'el-dropdown', 'el-dropdown-menu', 'el-dropdown-item', 'el-dialog', 'el-input',
-  'el-table', 'el-table-column', 'el-switch', 'el-select', 'el-option', 'el-input-number', 'el-alert']
+  'el-table', 'el-table-column', 'el-switch', 'el-select', 'el-option', 'el-input-number', 'el-alert',
+  'el-form', 'el-form-item']
 
 const longJson = '{"items":[' + Array.from({ length: 80 }, (_, i) => `{"id":${i}}`).join(',') + ']}'
 const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/wFvpM0AAAAASUVORK5CYII='
@@ -94,6 +101,10 @@ const CASES = [
       selfId: 99 },
     { text: ['阻断后续', '可用字段', '添加前置步骤', '编辑',
              '本接口的入站报文原样', '不参与取值', 'rename: seller_id → filter.seller_id'] }],
+  // 登录 / 注册页（2026-09-18 账号登录）：无 router 环境下也必须能渲染（SSR 只跑 setup，不跑 onMounted）
+  ['登录页（默认登录态）',
+    { __component: 'Login' },
+    { text: ['API 中心', '管理控制台', '登录', '注册', '用户名', '密码', '登 录', '还没有账号？'] }],
   ['前置步骤 Tab（入站接口不支持）',
     { __component: 'InterfaceStepsTab', form: { ifType: 'INBOUND', steps: [] }, ifaces: [] },
     { text: ['入站回调接口不支持前置步骤'] }]
@@ -102,10 +113,13 @@ const CASES = [
 async function main() {
   let failed = 0
   for (const [label, props, expect] of CASES) {
-    const COMPONENTS = { ParamImportDialog, InterfaceParamsTab, InterfaceStepsTab }
+    const COMPONENTS = { ParamImportDialog, InterfaceParamsTab, InterfaceStepsTab, Login }
     const component = COMPONENTS[props.__component] || PayloadViewer
     const app = createSSRApp({ render: () => h(component, props) })
     EL_COMPONENTS.forEach((name) => app.component(name, ElStub))
+    // 轻量 router 替身：组件里 useRoute/useRouter 拿到的对象可读可调用（不引入真实 router）
+    app.provide(routeLocationKey, { path: '/login', query: {}, meta: {} })
+    app.provide(routerKey, { replace: () => {}, push: () => {} })
     const rawHtml = await renderToString(app)
     const html = decode(rawHtml)
     const text = textOf(rawHtml)

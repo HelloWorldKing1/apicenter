@@ -45,7 +45,7 @@ node -v              # 期望 v22.x
 
 ### 1.2 数据库准备
 
-数据库已按 `src/main/resources/doc/schema.sql` 建好（20 张表）。首次在全新库上部署时：
+数据库已按 `src/main/resources/doc/schema.sql` 建好（22 张表）。首次在全新库上部署时：
 
 ```bash
 mysql -h <host> -u <user> -p <db> < src/main/resources/doc/schema.sql
@@ -704,7 +704,7 @@ curl -X POST http://localhost:8080/<回调平台路径> \
 ### 10.1 运行测试
 
 ```bash
-mvn test            # 全库 228 个 @Test（集成测试连开发库；成本高时用 -Dtest=<类> 跑针对性批次）
+mvn test            # 全库 247 个 @Test（集成测试连开发库；成本高时用 -Dtest=<类> 跑针对性批次）
 mvn clean test      # 结构变更后务必 clean（旧 class 残留会被 Spring 扫描）
 ```
 
@@ -716,7 +716,7 @@ mvn clean test      # 结构变更后务必 clean（旧 class 残留会被 Sprin
 cd frontend
 npm run dev         # 开发 :5173
 npm run build       # 产物 → src/main/resources/static/（后端 serve）
-npm test            # 单测 58 例 + 组件 SSR 冒烟 16 例（Node 内置 test runner，无需联网）
+npm test            # 单测 67 例 + 组件 SSR 冒烟 17 例（Node 内置 test runner，无需联网）
 npm run lint        # ESLint（flat config，--max-warnings 0）
 ```
 
@@ -750,6 +750,45 @@ mysql -h <host> -u <user> -p apicenter < src/main/resources/doc/reset-dev.sql
 
 ## 11. 常见问题 FAQ
 
+## 8. 登录与账号（2026-09-18）
+
+管理面已启用账号登录：**只做认证，不做权限**（没有角色/菜单裁剪，登录后即可用全部功能）。
+登录后令牌放在浏览器本地，所有 `/api/admin/**` 请求自动带 `Authorization: Bearer <token>`。
+
+### 8.1 首次使用（创建管理员账号）
+
+1. 打开管理面（`http://localhost:5173` 或 `http://localhost:8080`）→ 未登录会自动跳到 `/login`；
+2. 系统还没有任何账号时，登录页会提示「首次使用」并**默认切到「注册」**；
+3. 填用户名（3-32 位小写字母/数字/`_` `.` `-`）+ 密码（8-64 位且含字母与数字）→「注册并进入」→ 直接进管理面。
+
+### 8.2 日常使用
+
+| 操作 | 位置 |
+|---|---|
+| 登录 / 注册 | 登录页（`/login`，已登录访问会自动回概览） |
+| 修改密码 | 顶部栏右侧「账号名 ▾ → 修改密码」（成功后**其他设备的登录立即失效**，当前会话保留） |
+| 退出登录 | 顶部栏右侧「账号名 ▾ → 退出登录」（二次确认；令牌即时删除，不等过期） |
+
+会话有效期 12 小时（使用中惰性续期）；连续输错密码 5 次会锁定 5 分钟（锁定期内即使密码正确也拒绝）。
+
+### 8.3 命令行 / 脚本取令牌
+
+```bash
+BASE=http://localhost:8080/api/admin
+
+# 登录（已有账号）——首次可用 /auth/register，返回结构相同
+TOKEN=$(curl -s -X POST $BASE/auth/login -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"Passw0rd"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["token"])')
+
+curl -s $BASE/apps -H "Authorization: Bearer $TOKEN"      # 之后所有管理面请求都带这个头
+curl -s $BASE/auth/me  -H "Authorization: Bearer $TOKEN"  # 当前账号
+curl -s -X POST $BASE/auth/logout -H "Authorization: Bearer $TOKEN"   # 退出（令牌即时失效）
+```
+
+> **本文档后续所有 `curl ... /api/admin/...` 示例都需带上 `-H "Authorization: Bearer $TOKEN"`**（HTTP 401 + `40104` = 未登录/令牌过期）。
+> 需要临时关闭认证（本地调试/应急）：`app.api-center.auth.enabled=false`（配置项，改后重启；生产不要关）。
+> 设计细节（表结构 / 令牌口径 / 错误码 / 未做项）见《开发文档/账号登录设计方案.md》。
+
 **Q0.1：调用 fastmoss 返回 `{"code":1002,"msg":"invalid client_secret"}`？**
 
 这不是平台故障，是 **FastMoss 侧业务拒绝：密钥无效**。判断依据（三步取证）：
@@ -780,6 +819,16 @@ curl -s -X POST 'https://openapi.fastmoss.com/shop/v1/creatorList' \
 > 所以 seed 的 `ADP-101`（`headerName=Authorization` / `prefix=Bearer`）**本身就是对的**，只需把凭证值换成真 `client_secret`。
 > 另：`prefix` 置空 = 发送**裸 token（无前导空格，2026-09-18 起）**，这是给「要求裸 token / 自定义头」的其他供应商留的通用旋钮；
 > 业务失败（如 1002）按设计记 `SUCCESS` 并透传业务码 —— 排查要看响应体（`call-logs/{id}` 的 `respBody`），不要只看状态机状态。
+
+**Q-1：调管理面接口返回 `401` / `{"code":40104,...}`？**
+
+管理面已启用账号登录（2026-09-18）：未登录或令牌过期。三种处置：
+
+- 界面：会自动跳到登录页，登录后原路返回；
+- 命令行：先按 §8.3 登录取 `TOKEN`，再带 `-H "Authorization: Bearer $TOKEN"`；
+- 确认不是认证问题（例如脚本/集成环境临时使用）：`app.api-center.auth.enabled=false` 关闭校验后重启。
+
+其他账号类错误码：`40105` 用户名或密码错误（登录失败 5 次会 `40106` 锁定 5 分钟）、`40301` 注册已关闭、`40901` 用户名已存在、`40001` 用户名/密码不符合规则。
 
 **Q0：点「保存 / 测试接口」报 `Invalid CORS request`（HTTP 403）？**
 

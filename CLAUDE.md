@@ -15,18 +15,19 @@
 
 | 项 | 状态 |
 |---|---|
-| 设计文档 | 已定稿：`src/main/resources/doc/` 6 份 + schema.sql（**20 张表**，M4 新增 reconcile_audit / alert_event，M5 后新增 outbound_request_state_log 状态链，前置编排新增 interface_step） |
+| 设计文档 | 已定稿：`src/main/resources/doc/` 6 份 + schema.sql（**22 张表**，M4 新增 reconcile_audit / alert_event，M5 后新增 outbound_request_state_log 状态链，前置编排新增 interface_step，账号登录新增 admin_user / admin_session） |
 | M0 契约设计 | **已评审通过 v1.0（2026-09-02）**：`doc/开发文档/` M0-01/02/03/04（确认点全部通过） |
 | 旧 demo 代码 | 已删除（commit `ad55cea`），git 历史可查 |
 | 数据库 | MySQL PolarDB 已按新 schema 建库（连接信息见 application.yaml）；M4 DDL（两表 + idx_outreq_updated 索引）已于 2026-09-04 应用到开发库 |
-| 工程代码 | **M1 + M2 + M3 + M4 已落地并测试通过；M5.1/M5.2 已落地；M5 后状态链已落地；D-PS-0 接口级读超时已落地；前置接口编排（PS-1..PS-9 + 可观测二期）已落地（全库 228 @Test，针对性验证全绿，2026-09-18）**。M4 = 熔断器三态 + UNKNOWN 人工对账 + TTL 降级 + 死信重放 + GatewayGuard 防护 + call_log 脱敏与 traceId 贯穿 + 指标告警。M5.1 = 接口版本快照与回滚（config_json 序列化 / 回滚复用全量替换 + 乐观锁；版本 v1.0 起每次配置变更 / 回滚 +0.1 步进、历史只增不回退 / 版本查询端点）；M5.2 = 适配器绑定即实例 + 解析时机上移（绑定/映射/参数烘焙进缓存链，凭证保持实时）+ ConfigChangedEvent 事件失效 + test 端点 chainTrace + D6'（2026-09-08 定稿：adapter.name 全表唯一；同 (impl, version) 允许多启用；version 不再路由）+ 前端版本历史/变更说明。 |
-| 应用凭证内联 + 报文美化（2026-09-11） | 已落地：① 应用弹窗内联凭证卡片（方案 A，D1–D5 已拍板，见《应用凭证配置改造方案.md》v0.2）+ E2 修复（过期 ROTATING 不再阻塞 prepare）；列表「凭证」列已于 2026-09-12 按使用反馈移除（后端 has*Credential 字段保留）；② 调用日志 / 状态机 Tab / Dashboard 抽屉 / 死信 payload 报文美化（JSON·XML·form·头串；只增删空白，19 位数字等 token 逐字节不变；语法高亮 / 折行 / 行号 / 全屏 / 折叠 / 复制含上下文 / >256KB Worker 后台格式化，见《接口监控设计方案》§8）；③ 前端零依赖测试 `cd frontend && npm test`（单测 58 例 + 组件 SSR 冒烟 16 例）+ `npm run lint`（ESLint 扁平配置） |
+| 工程代码 | **M1 + M2 + M3 + M4 已落地并测试通过；M5.1/M5.2 已落地；M5 后状态链已落地；D-PS-0 接口级读超时已落地；前置接口编排（PS-1..PS-9 + 可观测二期）已落地；管理面账号登录（认证）已落地（全库 247 @Test，针对性验证全绿，2026-09-18）**。M4 = 熔断器三态 + UNKNOWN 人工对账 + TTL 降级 + 死信重放 + GatewayGuard 防护 + call_log 脱敏与 traceId 贯穿 + 指标告警。M5.1 = 接口版本快照与回滚（config_json 序列化 / 回滚复用全量替换 + 乐观锁；版本 v1.0 起每次配置变更 / 回滚 +0.1 步进、历史只增不回退 / 版本查询端点）；M5.2 = 适配器绑定即实例 + 解析时机上移（绑定/映射/参数烘焙进缓存链，凭证保持实时）+ ConfigChangedEvent 事件失效 + test 端点 chainTrace + D6'（2026-09-08 定稿：adapter.name 全表唯一；同 (impl, version) 允许多启用；version 不再路由）+ 前端版本历史/变更说明。 |
+| 应用凭证内联 + 报文美化（2026-09-11） | 已落地：① 应用弹窗内联凭证卡片（方案 A，D1–D5 已拍板，见《应用凭证配置改造方案.md》v0.2）+ E2 修复（过期 ROTATING 不再阻塞 prepare）；列表「凭证」列已于 2026-09-12 按使用反馈移除（后端 has*Credential 字段保留）；② 调用日志 / 状态机 Tab / Dashboard 抽屉 / 死信 payload 报文美化（JSON·XML·form·头串；只增删空白，19 位数字等 token 逐字节不变；语法高亮 / 折行 / 行号 / 全屏 / 折叠 / 复制含上下文 / >256KB Worker 后台格式化，见《接口监控设计方案》§8）；③ 前端零依赖测试 `cd frontend && npm test`（单测 67 例 + 组件 SSR 冒烟 17 例）+ `npm run lint`（ESLint 扁平配置） |
+| 管理面账号登录（2026-09-18） | **只做认证、不做权限**（此前列为 B 类 P0「管理面无鉴权」的缺口）：`admin_user` + `admin_session`（**第 21/22 张表**，开发库已建）；不透明 Bearer 令牌（**库内只存 SHA-256 摘要**，明文只在登录响应出现一次）；口令 PBKDF2-HMAC-SHA256（JDK 自带，120k 迭代 + 随机盐 + 常量时间比较）；TTL 12h + 惰性续期（≤1 次写/会话·小时）；登出删行、改密吊销其他会话 ⇒ 即时失效；连续失败 5 次锁定 5 分钟；注册开放但**首个账号永远允许**（首次初始化）。守卫 = `AdminAuthFilter`（保护 `/api/admin/**`，豁免 `/auth/{login,register,status}` + OPTIONS 预检 + 静态资源；`auth.enabled=false` 完全关闭）；前端 = `views/Login.vue` + 路由守卫 + `api/http.js` 自动带令牌与 401 兜底 + 顶栏账号菜单（改密/退出）。错误码 40104/40105/40106/40301/40901。测试 19 例（`AuthIntegrationTest` 14 + `PasswordHasherTest` 5）+ 前端 9 单测 + 1 SSR。设计：《开发文档/账号登录设计方案.md》 |
 | 真实接口联调修复（2026-09-18） | **FastMoss 前置编排真机跑通**（`POST /brief/create` → 前置 `fm` → `https://openapi.fastmoss.com/shop/v1/creatorList` → 宿主第三方）：① 修 `BearerTokenAuthAdapter` `prefix` 置空产生**前导空格**（改发裸 token + 5 单测）；② 修字段映射 source 下拉选不到 `steps.*`（新增 `utils/stepFields.mjs` + optgroup 分组 + 10 单测）；③ 定位并修掉 `code=1 params error` 的真实成因——**前置入参 = 宿主入站报文原样**，被调接口的 IN 声明不参与取值，必须由**被调接口自己的映射**适配（案例：`IF-FM-001` 补 5 条 rename，扁平 `seller_id` → 嵌套 `filter.seller_id`，可选字段用 `nullStrategy=NULL` 省略）；④ 「前置步骤」Tab 加常驻入参语义提示；⑤ `M1IntegrationTest` 两处**库态断言**改语义化（补映射/轮换凭证会让写死断言变红）。实测：`steps.fm.total=899` 且宿主映射消费成功（`creator_total=899` + `creators`）。详见《前置接口编排真实接口案例》§1.2.1/§3、《技术踩坑记录》§13 |
 | 整体代码评审修复（2026-09-12） | **P1–P3 已修**（P0 安全项按指示暂不动：仓库内 DB 口令 / crypto key / `callback-allow-private` 默认 true）。P1：`calllog.dropped` 指标真正自增；主干红灯（SnapshotChangeDiffTest 夹具/断言）；M4 抖动（熔断窗口放宽 + c3 有界重扫 + 短路按 traceId 归属断言）；`prepare` 回填真实 id（KeyHolder）+ 唯一索引因 PolarDB=MySQL 5.7.28 不支持函数索引 → 官方降级为应用层保证（已写入 schema.sql/M5 手册）。P2：调用日志列表瘦身 + 新增 `GET /monitor/call-logs/{id}` 详情（前端抽屉按 id 拉）；关键字检索强制 ≤7 天窗口；apps/interfaces 列表 2000 上限；`ThreadPoolTaskScheduler(2)` 拆开补偿/告警 worker；删接口/删应用/删规则清理熔断·限流·告警内存态；`Interfaces.vue` 1458→1253 行（拆出 `InterfaceParamsTab.vue`）；公共 `CodeBlock.vue`/`utils/logContext.mjs` 去重；`RENDER_MAX_LINES` 20000→2000；`readBoolPref`；`mergeParams` 提纯函数 + 单测；去掉 Node 专属 `Buffer` 兜底。P3：`fingerprint` 短值不再回显明文；CallLogWriter 文案；长耗时端点 30s 超时；静默 catch 全部补日志；引入 ESLint（flat config）；文档计数口径统一 |
 | 评审遗留补修（2026-09-18） | **D-PS-0 + P2-2.1 已修**：① 接口级读超时真实生效（新增 `config/PerRequestReadTimeoutFactory`，`UpstreamInvoker.dispatch` 作用域声明，`connect-timeout-ms` / `default-read-timeout-ms` 两项配置；单测 8 例 + 集成 3 例，含「模拟修复前行为必红」的反证）；② `timeoutMs` / `maxRetries` 值域校验（100~60000ms / 0~10，越界 40001；前端 `el-input-number` 同步 `:max`；集成 2 例含边界放行与默认值回读）。全库 206 @Test 全绿（2026-09-18） |
 | 测试隔离修复（2026-09-18） | 追查「M4 `c5_死信重放` / StateChain `补偿重放_成功` 在全量套件下偶发红」（**单跑始终绿 6/6、8/8；全量约 5 轮中 2 轮红**）定位到三类隔离缺陷：① 4 个测试类未覆盖 worker `initial-delay`（=0 → 上下文启动即跑一轮**全局** `scan()`，与用例抢跑——2026-09-12 的「统一置 1h」其实只盖了 M2/M3/M4/StateChain）；② 两处 `deleteByApp` 裸按多态 `ref_id` 删死信（id 空间与另一方向重叠 → 误删）；③ 开发库残留 13 条孤儿死信 + 小 id 残留行被用例的全局 `scan()` 处理。已修：8 个测试类统一四属性置 1h、两处 `deleteByApp` 加 `biz_type` 过滤、清理孤儿行、`CompensationWorker` 耗尽告警补 `attempt/max/interface/biz_id` 诊断。修复后连续 2 轮全量 205 全绿（受成本约束未继续跑）；**根因链未 100% 闭合**（C5 那例的计数来源待新诊断行复现确认）——细节见《技术踩坑记录.md》§11 |
-| 评审遗留 P2/P3 批次修复 + 编排可观测二期（2026-09-18） | 与编排同批落地（详见《前置接口编排设计方案.md》§0 末段）。**真 bug 2 个**：`AlertService.evictRule` 冷却键不匹配（`endsWith("#"+id)` vs 实际 `rule:<id>` → 删规则永不清理；已修 + `AlertServiceTest` 回归）；「死信编号」原为 `outbound_request.id`（照它 replay 会打错记录）→ `insertDeadLetter` 改回填真实 `dead_letter.id`（`M4IntegrationTest` 断言编号可查）。**健壮性**：`DeadLetterRepository` 全文参数化（原拼串可被反斜杠打乱字面量）；`MonitorService.reconcile/replayDeadLetter` 补 `@Transactional`；`GlobalExceptionHandler` 补 400（畸形 JSON/参数类型）·404（未匹配路径）·405（方法不支持）——原先三类全回 500；`AppService.base_url` 走 `CallbackUrlValidator`（格式 + SSRF 开关，与回调地址同一规则）；`path` 必须 `/` 开头、`upstreamPath` 拒空白等 URI 非法字符（否则运行期 `URI.create` 抛异常 → 500 + 熔断探针漏计数）；`CredentialRepository.findActive` 补 `ORDER BY id DESC LIMIT 1`；apps/interfaces 列表命中 2000 上限时 `log.warn`（不再静默截断）；`MonitorService.statsCache` 有界（appId 用户可控）；`CallLogWriter` 丢弃日志口径；`XmlProtocolAdapter` reader 显式 close；移除未使用的 MapStruct 依赖与处理器。**可观测二期**：`call_log.step_code`（前置调用的 OUT 条带步骤名 → Monitor「步骤」列 + 按步骤筛选）+ 前置响应体上限 `pre-step.max-response-bytes`（默认 256KB，超限按链失败拒绝、不截断）+ `/test` 弹窗「前置步骤」留痕表。**P3 收尾**：`MonitorService.downgradeExpiredUnknown` 改**逐行** `TransactionTemplate`（状态+审计同成败，不用方法级事务以免单行失败回滚整批）；深度超限（`DEPTH_EXCEEDED`）补 `PRE_STEP` 留痕节点（原先抛在任何留痕之前，监控页看不到原因）；`insertDeadLetter` 未回填主键（-1）时不给误导性「死信编号」。新增测试：`HttpErrorSemanticsTest`（4）。全库 **228 @Test**（针对性批次验证全绿：编排 15 / 错误语义 4 / M1 19 / 告警 10 / M2-M5+StateChain+MonitorStats+单测 60） |
-| 前置接口编排（2026-09-18） | **PS-1..PS-9 已落地**（《开发文档/前置接口编排设计方案.md》v0.1.3 + §0 落地记录表）：`interface_step`（**第 20 张表**，开发库已建）+ `PreStepExecutor`（绕开 OutboundEngine 状态机，只复用链/传输/熔断/短重试）+ `ResponseJudger`（信封+RESP 判定从 OutboundEngine 抽出共用）+ `ReservedKeys`（保留键 steps 两道剥离）+ `StateChainBuffer`（从 OutboundEngine 抽出批量通道）+ `ChainEngine` 三处小改（DECODE 可跳过 / MAPPING 前插前置 / ENCODE 前剥离）+ OutboundEngine 捕获边界 + **D-PS-11 补偿预算下限**（前置宿主 `max(2, maxRetries+1)`）+ 前端「前置步骤」Tab + `/test` chainTrace.steps 与步骤留痕表 + `offline` warnings + `call_log.step_code`（按步骤筛日志）+ 前置响应体上限；全库 **228 @Test**（编排相关 16：`PreStepIntegrationTest` 15 + 快照往返 1）。未做（按 §13/§14 边界）：CONTINUE/FALLBACK、overlay、条件执行、并行组、每跳超时覆盖、前端拖拽排序、`out_payload` 敏感值脱敏（与 P0 安全批次同做） |
+| 评审遗留 P2/P3 批次修复 + 编排可观测二期（2026-09-18） | 与编排同批落地（详见《前置接口编排设计方案.md》§0 末段）。**真 bug 2 个**：`AlertService.evictRule` 冷却键不匹配（`endsWith("#"+id)` vs 实际 `rule:<id>` → 删规则永不清理；已修 + `AlertServiceTest` 回归）；「死信编号」原为 `outbound_request.id`（照它 replay 会打错记录）→ `insertDeadLetter` 改回填真实 `dead_letter.id`（`M4IntegrationTest` 断言编号可查）。**健壮性**：`DeadLetterRepository` 全文参数化（原拼串可被反斜杠打乱字面量）；`MonitorService.reconcile/replayDeadLetter` 补 `@Transactional`；`GlobalExceptionHandler` 补 400（畸形 JSON/参数类型）·404（未匹配路径）·405（方法不支持）——原先三类全回 500；`AppService.base_url` 走 `CallbackUrlValidator`（格式 + SSRF 开关，与回调地址同一规则）；`path` 必须 `/` 开头、`upstreamPath` 拒空白等 URI 非法字符（否则运行期 `URI.create` 抛异常 → 500 + 熔断探针漏计数）；`CredentialRepository.findActive` 补 `ORDER BY id DESC LIMIT 1`；apps/interfaces 列表命中 2000 上限时 `log.warn`（不再静默截断）；`MonitorService.statsCache` 有界（appId 用户可控）；`CallLogWriter` 丢弃日志口径；`XmlProtocolAdapter` reader 显式 close；移除未使用的 MapStruct 依赖与处理器。**可观测二期**：`call_log.step_code`（前置调用的 OUT 条带步骤名 → Monitor「步骤」列 + 按步骤筛选）+ 前置响应体上限 `pre-step.max-response-bytes`（默认 256KB，超限按链失败拒绝、不截断）+ `/test` 弹窗「前置步骤」留痕表。**P3 收尾**：`MonitorService.downgradeExpiredUnknown` 改**逐行** `TransactionTemplate`（状态+审计同成败，不用方法级事务以免单行失败回滚整批）；深度超限（`DEPTH_EXCEEDED`）补 `PRE_STEP` 留痕节点（原先抛在任何留痕之前，监控页看不到原因）；`insertDeadLetter` 未回填主键（-1）时不给误导性「死信编号」。新增测试：`HttpErrorSemanticsTest`（4）。全库 **247 @Test**（针对性批次验证全绿：编排 15 / 错误语义 4 / M1 19 / 告警 10 / M2-M5+StateChain+MonitorStats+单测 60 + 账号登录 19） |
+| 前置接口编排（2026-09-18） | **PS-1..PS-9 已落地**（《开发文档/前置接口编排设计方案.md》v0.1.3 + §0 落地记录表）：`interface_step`（**第 20 张表**，开发库已建）+ `PreStepExecutor`（绕开 OutboundEngine 状态机，只复用链/传输/熔断/短重试）+ `ResponseJudger`（信封+RESP 判定从 OutboundEngine 抽出共用）+ `ReservedKeys`（保留键 steps 两道剥离）+ `StateChainBuffer`（从 OutboundEngine 抽出批量通道）+ `ChainEngine` 三处小改（DECODE 可跳过 / MAPPING 前插前置 / ENCODE 前剥离）+ OutboundEngine 捕获边界 + **D-PS-11 补偿预算下限**（前置宿主 `max(2, maxRetries+1)`）+ 前端「前置步骤」Tab + `/test` chainTrace.steps 与步骤留痕表 + `offline` warnings + `call_log.step_code`（按步骤筛日志）+ 前置响应体上限；全库 **247 @Test**（编排相关 16：`PreStepIntegrationTest` 15 + 快照往返 1）。未做（按 §13/§14 边界）：CONTINUE/FALLBACK、overlay、条件执行、并行组、每跳超时覆盖、前端拖拽排序、`out_payload` 敏感值脱敏（与 P0 安全批次同做） |
 | 里程碑计划 | **M4 手动验收（方案已细化，2026-09-05）待完成；M5.3 压测执行（方案与脚本已就绪，见《M5压测报告.md》，执行后回填数据）+ M5 手动验收待排期**——M5 开发计划已评审定稿（2026-09-04 一轮 + 09-07 二轮），D-M5-1~3 即编码依据，总盘 9 人日 |
 | 未拍板决策 | 无（M0 全部评审通过；M4/M5 计划均已评审定稿） |
 
@@ -39,7 +40,7 @@
 | `API中心设计方案.md` | 设计总纲：应用（供应商）/ 分组 / 接口 / 监控 / 适配器 5 模块；接口定义模型（出站中转 / 入站回调）；三类适配器（鉴权 / 协议 / 报文）+ 接口级字段映射；状态机 / 错误码 / 容错附录 |
 | `技术架构和实现方案.md` | 实现路径：分层架构、技术选型、适配器链引擎、出 / 入站执行引擎、M1–M5 路线图、ADR |
 | `可行性报告.md` | 技术可行性评估、工作量估算（约 81 人日）、风险与应对 |
-| `表结构设计.html` | 20 张表（配置 12 + 运行 8，M4 增 reconcile_audit / alert_event，M5 后增 outbound_request_state_log，前置编排增 interface_step）+ 枚举汇总 + 原型数据模型映射对照 |
+| `表结构设计.html` | 22 张表（配置 12 + 运行 8 + 管理面账号 2，M4 增 reconcile_audit / alert_event，M5 后增 outbound_request_state_log，前置编排增 interface_step，账号登录增 admin_user / admin_session）+ 枚举汇总 + 原型数据模型映射对照 |
 | `API中心时序图与流程图.md` | 配置流程、Flow A / B 时序、请求处理 + 容错流程图 |
 | `API中心原型.html` | 可交互管理面原型（数据模型与交互即事实来源） |
 | `API中心项目说明.md` | **面向使用者的项目总览**（非设计文档）：定位 / 核心概念 / 架构 / 两条链路 / 数据模型 / 状态机容错 / 错误码；对外介绍、新人入门的首选入口 |
@@ -57,6 +58,7 @@
 | `M4开发计划.md` | **M4 编码依据（2026-09-04 评审定稿）**：D-M4-1 熔断 / D-M4-2 UNKNOWN 对账（人工 + TTL）/ D-M4-3 死信重放 / D-M4-4 call_log 双向与脱敏 / D-M4-5 指标与告警 / D-M4-6 接入层防护；总盘 12 人日（含 M2 缺口承接 2 人日）                                                  |
 | `M5开发计划.md` | **M5 编码依据（2026-09-04 一轮 + 2026-09-07 二轮修订；M5.1/M5.2 已实施，M5.3 待压测）**：D-M5-1 接口版本快照与回滚 / D-M5-2 适配器灰度绑定 + 解析时机上移 + 链缓存事件失效 + 停用即回退 / D-M5-3 压测调优与生产加固；总盘 9 人日；前置 = M4 出口                      |
 | `M4手动验收测试方案.md` | M4 手动端到端验收（约 35 分钟，按实施后实际行为校准）：三阶段 = 可观测 / 熔断与对账 / 死信·告警·限流，stub 随仓库 `src/test/resources/m4-manual-stubs/`；M2/M3 同名方案同目录                                                                                         |
+| `账号登录设计方案.md` | **管理面账号登录（v1.0，2026-09-18 已落地）**：只做认证不做权限；D-AUTH-1..10 决策（不透明令牌 vs Cookie/JWT、PBKDF2、惰性续期、注册与首次初始化、锁定、`login()` 不加事务）、表结构（第 21/22 张）、6 个端点 + 错误码、守卫与豁免、安全口径（含未做加固）、配置项、测试 19 例、坑 4 条、验收速查 curl、后续 RBAC 清单 |
 | `M5手动验收测试方案.md` | M5 手动端到端验收（按 M5 实施后实际行为校准）：三阶段 = 版本快照与回滚 / 灰度绑定与即时生效 / 压测与总巡检，见 `src/main/resources/doc/开发文档/M5手动验收测试方案.md`                                                                                                |
 | `M5压测报告.md` | **M5.3 性能测试执行手册 + 报告（一份两用，现状 ⬜ 五场景执行待排期）**：环境与拓扑 / 放大点清单（读放大已烘焙、写放大含状态链）/ 指标口径与 Prometheus 速查 / 偏差控制 / 脚本与造数红线 / 五场景（含数据回填表与断言）/ 执行流程约 2h / 调优台账 / 同步送达决策矩阵 / 风险边界 / 退出检查表；脚本 `src/test/resources/m5-load/`。执行后回填 §1 摘要并同步《M5开发计划.md》§6 第 4/5 项 |
 | `端到端闭环演示方案.md` | **演示脚本（界面配置 → 真实供应商 / 真实 XML → 运维回归）**：串讲《整体测试方案》§1.5/§4/§5/§6/§6.5(evoLink)/§6.6(真实 XML)/§7/§8/§10 成一条叙事线，每环节给「操作 / 原理 / 设计思路 / 实现方式 / 自检」 |
@@ -72,6 +74,8 @@
 - **字段映射**：运行时规则（source/op/target/param/nullStrategy，6 种操作），非编译期映射（§5.6）。
 - **无平台侧幂等开关**：去重依赖供应商对业务键幂等（§6.3）。
 - **入站 ack = 回执**：收到即回、与送达解耦，无「调用方 ack → 供应商 ack」反向映射（§5.5 / §6.1）。
+
+> **管理面鉴权（2026-09-18）**：`/api/admin/**` 需要登录（不透明 Bearer 令牌，只做认证不做权限）；**平台对外接口路径 `/{platformPath}` 不受影响**——调用方鉴权是另一特性（设计 §1.2 / §5.3）。
 
 ## 技术栈
 
@@ -104,20 +108,20 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 
 | 包 | 职责 | 落地里程碑 |
 |---|---|---|
-| `controller/` | 管理面 REST（应用 / 分组 / 接口 / 监控 / 适配器 5 模块）+ 接入层路由 | M1 / M2 / M4（监控 + 死信重放 + 对账端点） |
-| `service/` | 业务编排：配置校验、状态机流转、接入层防护（GatewayGuard） | M1 / M4 |
-| `repository/` | JdbcTemplate 数据访问（20 张表） | M1 / M4（reconcile_audit / alert_event）/ M5 后（state_log）/ 前置编排（interface_step） |
+| `controller/` | 管理面 REST（应用 / 分组 / 接口 / 监控 / 适配器 5 模块 + **账号 `auth`**）+ 接入层路由 | M1 / M2 / M4（监控 + 死信重放 + 对账端点）/ 账号登录（2026-09-18） |
+| `service/` | 业务编排：配置校验、状态机流转、接入层防护（GatewayGuard）、账号认证（AuthService + PasswordHasher） | M1 / M4 / 账号登录（2026-09-18） |
+| `repository/` | JdbcTemplate 数据访问（22 张表） | M1 / M4（reconcile_audit / alert_event）/ M5 后（state_log）/ 前置编排（interface_step）/ 账号登录（admin_user · admin_session） |
 | `engine/` | 适配器链引擎 + 出站 / 入站执行引擎 + 熔断器（CircuitBreakerRegistry） | M2 / M3 / M4 |
 | `adapter/` | 鉴权 / 协议 / 报文三类适配器实现 | M2 |
 | `mapping/` | 动态字段映射引擎（M0-02 规范，6 操作运行时解释器） | M2 |
 | `client/` | 通用声明式 HTTP 客户端（M0-03 契约，动态 URI / 凭证组装） | M2 |
 | `worker/` | 补偿 / 对账 / 告警 worker（按 (status, next_retry_at) 扫描）+ call_log 异步写 | M2 / M3（入站重送）/ M4（TTL 降级 + 告警） |
 | `aspect/` | AOP 调用日志、traceId、脱敏（SensitiveDataMasker） | M4（已落地） |
-| `config/` | 配置与 Bean 装配 | M1 |
+| `config/` | 配置与 Bean 装配（含 `AdminAuthFilter` 管理面鉴权过滤器） | M1 / 账号登录（2026-09-18） |
 
 入口：`ApicenterApplication.java`（`@SpringBootApplication` + `@EnableScheduling` + `@EnableResilientMethods`，后者启用 Spring 7 `@Retryable`）。
 
-前端 `frontend/`（Vue3 + Vite + Element Plus，M1 设计 §4）：`src/views/` 六页面（Dashboard / Apps / Groups / Interfaces / Adapters / Monitor）+ `components/ParamTable` 参数编辑 + `components/CredentialEntry` 凭证卡片 + `components/PayloadViewer` 报文美化展示 + `components/ParamImportDialog` 参数快速导入 + `components/InterfaceStepsTab` 前置步骤编排（编排落地） + `utils/payload.mjs`（JSON/XML/form/头串扫描式缩进与 tokenizer，只增删空白）+ `utils/paramImport.mjs`（JSON→参数行推断，示例值取 token 原始切片）+ `utils/stepFields.mjs`（前置步骤输出 → 字段映射 source 分组）+ `utils/prefs.mjs`（行号·折行·抽屉宽度记忆）+ `workers/payloadFormat.worker.mjs`（>256KB 后台格式化）+ `api/http.js` 统一信封解包；前端 `npm test` = 单测（Node 内置 test runner，58 例）+ 组件 SSR 冒烟（`test/ssr-smoke.mjs`，16 例）；`npm run lint` = ESLint（flat config，`--max-warnings 0`）。原型交互平移自 `doc/API中心原型.html`。管理面 REST 前缀 `/api/admin`（controller/admin 六个 Controller：应用 / 分组 / 接口 / 适配器 / 凭证 / 监控），统一信封 `{code, msg, data}`。Monitor 页 M4 已接真数据（统计卡 / 调用日志 / 对账 UNKNOWN / 死信 / 告警五区块）。
+前端 `frontend/`（Vue3 + Vite + Element Plus，M1 设计 §4）：`src/views/` 六页面（Dashboard / Apps / Groups / Interfaces / Adapters / Monitor）+ `components/ParamTable` 参数编辑 + `components/CredentialEntry` 凭证卡片 + `components/PayloadViewer` 报文美化展示 + `components/ParamImportDialog` 参数快速导入 + `components/InterfaceStepsTab` 前置步骤编排（编排落地） + `utils/payload.mjs`（JSON/XML/form/头串扫描式缩进与 tokenizer，只增删空白）+ `utils/paramImport.mjs`（JSON→参数行推断，示例值取 token 原始切片）+ `utils/stepFields.mjs`（前置步骤输出 → 字段映射 source 分组）+ `utils/prefs.mjs`（行号·折行·抽屉宽度记忆）+ `workers/payloadFormat.worker.mjs`（>256KB 后台格式化）+ `api/http.js` 统一信封解包；前端 `npm test` = 单测（Node 内置 test runner，67 例）+ 组件 SSR 冒烟（`test/ssr-smoke.mjs`，17 例）；`npm run lint` = ESLint（flat config，`--max-warnings 0`）。原型交互平移自 `doc/API中心原型.html`。管理面 REST 前缀 `/api/admin`（controller/admin 六个 Controller：应用 / 分组 / 接口 / 适配器 / 凭证 / 监控），统一信封 `{code, msg, data}`。Monitor 页 M4 已接真数据（统计卡 / 调用日志 / 对账 UNKNOWN / 死信 / 告警五区块）。
 
 ## 核心状态机与容错（设计 §6）
 
@@ -134,11 +138,16 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 
 ## 配置与数据模型
 
-- 配置集中在 `src/main/resources/application.yaml`：仅基础设施参数（datasource、`retry-worker-fixed-delay-ms: 3000`、`unknown-ttl-minutes: 10`）；业务配置（应用 / 接口 / 适配器 / 字段映射）全部落库。
-- `src/main/resources/doc/schema.sql`：20 张表（配置 12 + 运行 8，M4 新增 reconcile_audit / alert_event + idx_outreq_updated，M5 后新增 outbound_request_state_log + adapter.name 唯一，前置编排新增 interface_step），无数据库外键（引用完整性应用层保证，引用列建索引），与《表结构设计.html》逐表一致。
+- 配置集中在 `src/main/resources/application.yaml`：仅基础设施参数（datasource、`retry-worker-fixed-delay-ms: 3000`、`unknown-ttl-minutes: 10`、`auth.*` 认证参数）；业务配置（应用 / 接口 / 适配器 / 字段映射）全部落库。认证配置：`auth.enabled/allow-register/session-ttl-hours/renew-interval-minutes/max-failed-attempts/lock-minutes`（账号与会话本身落库：`admin_user` / `admin_session`）。
+- `src/main/resources/doc/schema.sql`：22 张表（配置 12 + 运行 8 + 管理面账号 2，M4 新增 reconcile_audit / alert_event + idx_outreq_updated，M5 后新增 outbound_request_state_log + adapter.name 唯一，前置编排新增 interface_step，账号登录新增 admin_user / admin_session），无数据库外键（引用完整性应用层保证，引用列建索引），与《表结构设计.html》逐表一致。
 
 ## 约定与注意事项（Gotchas）
 
+- **管理面已启用账号登录（2026-09-18）**：`/api/admin/**` 全部需要 `Authorization: Bearer <token>`（豁免 `/api/admin/auth/{login,register,status}`、`OPTIONS` 预检、静态资源与 `/actuator/health`）。
+  影响三处写法：① **curl / 文档示例**必须先登录取 token（《使用教程》§8.3）；② **集成测试**里直连管理面 HTTP 的类（`HttpErrorSemanticsTest` / M3 / M4 / M5 / `MonitorStatsIntegrationTest`）在 `@SpringBootTest(properties=...)` 中置 `app.api-center.auth.enabled=false`（它们不测认证），认证本身由 `AuthIntegrationTest` 用默认值覆盖；③ **新增管理面端点无需改任何东西**（过滤器按前缀统一拦），但新增**豁免**路径要显式加到 `AdminAuthFilter.EXEMPT`（且要想清楚：豁免 = 匿名可访问）。
+  `auth.enabled=false` 是唯一总开关（应急回退/本地调试）；`allow-register=false` 时仍允许「首个账号」初始化。设计见《账号登录设计方案.md》。
+- **`AuthService.login()` 刻意不加 `@Transactional`（真坑，别加回去）**：登录失败要抛 `BizException`，同一事务会把「失败计数 +1」一起回滚 → 连续失败次数永远停在 1，**锁定形同虚设**（被 `AuthIntegrationTest#连续失败达阈值_锁定且正确密码也被拒` 抓到）。同类通用结论：**「先写库、再抛异常」的流程不要挂事务**（或把写库放 `REQUIRES_NEW`）。
+- **账号登录的存储与令牌口径**：口令只存 PBKDF2 摘要（`pbkdf2$120000$salt$hash`，`PasswordHasher`），**禁**任何接口/日志回显；令牌 32 字节随机、**库内只存 SHA-256 摘要**（`admin_session.token_hash`），明文只在登录/注册响应出现一次；改密吊销该账号其他会话（当前会话保留）、登出即删行。前端令牌在 `localStorage`（`utils/auth.mjs`，storage 可注入便于单测、**顶层必须做 `typeof localStorage` 守卫**否则 SSR 冒烟直接抛），`api/http.js` 遇 401/40104 清令牌并整页跳 `/login?redirect=…`。
 - **中文注释**：全库代码注释、README、设计文档均为简体中文，新代码保持中文注释。
 - **MapStruct + Lombok**：通过 `maven-compiler-plugin` 的 `annotationProcessorPaths` 显式配置（compile 与 test-compile 两个 execution）。MapStruct 只用于固定结构映射（统一信封组装、实体 ↔ DTO），动态映射走规则解释器（M0-02）。
 - **Boot 4 不自动装配 `RestClient.Builder`**：手动构建 `RestClient` Bean（`RestClientConfig`）。

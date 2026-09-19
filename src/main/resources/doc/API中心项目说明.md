@@ -1,6 +1,6 @@
 # apicenter · 项目说明文档
 
-> 版本：v1.1（2026-09-18）｜ 适用代码基线：M0–M5 + 前置接口编排全部已落地（自动化测试 228 个 @Test）
+> 版本：v1.1（2026-09-18）｜ 适用代码基线：M0–M5 + 前置接口编排全部已落地（自动化测试 247 个 @Test）
 > 配套文档：[《API中心使用教程》](API中心使用教程.md) ｜ [README](../../../../README.md) ｜ [整体测试方案](开发文档/整体测试方案.md)
 
 ---
@@ -99,7 +99,7 @@
    ┌──────────────┐                  │  RestClient 直调      │
    │    MySQL     │◄─────────────────│  UpstreamInvoker      │
    │  PolarDB     │   config + 运行   │  @Retryable + 熔断闸门 │
-   │  20 张表      │                  └──────────┬───────────┘
+   │  22 张表      │                  └──────────┬───────────┘
    └──────────────┘                             ▼
    ┌──────────────────────────────────────────────────────────┐
    │ Worker：CallLogWriter（异步日志）/ CompensationWorker（补偿 │
@@ -113,7 +113,7 @@
 |---|---|
 | `controller/` | 接入层路由 `GatewayController` + 管理面 REST（`controller/admin` 7 个 Controller） |
 | `service/` | 业务编排：配置校验、状态机流转、凭证管理、接入层防护 `GatewayGuard`、版本快照 `SnapshotSerializer` |
-| `repository/` | JdbcTemplate 数据访问（20 张表，无 JPA） |
+| `repository/` | JdbcTemplate 数据访问（22 张表，无 JPA） |
 | `engine/` | 适配器链引擎 `ChainEngine` + 出站 `OutboundEngine` / 入站 `InboundEngine` + `CircuitBreakerRegistry` |
 | `adapter/` | 三类适配器实现：`auth` / `protocol` / `message` |
 | `mapping/` | 动态字段映射引擎（M0-02 规范，Aviator 5 解释器） |
@@ -241,7 +241,7 @@ sequenceDiagram
 
 ## 6. 数据模型
 
-共 **20 张表**（配置 12 + 运行 8；其中 interface_step 为前置步骤编排，2026-09-18 落地），无数据库外键（引用完整性应用层保证，引用列建索引）。DDL 见 [`schema.sql`](schema.sql)，可视化见 [`表结构设计.html`](表结构设计.html)。
+共 **22 张表**（配置 12 + 运行 8 + 管理面账号 2；其中 interface_step 为前置步骤编排、admin_user/admin_session 为管理面账号登录，2026-09-18 落地），无数据库外键（引用完整性应用层保证，引用列建索引）。DDL 见 [`schema.sql`](schema.sql)，可视化见 [`表结构设计.html`](表结构设计.html)。
 
 **配置表（11）**：`app`、`app_credential`、`app_group`、`interface`、`interface_param`、`interface_body`、`interface_field_mapping`、`interface_field_def`、`interface_adapter_binding`、`interface_snapshot`、`adapter`。
 
@@ -347,7 +347,7 @@ RECEIVED → ACKED / PENDING → ACKED / DEAD_LETTER
 | M5 版本与灰度 | ✅ M5.1 / M5.2 完成，M5.3 待压测 | 版本快照 / 回滚 + 绑定即实例 + 事件失效 + 状态链 |
 | M4 / M5 手动验收 | ⏳ 待完成 | 方案已备（见 `开发文档/`） |
 
-**测试基线**：全库 **228 个 @Test**（2026-09-18；含前置编排 `PreStepIntegrationTest` 15、HTTP 错误语义 4、读超时 8 等）。
+**测试基线**：全库 **247 个 @Test**（2026-09-18；含前置编排 `PreStepIntegrationTest` 15、账号登录 `AuthIntegrationTest` 14 + `PasswordHasherTest` 5、HTTP 错误语义 4、读超时 8 等）。
 
 ---
 
@@ -360,7 +360,7 @@ RECEIVED → ACKED / PENDING → ACKED / DEAD_LETTER
 | `API中心设计方案.md` | 设计总纲（必读） |
 | `技术架构和实现方案.md` | 分层架构、技术选型、ADR |
 | `可行性报告.md` | 可行性评估与工作量估算 |
-| `表结构设计.html` + `schema.sql` | 20 张表结构 |
+| `表结构设计.html` + `schema.sql` | 22 张表结构 |
 | `API中心时序图与流程图.md` | 配置流程、Flow A / B 时序、容错流程 |
 | `API中心原型.html` | 可交互管理面原型 |
 | `开发计划.md` | M0–M5 里程碑 |

@@ -44,7 +44,7 @@
 <body>
 <div class="topbar">
   <h1>API 中心 · 表结构设计</h1>
-  <p>依据《API中心设计方案.md》《API中心原型.html》整理 · 共 20 张表：配置类 12 张 + 运行类 8 张（M4 新增 17/18 对账审计与告警事件；M5 后新增 19 状态流转历史；前置编排新增 20 前置步骤，只增配置不动运行表）· 生产 MySQL 8.0 InnoDB</p>
+  <p>依据《API中心设计方案.md》《API中心原型.html》整理 · 共 22 张表：配置类 12 张 + 运行类 8 张 + 管理面账号 2 张（M4 新增 17/18 对账审计与告警事件；M5 后新增 19 状态流转历史；前置编排新增 20 前置步骤；账号登录新增 21/22 账号与会话，只增表不动既有）· 生产 MySQL 8.0 InnoDB</p>
 </div>
 <div class="wrap">
 
@@ -76,6 +76,8 @@
     <li><a href="#t-alertevent">alert_event 告警事件</a></li>
     <li><a href="#t-statelog">outbound_request_state_log 出站状态流转历史</a></li>
     <li><a href="#t-step">interface_step 接口前置步骤（编排）</a></li>
+    <li><a href="#t-admin-user">admin_user 管理面账号</a></li>
+    <li><a href="#t-admin-session">admin_session 管理面会话令牌</a></li>
   </ol>
 </div>
 
@@ -471,12 +473,51 @@
   <div class="t-desc" style="padding-bottom:14px">保存期校验（服务端权威）：宿主仅 OUTBOUND；步数 ≤5；步骤名 <span class="mono">^[A-Za-z0-9_]&#123;1,32&#125;$</span> 且不得为保留名 steps；目标必须 OUTBOUND + PUBLISHED 且非自身；<b>环检测 + 解析链长度 ≤3（节点数，含宿主）</b>；同时禁止将 <span class="mono">steps</span> 用作 IN 参数名 / 映射 target 名。运行期另有嵌套深度防线（preCallDepth ≥3 即拒）。<br><b>快照</b>：随 interface_snapshot.config_json 的 <span class="mono">steps</span> 段存 <span class="mono">targetCode</span>（跨环境可移植），回滚时解析回 id，解析失败报 40001（不静默丢步骤）。<br><b>删除策略</b>：宿主删除时级联删本表行；被引为前置的接口<b>禁止删除</b>（提示引用方），OFFLINE 允许但服务端返回 warnings 强提示。设计详见《开发文档/前置接口编排设计方案.md》。</div>
 </section>
 
+<section class="table" id="t-admin-user">
+  <div class="t-head"><span class="no">21</span><h2>管理面账号</h2><span class="en">admin_user</span></div>
+  <div class="t-desc">管理面（<span class="mono">/api/admin/**</span>）的登录账号。<b>只做认证，不做权限</b>（v1 无角色/资源授权）；口令以 <b>PBKDF2-HMAC-SHA256</b> 摘要存储（每用户随机盐，格式 <span class="mono">pbkdf2$iterations$salt$hash</span>，不可逆），任何接口与日志都不回显口令。连续失败达阈值写锁定时间（成功登录清零）。用户名统一小写存储：3-32 位字母/数字/下划线/点/连字符。设计详见《开发文档/账号登录设计方案.md》。</div>
+  <table class="f">
+    <tr><th style="width:22%">字段</th><th style="width:20%">类型</th><th style="width:16%">约束</th><th>说明</th></tr>
+    <tr><td class="c pk">id</td><td class="c">BIGINT</td><td>PK 自增</td><td>主键</td></tr>
+    <tr><td class="c">username</td><td class="c">VARCHAR(64)</td><td>NOT NULL，UK</td><td>登录名（3-32 位小写字母/数字/_.-，统一小写）</td></tr>
+    <tr><td class="c">display_name</td><td class="c">VARCHAR(64)</td><td>—</td><td>界面展示名（缺省回落到 username）</td></tr>
+    <tr><td class="c">password_hash</td><td class="c">VARCHAR(255)</td><td>NOT NULL</td><td>PBKDF2-HMAC-SHA256 摘要（含算法与迭代次数，便于日后升级）</td></tr>
+    <tr><td class="c">status</td><td class="c">VARCHAR(16)</td><td>NOT NULL DEFAULT 'ENABLED'</td><td>ENABLED / DISABLED（v1 无界面切换，预留）</td></tr>
+    <tr><td class="c">failed_attempts</td><td class="c">INT</td><td>NOT NULL DEFAULT 0</td><td>连续失败次数（达阈值触发锁定；成功登录清零）</td></tr>
+    <tr><td class="c">locked_until</td><td class="c">DATETIME</td><td>—</td><td>锁定截止时间（NULL = 未锁定）；锁定期内密码正确也拒</td></tr>
+    <tr><td class="c">last_login_at</td><td class="c">DATETIME</td><td>—</td><td>最近登录成功时间</td></tr>
+    <tr><td class="c">password_updated_at</td><td class="c">DATETIME</td><td>—</td><td>最近改密时间</td></tr>
+    <tr><td class="c">created_at / updated_at</td><td class="c">DATETIME</td><td>NOT NULL</td><td>创建 / 更新时间</td></tr>
+  </table>
+  <div class="idx"><b>索引</b>：PK(id)，UNIQUE(username)</div>
+  <div class="t-desc" style="padding-bottom:14px"><b>删除策略</b>：删账号 → 联删其会话（<span class="mono">admin_session</span>）。<b>保护对象</b>：仅 <span class="mono">/api/admin/**</span>（豁免 <span class="mono">/auth/login|register|status</span>、OPTIONS 预检、静态资源与 /actuator/health）——平台对外接口路径（调用方鉴权）不在本特性范围。</div>
+</section>
+
+<section class="table" id="t-admin-session">
+  <div class="t-head"><span class="no">22</span><h2>管理面会话令牌</h2><span class="en">admin_session</span></div>
+  <div class="t-desc">不透明 Bearer 令牌（<span class="mono">Authorization: Bearer &lt;token&gt;</span>）。<b>库内只存 SHA-256 摘要</b>：库泄露 ≠ 可直接登录（与 app_credential「凭证不落明文」同一纪律），明文令牌只在登录/注册响应里出现一次。登出删行、改密吊销该账号其他会话 ⇒ <b>即时失效</b>，不依赖 TTL；TTL 12h + 惰性续期（距上次续期超 1h 才写一次，控制写放大）。过期行在登录时机会式清理（不引入调度任务）。</div>
+  <table class="f">
+    <tr><th style="width:22%">字段</th><th style="width:20%">类型</th><th style="width:16%">约束</th><th>说明</th></tr>
+    <tr><td class="c pk">id</td><td class="c">BIGINT</td><td>PK 自增</td><td>主键</td></tr>
+    <tr><td class="c ref">user_id</td><td class="c">BIGINT</td><td>NOT NULL</td><td>admin_user.id（应用层保证，不设外键）；改密时按此吊销其他会话</td></tr>
+    <tr><td class="c">token_hash</td><td class="c">CHAR(64)</td><td>NOT NULL，UK</td><td>令牌 SHA-256 十六进制摘要（明文不落库）</td></tr>
+    <tr><td class="c">client_info</td><td class="c">VARCHAR(200)</td><td>—</td><td>登录来源（IP + User-Agent 摘要），仅诊断用</td></tr>
+    <tr><td class="c">created_at</td><td class="c">DATETIME</td><td>NOT NULL</td><td>签发时间</td></tr>
+    <tr><td class="c">last_seen_at</td><td class="c">DATETIME</td><td>NOT NULL</td><td>最近使用时间（精度 = 续期粒度）</td></tr>
+    <tr><td class="c">renewed_at</td><td class="c">DATETIME</td><td>NOT NULL</td><td>最近续期时间（惰性续期的判据列）</td></tr>
+    <tr><td class="c">expires_at</td><td class="c">DATETIME</td><td>NOT NULL</td><td>过期时间（校验谓词 <span class="mono">expires_at &gt; NOW()</span>）</td></tr>
+  </table>
+  <div class="idx"><b>索引</b>：PK(id)，UNIQUE(token_hash)，INDEX(user_id)，INDEX(expires_at)</div>
+  <div class="t-desc" style="padding-bottom:14px"><b>错误码</b>：40104 未登录/令牌失效、40105 用户名或密码错误、40106 账号已锁定、40301 注册已关闭、40901 用户名已存在（<span class="mono">40100/40101</span> 已被入站回调验签占用，故从 40104 起）。</div>
+</section>
+
 <!-- ============ 附录 A ============ -->
 <h3 class="apx">附录 A · 状态与枚举汇总</h3>
 <section class="table">
   <table class="f">
     <tr><th style="width:26%">枚举</th><th style="width:18%">取值</th><th>说明</th></tr>
     <tr><td class="c">app.status</td><td class="c">DRAFT / ENABLED / DISABLED / CANCELLED</td><td>草稿 → 启用 → 停用 → 注销</td></tr>
+    <tr><td class="c">admin_user.status</td><td class="c">ENABLED / DISABLED</td><td>账号启用 / 停用（v1 无界面切换，预留）</td></tr>
     <tr><td class="c">app_credential.status</td><td class="c">ACTIVE / ROTATING / RETIRED</td><td>当前使用 / 轮换并存（过期惰性失效）/ 已失效</td></tr>
     <tr><td class="c">interface.if_type</td><td class="c">OUTBOUND / INBOUND</td><td>出站中转 / 入站回调</td></tr>
     <tr><td class="c">interface.status</td><td class="c">DRAFT / PUBLISHED / OFFLINE</td><td>草稿 → 发布 → 下线（下线停路由）</td></tr>

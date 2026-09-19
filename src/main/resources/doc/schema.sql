@@ -1,6 +1,7 @@
 -- ============================================================
 -- API 中心（现行设计）· 建表脚本
--- 依据《表结构设计.html》生成，共 19 张表：配置类 11 + 运行类 8（M4 新增 reconcile_audit / alert_event；M5 后新增 outbound_request_state_log 状态链）
+-- 依据《表结构设计.html》生成，共 22 张表：配置类 11 + 运行类 8（M4 新增 reconcile_audit / alert_event；M5 后新增 outbound_request_state_log 状态链）
+--   + 管理面账号类 2（admin_user / admin_session，2026-09-18 账号登录）；另 interface_step 为编排配置子表（第 20 张）
 -- 目标库：MySQL 5.7 / 8.0 InnoDB（双兼容），字符集 utf8mb4
 -- 注意：与 doc_old/schema.sql（旧版 ERP demo 9 表）不是同一套，勿混用
 -- 不使用数据库外键约束：引用完整性由应用层保证，引用列均建索引（见各表）
@@ -346,6 +347,40 @@ CREATE TABLE interface_step (
     KEY idx_step_target (target_interface_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='接口前置步骤（编排）';
 
+-- 21 管理面账号（账号登录，2026-09-18）：仅认证，v1 不做权限/角色（授权留待后续）
+--    口令存储 = PBKDF2-HMAC-SHA256（JDK 自带），每用户随机盐，格式 pbkdf2$<iterations>$<saltB64>$<hashB64>
+--    暴力破解防护：failed_attempts 累加，达阈值写 locked_until（成功登录即清零）
+CREATE TABLE admin_user (
+    id                  BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    username            VARCHAR(64)  NOT NULL COMMENT '登录名（3-32 位字母数字与 _ . -；统一小写存储）',
+    display_name        VARCHAR(64)  COMMENT '显示名（界面展示用）',
+    password_hash       VARCHAR(255) NOT NULL COMMENT 'PBKDF2-HMAC-SHA256 口令摘要（禁明文/禁可逆）',
+    status              VARCHAR(16)  NOT NULL DEFAULT 'ENABLED' COMMENT 'ENABLED/DISABLED（v1 无界面切换，预留）',
+    failed_attempts     INT          NOT NULL DEFAULT 0 COMMENT '连续失败次数（成功登录清零）',
+    locked_until        DATETIME     COMMENT '锁定截止时间（NULL = 未锁定）',
+    last_login_at       DATETIME     COMMENT '最近登录成功时间',
+    password_updated_at DATETIME     COMMENT '最近改密时间',
+    created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_admin_user_username (username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='管理面账号（认证）';
+
+-- 22 管理面会话令牌（不透明 Bearer 令牌）：入库只存 SHA-256 摘要（库泄露不等于可登录）
+--    惰性续期：距 renewed_at 超过 renew-interval-minutes 才写一次 expires_at（控制写放大）
+CREATE TABLE admin_session (
+    id           BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    user_id      BIGINT       NOT NULL COMMENT 'admin_user.id（应用层保证，不设外键）',
+    token_hash   CHAR(64)     NOT NULL COMMENT '令牌 SHA-256 十六进制（明文令牌只在响应里出现一次）',
+    client_info  VARCHAR(200) COMMENT '登录来源（User-Agent 摘要 / IP），仅诊断用',
+    created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '最近使用时间（诊断 + 续期判据）',
+    renewed_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '最近一次续期时间',
+    expires_at   DATETIME     NOT NULL COMMENT '过期时间（改密/登出即删行 => 即时失效）',
+    UNIQUE KEY uk_admin_session_token (token_hash),
+    KEY idx_admin_session_user (user_id),
+    KEY idx_admin_session_expires (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='管理面会话令牌（只存摘要）';
+
 -- ============================================================
 -- 删除策略约定（不设数据库外键，引用完整性由应用层保证）
 --   · 删适配器     → app.auth_adapter_id / callback_auth_adapter_id /
@@ -356,6 +391,7 @@ CREATE TABLE interface_step (
 --                    存在运行数据（outbound_request / inbound_delivery）时仅允许下线
 --   · 删接口       → call_log.interface_id 置 NULL（日志保留，可观测数据不丢）
 --   · 删被引为前置的接口 → **禁止**（interface_step.target_interface_id 引用存在时；提示引用方）
+--   · 删账号       → 级联删其会话（admin_session）；v1 无账号管理界面（仅注册/登录/改密）
 --   · dead_letter.ref_id 为多态引用（指向 outbound_request.id 或 inbound_delivery.id），不约束
 -- ============================================================
 

@@ -25,7 +25,9 @@ import static org.assertj.core.api.Assertions.assertThat;
         "app.api-center.retry-worker-fixed-delay-ms=3600000",
         "app.api-center.alert-worker-fixed-delay-ms=3600000",
         "app.api-center.retry-worker-initial-delay-ms=3600000",
-        "app.api-center.alert-worker-initial-delay-ms=3600000"
+        "app.api-center.alert-worker-initial-delay-ms=3600000",
+        // 管理面认证：本类直连 /api/admin/** 但不测认证 → 关闭（认证由 AuthIntegrationTest 覆盖）
+        "app.api-center.auth.enabled=false"
 })
 class HttpErrorSemanticsTest {
 

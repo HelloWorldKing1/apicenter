@@ -20,6 +20,18 @@ public class BizException extends RuntimeException {
     /** 50000 平台内部错误 */
     public static final int INTERNAL = 50000;
 
+    // ---------- 管理面账号认证（2026-09-18；40100/40101 已被入站回调验签占用，故从 40104 起） ----------
+    /** 40104 未登录 / 令牌缺失、无效或已过期（HTTP 401） */
+    public static final int UNAUTHORIZED = 40104;
+    /** 40105 用户名或密码错误 / 原密码不正确（HTTP 401） */
+    public static final int BAD_CREDENTIALS = 40105;
+    /** 40106 账号已锁定（连续失败达阈值，HTTP 401） */
+    public static final int ACCOUNT_LOCKED = 40106;
+    /** 40301 注册已关闭（HTTP 403） */
+    public static final int REGISTER_DISABLED = 40301;
+    /** 40901 用户名已存在（HTTP 409） */
+    public static final int USERNAME_TAKEN = 40901;
+
     private final int code;
 
     public BizException(int code, String msg) {
