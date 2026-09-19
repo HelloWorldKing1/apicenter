@@ -523,7 +523,9 @@ curl -X POST http://localhost:8080/api/admin/interfaces/<id>/copy \
    - **启用**：可临时停用（保留配置不执行）；
 3. 可添加多步（≤5），用 ↑↓ 调整顺序（顺序敏感：先取 token 再带上 token）；
 4. 回到「字段映射」Tab 写引用：`source = steps.auth.token` → `target = api_token`；
-   - 不知道 B 返回什么字段？点该步的「**可用字段**」→ 拉取 B 的 RESP / 出站参数清单 → 一键复制 `steps.auth.xxx`；
+   - 「入站字段」下拉里会有分组「**前置步骤 · auth（B的标识）**」，可直接选 `steps.auth.*`（选项来自 B 的 RESP 出站响应字段 + 出站侧参数；
+     B 未发布/已删除时会提示「字段未读到」，此时可手动输入路径）；
+   - 也可点步骤 Tab 里该步的「**可用字段**」→ 复制路径后粘贴；
 5. 保存（随保存生成新版本快照，可在版本历史回滚；复制接口会带上步骤）。
 
 ### 7.5.2 等价 curl
@@ -714,7 +716,7 @@ mvn clean test      # 结构变更后务必 clean（旧 class 残留会被 Sprin
 cd frontend
 npm run dev         # 开发 :5173
 npm run build       # 产物 → src/main/resources/static/（后端 serve）
-npm test            # 单测 48 例 + 组件 SSR 冒烟 16 例（Node 内置 test runner，无需联网）
+npm test            # 单测 58 例 + 组件 SSR 冒烟 16 例（Node 内置 test runner，无需联网）
 npm run lint        # ESLint（flat config，--max-warnings 0）
 ```
 

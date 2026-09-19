@@ -87,7 +87,11 @@
     </el-dialog>
 
     <!-- 可引用字段（帮用户写映射的 source） -->
-    <el-dialog v-model="fields.visible" title="可引用字段（复制后填到字段映射的 source）" width="560px">
+    <el-dialog v-model="fields.visible" title="可引用字段" width="560px">
+      <div class="steps-tip">
+        两种用法：① 在「字段映射」的 source 下拉里，选「前置步骤 · {{ fields.stepCode }}」分组（已自动列出）；
+        ② 在此复制路径后粘贴进 source。
+      </div>
       <div v-if="fields.loading" class="steps-tip">加载中…</div>
       <template v-else>
         <div v-if="!fields.items.length" class="empty-hint">该前置接口未声明出站响应字段 / 出站参数</div>

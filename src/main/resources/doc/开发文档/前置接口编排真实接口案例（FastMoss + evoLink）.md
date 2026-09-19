@@ -74,10 +74,14 @@ curl -s -X POST 'https://api.evolink.ai/v1/images/generations' \
 | ④ 入站参数（IN） | `seller_id`(string, 必填, 示例 `7494312521977267257`)、`prompt`(string, 示例 `达人简报`) |
 | ⑤ 出站参数（OUT） | `creator_total`(number)、`creators`(array)、`seller_id`(string)、`prompt`(string) |
 | ⑥ **前置步骤** Tab | `＋ 添加前置步骤` → 步骤名 **`fm`**、前置接口选 `IF-FM-001`、策略「阻断后续（ABORT）」、启用 |
-| ⑦ 字段映射 Tab | 见下表 4 条（**注意第 2 条用 condition 守门**） |
+| ⑦ 字段映射 Tab | 见下表 4 条（**注意第 2 条用 condition 守门**）；「入站字段」下拉里会出现分组「**前置步骤 · fm（IF-FM-001）**」，直接选 `steps.fm.total` / `steps.fm.list` 即可（也可手输；实现见 2026-09-18 补缺） |
 | ⑧ 发布 | 列表 → 发布 |
 
 **字段映射（A 的 IN + `steps.fm.*` → 第三方报文）**
+
+> source 的取值来源：入站参数 **+ 前置步骤输出**。后者的可选项由「前置接口自己的字段声明」生成——
+> `RESP` 出站响应字段 + 出站侧参数，前缀 `steps.<步骤名>.`；若前置接口未发布/已删除/未声明字段，
+> 下拉会提示「字段未读到」，此时可手动输入路径（保存期不校验引用名，运行时按 null_strategy 处理）。
 
 | # | source | op | target | param | nullStrategy | 说明 |
 |---|---|---|---|---|---|---|

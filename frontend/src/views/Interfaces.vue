@@ -171,10 +171,23 @@
           </div>
           <template v-else>
           <div class="side-desc" style="margin-bottom: 8px">规则为空 = 整体透传；非空 = 仅输出 target 命中字段（白名单）</div>
+          <!-- 前置步骤输出（编排）：把 steps.<步骤名>.<字段> 作为可选分组接进 source 下拉（2026-09-18 补缺） -->
+          <div v-if="stepFields.groups.length || stepFields.unknown.length" class="side-desc" style="margin-bottom: 8px">
+            前置步骤输出可直接引用：下拉「前置步骤 · 步骤名」分组里选（也可手输
+            <span class="mono">steps.&lt;步骤名&gt;.&lt;字段&gt;</span>）
+            <template v-if="stepFields.unknown.length">；
+              <b>{{ stepFields.unknown.map((u) => u.stepCode).join('、') }}</b>
+              的前置接口字段未读到（未发布 / 已删除 / 无声明）→ 请先发布并确认字段，或手动输入路径
+            </template>
+          </div>
           <el-table :data="form.mappings" size="small">
             <el-table-column label="入站字段">
               <template #default="{ row }">
-                <el-select v-model="row.source" size="small" clearable filterable allow-create placeholder="选入站字段（default 时可空）">
+                <el-select v-model="row.source" size="small" clearable filterable allow-create
+                           placeholder="选入站字段 / 前置步骤输出（default 时可空）">
+                  <el-option-group v-for="g in stepFields.groups" :key="g.key" :label="g.label">
+                    <el-option v-for="f in g.options" :key="f" :label="f" :value="f" />
+                  </el-option-group>
                   <el-option v-for="p in inParamNames" :key="p" :label="p" :value="p" />
                 </el-select>
               </template>
@@ -517,12 +530,13 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute } from 'vue-router'
 import http, { LONG_RUNNING_TIMEOUT } from '@/api/http'
 import InterfaceParamsTab from '@/components/InterfaceParamsTab.vue'
 import InterfaceStepsTab from '@/components/InterfaceStepsTab.vue'
+import { buildStepFieldGroups } from '@/utils/stepFields.mjs'
 
 const route = useRoute()
 
@@ -648,6 +662,30 @@ const targetField = computed({
 // 字段映射 source/target 下拉选项（原型：从两侧已配置参数选择）
 const inParamNames = computed(() => form.inParams.map((p) => p.name).filter(Boolean))
 const outParamNames = computed(() => form.outParams.map((p) => p.name).filter(Boolean))
+
+// ---------- 前置步骤输出 → 映射 source 可选分组（编排 PS-7 补缺，2026-09-18） ----------
+// 步骤输出的字段声明来自**前置接口自己**（RESP 出站响应字段 + 出站侧参数），按需懒加载并缓存；
+// 纯逻辑在 utils/stepFields.mjs（有单测），这里只负责取数与接线。
+const stepDecls = reactive({})                 // { [targetInterfaceId]: { resp: [], out: [] } }
+const stepFields = computed(() => buildStepFieldGroups(form.steps, stepDecls))
+
+watch(() => (form.steps || []).map((s) => s.targetInterfaceId).join(','), async () => {
+  const ids = [...new Set((form.steps || [])
+    .filter((s) => s && s.targetInterfaceId && !stepDecls[String(s.targetInterfaceId)])
+    .map((s) => s.targetInterfaceId))]
+  for (const id of ids) {
+    try {
+      const d = await http.get(`/interfaces/${id}`)
+      stepDecls[String(id)] = {
+        resp: (d.fieldDefs || []).filter((f) => f.kind === 'RESP').map((f) => f.name),
+        out: (d.params || []).filter((p) => p.side === 'OUT').map((p) => p.name)
+      }
+    } catch (e) {
+      // 读不到（未发布/已删除）→ 记空声明，界面归入「未读到」提示，用户仍可手输路径
+      stepDecls[String(id)] = { resp: [], out: [] }
+    }
+  }
+}, { immediate: true })
 
 
 /** 协议联动（原型 protoSame） */
