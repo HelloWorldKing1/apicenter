@@ -772,9 +772,12 @@ curl -s -X POST 'https://openapi.fastmoss.com/shop/v1/creatorList' \
 - ③ 正常但平台报 1002 → 平台凭证没更新成功：应用管理 → `fastmoss` → 编辑 → 凭证卡片填真 token 保存（或 `POST /api/admin/apps/fastmoss/credentials/update` body `{"kind":"OUTBOUND","credential":"<真 token>"}`）。
   **凭证每请求实时读，无需重启**；用 ① 复核指纹已变。
 
-> 若 FastMoss 要求**不带 `Bearer` 前缀**（或换自定义头），在「适配器管理 → `ADP-101`」里把 `prefix` 置空（或改 `headerName`）；
-> 2026-09-18 起 `prefix` 置空会发送**裸 token（无前导空格）**。另：业务失败（如 1002）按设计记 `SUCCESS` 并透传业务码
-> —— 排查要看响应体，不要只看状态机状态。
+> 权威依据（FastMoss 官方「快速开始」developers.fastmoss.com）：API Key 即控制台里创建的 **`client_secret`**，
+> 以 **`Authorization: Bearer <client_secret>`** 发送；baseUrl `https://openapi.fastmoss.com`；
+> **成功 = HTTP 200 且业务 `Code` = 0**（与平台 `ADP-201` 的信封配置 `codeField=code / successValue=0` 完全对应）。
+> 所以 seed 的 `ADP-101`（`headerName=Authorization` / `prefix=Bearer`）**本身就是对的**，只需把凭证值换成真 `client_secret`。
+> 另：`prefix` 置空 = 发送**裸 token（无前导空格，2026-09-18 起）**，这是给「要求裸 token / 自定义头」的其他供应商留的通用旋钮；
+> 业务失败（如 1002）按设计记 `SUCCESS` 并透传业务码 —— 排查要看响应体（`call-logs/{id}` 的 `respBody`），不要只看状态机状态。
 
 **Q0：点「保存 / 测试接口」报 `Invalid CORS request`（HTTP 403）？**
 
