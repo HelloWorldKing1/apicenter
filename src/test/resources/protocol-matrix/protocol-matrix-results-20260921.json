@@ -1,0 +1,1615 @@
+{
+  "created": [
+    {
+      "code": "PM-T1-JJ",
+      "id": 3783,
+      "path": "/pm/t1-jj",
+      "appId": "EVOLINK",
+      "combo": "JSON→JSON"
+    },
+    {
+      "code": "PM-T2-JX",
+      "id": 3784,
+      "path": "/pm/t2-jx",
+      "appId": "USGSXML",
+      "combo": "JSON→XML"
+    },
+    {
+      "code": "PM-T3-XX",
+      "id": 3785,
+      "path": "/pm/t3-xx",
+      "appId": "USGSXML",
+      "combo": "XML→XML"
+    },
+    {
+      "code": "PM-T4-XJ",
+      "id": 3786,
+      "path": "/pm/t4-xj",
+      "appId": "EVOLINK",
+      "combo": "XML→JSON"
+    },
+    {
+      "code": "PM-A1-XT",
+      "id": 3787,
+      "path": "/pm/a1-xml-tx",
+      "appId": "BRIEF",
+      "combo": "JSON→XML（辅助·传输取证）"
+    }
+  ],
+  "runs": [],
+  "cases": [
+    {
+      "key": "T1",
+      "combo": "JSON→JSON",
+      "iface": {
+        "code": "PM-T1-JJ",
+        "name": "协议矩阵 T1 JSON→JSON（EVOLink 真实生图）",
+        "ifType": "OUTBOUND",
+        "method": "POST",
+        "path": "/pm/t1-jj",
+        "protocolIn": "JSON",
+        "protocolOut": "JSON",
+        "appId": "EVOLINK",
+        "groupId": 1,
+        "upstreamPath": "/v1/images/generations",
+        "callbackUrl": null,
+        "status": "DRAFT",
+        "timeoutMs": 15000,
+        "maxRetries": 0,
+        "desc": "协议组合矩阵 T1：调用方 JSON → 平台 → EVOLink（JSON）。真实计费调用，maxRetries=0 保证仅 1 次。",
+        "version": 1.0,
+        "params": [
+          {
+            "side": "IN",
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "sample": "gpt-image-2",
+            "sortOrder": 0
+          },
+          {
+            "side": "IN",
+            "name": "prompt",
+            "type": "string",
+            "required": true,
+            "sample": "协议矩阵 T1",
+            "sortOrder": 1
+          },
+          {
+            "side": "OUT",
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "sample": null,
+            "sortOrder": 0
+          },
+          {
+            "side": "OUT",
+            "name": "prompt",
+            "type": "string",
+            "required": true,
+            "sample": null,
+            "sortOrder": 1
+          }
+        ],
+        "bodies": [
+          {
+            "side": "IN",
+            "bodyType": "json",
+            "raw": "{\"model\":\"gpt-image-2\",\"prompt\":\"协议矩阵 T1：JSON 入站 → JSON 出站\"}",
+            "form": "[]"
+          },
+          {
+            "side": "OUT",
+            "bodyType": "none",
+            "raw": "",
+            "form": "[]"
+          }
+        ],
+        "mappings": [
+          {
+            "source": "model",
+            "op": "rename",
+            "target": "model",
+            "param": null,
+            "nullStrategy": "KEEP",
+            "sortOrder": 0
+          },
+          {
+            "source": "prompt",
+            "op": "rename",
+            "target": "prompt",
+            "param": null,
+            "nullStrategy": "KEEP",
+            "sortOrder": 1
+          }
+        ],
+        "fieldDefs": [
+          {
+            "kind": "RESP",
+            "name": "id",
+            "type": "string",
+            "desc": "任务 ID",
+            "sortOrder": 0
+          },
+          {
+            "kind": "RESP",
+            "name": "status",
+            "type": "string",
+            "desc": "任务状态",
+            "sortOrder": 1
+          },
+          {
+            "kind": "RESP",
+            "name": "progress",
+            "type": "number",
+            "desc": "进度",
+            "sortOrder": 2
+          },
+          {
+            "kind": "RESP",
+            "name": "model",
+            "type": "string",
+            "desc": "模型",
+            "sortOrder": 3
+          }
+        ],
+        "bindings": [
+          {
+            "role": "AUTH",
+            "adapterId": null,
+            "version": null
+          },
+          {
+            "role": "MESSAGE",
+            "adapterId": null,
+            "version": null
+          }
+        ],
+        "steps": []
+      },
+      "inbound": [
+        "POST",
+        "/pm/t1-jj",
+        "{\"model\": \"gpt-image-2\", \"prompt\": \"协议矩阵 T1：JSON 入站 → JSON 出站（真实 EVOLink 调用）\"}",
+        {
+          "Content-Type": "application/json",
+          "X-Biz-Id": "PM-T1-001"
+        }
+      ],
+      "expect": "HTTP 200 + code=0；data 含 id/status（RESP 白名单仅这 4 字段）",
+      "id": 3783,
+      "publish_ok": true,
+      "http": 200,
+      "resp_text": "{\"code\":0,\"msg\":\"ok\",\"data\":{\"id\":\"task-unified-1789956692-slrdylxd\",\"model\":\"gpt-image-2\",\"progress\":1,\"status\":\"processing\"}}",
+      "wall_ms": 2807,
+      "resp_json": {
+        "code": 0,
+        "msg": "ok",
+        "data": {
+          "id": "task-unified-1789956692-slrdylxd",
+          "model": "gpt-image-2",
+          "progress": 1,
+          "status": "processing"
+        }
+      },
+      "call_logs": [
+        {
+          "id": 5181,
+          "traceId": "63e298b425414089a563ff54a9360a82",
+          "direction": "IN",
+          "stepCode": null,
+          "interfaceId": 3783,
+          "appId": "EVOLINK",
+          "url": "/pm/t1-jj",
+          "method": "POST",
+          "statusCode": 200,
+          "latencyMs": 2795,
+          "reqHeaders": "Accept-Encoding: identity | Connection: close | Content-Length: 110 | Content-Type: application/json | Host: localhost:8081 | User-Agent: Python-urllib/3.9 | X-Biz-Id: PM-T1-001",
+          "reqBody": "{\"model\": \"gpt-image-2\", \"prompt\": \"协议矩阵 T1：JSON 入站 → JSON 出站（真实 EVOLink 调用）\"}",
+          "respBody": "{\"code\":0,\"msg\":\"ok\",\"data\":{\"id\":\"task-unified-1789956692-slrdylxd\",\"model\":\"gpt-image-2\",\"progress\":1,\"status\":\"processing\"}}",
+          "createdAt": "2026-09-21T10:11:33"
+        },
+        {
+          "id": 5180,
+          "traceId": "63e298b425414089a563ff54a9360a82",
+          "direction": "OUT",
+          "stepCode": null,
+          "interfaceId": 3783,
+          "appId": "EVOLINK",
+          "url": "https://api.evolink.ai/v1/images/generations",
+          "method": "POST",
+          "statusCode": 200,
+          "latencyMs": 1828,
+          "reqHeaders": "Accept: application/json | Authorization: Bear****5ZFd | Content-Type: application/json | X-Trace-Id: 63e298b425414089a563ff54a9360a82",
+          "reqBody": "{\"model\":\"gpt-image-2\",\"prompt\":\"协议矩阵 T1：JSON 入站 → JSON 出站（真实 EVOLink 调用）\"}",
+          "respBody": "{\"created\":1789956692,\"id\":\"task-unified-1789956692-slrdylxd\",\"model\":\"gpt-image-2\",\"object\":\"image.generation.task\",\"progress\":1,\"status\":\"processing\",\"task_info\":{\"can_cancel\":true,\"estimated_time\":300},\"type\":\"image\",\"usage\":{\"billing_rule\":\"per_1k_tokens\",\"credits_reserved\":6.1717,\"user_group\":\"vip\"}}",
+          "createdAt": "2026-09-21T10:11:32"
+        }
+      ]
+    },
+    {
+      "key": "T2",
+      "combo": "JSON→XML",
+      "iface": {
+        "code": "PM-T2-JX",
+        "name": "协议矩阵 T2 JSON→XML（USGS atom 真实 XML 响应）",
+        "ifType": "OUTBOUND",
+        "method": "GET",
+        "path": "/pm/t2-jx",
+        "protocolIn": "JSON",
+        "protocolOut": "XML",
+        "appId": "USGSXML",
+        "groupId": 2131,
+        "upstreamPath": "/earthquakes/feed/v1.0/summary/2.5_day.atom",
+        "callbackUrl": null,
+        "status": "DRAFT",
+        "timeoutMs": 15000,
+        "maxRetries": 2,
+        "desc": "协议组合矩阵 T2：调用方 JSON → 平台 → USGS（XML）。RESP 白名单只放 title/updated/icon。",
+        "version": 1.0,
+        "params": [
+          {
+            "side": "IN",
+            "name": "requestId",
+            "type": "string",
+            "required": true,
+            "sample": "REQ-T2-001",
+            "sortOrder": 0
+          },
+          {
+            "side": "IN",
+            "name": "keyword",
+            "type": "string",
+            "required": true,
+            "sample": "USGS 2.5+ past day",
+            "sortOrder": 1
+          },
+          {
+            "side": "OUT",
+            "name": "requestId",
+            "type": "string",
+            "required": false,
+            "sample": null,
+            "sortOrder": 0
+          },
+          {
+            "side": "OUT",
+            "name": "keyword",
+            "type": "string",
+            "required": false,
+            "sample": null,
+            "sortOrder": 1
+          }
+        ],
+        "bodies": [
+          {
+            "side": "IN",
+            "bodyType": "json",
+            "raw": "{\"requestId\":\"REQ-T2-001\",\"keyword\":\"USGS 2.5+ past day\"}",
+            "form": "[]"
+          },
+          {
+            "side": "OUT",
+            "bodyType": "none",
+            "raw": "",
+            "form": "[]"
+          }
+        ],
+        "mappings": [
+          {
+            "source": "requestId",
+            "op": "rename",
+            "target": "requestId",
+            "param": null,
+            "nullStrategy": "KEEP",
+            "sortOrder": 0
+          },
+          {
+            "source": "keyword",
+            "op": "rename",
+            "target": "keyword",
+            "param": null,
+            "nullStrategy": "KEEP",
+            "sortOrder": 1
+          }
+        ],
+        "fieldDefs": [
+          {
+            "kind": "RESP",
+            "name": "title",
+            "type": "string",
+            "desc": "feed 标题",
+            "sortOrder": 0
+          },
+          {
+            "kind": "RESP",
+            "name": "updated",
+            "type": "string",
+            "desc": "feed 更新时间",
+            "sortOrder": 1
+          },
+          {
+            "kind": "RESP",
+            "name": "icon",
+            "type": "string",
+            "desc": "feed 图标",
+            "sortOrder": 2
+          }
+        ],
+        "bindings": [
+          {
+            "role": "AUTH",
+            "adapterId": null,
+            "version": null
+          },
+          {
+            "role": "MESSAGE",
+            "adapterId": null,
+            "version": null
+          }
+        ],
+        "steps": []
+      },
+      "inbound": [
+        "GET",
+        "/pm/t2-jx",
+        "{\"requestId\": \"REQ-T2-001\", \"keyword\": \"USGS 2.5+ past day\"}",
+        {
+          "Content-Type": "application/json",
+          "X-Biz-Id": "PM-T2-001"
+        }
+      ],
+      "expect": "HTTP 200 + code=0；data={title,updated,icon}（author/id/link/entry 被白名单滤掉）",
+      "id": 3784,
+      "publish_ok": true,
+      "http": 200,
+      "resp_text": "{\"code\":0,\"msg\":\"ok\",\"data\":{\"title\":\"USGS Magnitude 2.5+ Earthquakes, Past Day\",\"updated\":\"2026-09-21T02:11:38Z\",\"icon\":\"https://earthquake.usgs.gov/favicon.ico\"}}",
+      "wall_ms": 4267,
+      "resp_json": {
+        "code": 0,
+        "msg": "ok",
+        "data": {
+          "title": "USGS Magnitude 2.5+ Earthquakes, Past Day",
+          "updated": "2026-09-21T02:11:38Z",
+          "icon": "https://earthquake.usgs.gov/favicon.ico"
+        }
+      },
+      "call_logs": [
+        {
+          "id": 5183,
+          "traceId": "ba72e876d75140d5a98d02cf431d3b5e",
+          "direction": "IN",
+          "stepCode": null,
+          "interfaceId": 3784,
+          "appId": "USGSXML",
+          "url": "/pm/t2-jx",
+          "method": "GET",
+          "statusCode": 200,
+          "latencyMs": 4257,
+          "reqHeaders": "Accept-Encoding: identity | Connection: close | Content-Length: 60 | Content-Type: application/json | Host: localhost:8081 | User-Agent: Python-urllib/3.9 | X-Biz-Id: PM-T2-001",
+          "reqBody": "{\"requestId\": \"REQ-T2-001\", \"keyword\": \"USGS 2.5+ past day\"}",
+          "respBody": "{\"code\":0,\"msg\":\"ok\",\"data\":{\"title\":\"USGS Magnitude 2.5+ Earthquakes, Past Day\",\"updated\":\"2026-09-21T02:11:38Z\",\"icon\":\"https://earthquake.usgs.gov/favicon.ico\"}}",
+          "createdAt": "2026-09-21T10:11:38"
+        },
+        {
+          "id": 5182,
+          "traceId": "ba72e876d75140d5a98d02cf431d3b5e",
+          "direction": "OUT",
+          "stepCode": null,
+          "interfaceId": 3784,
+          "appId": "USGSXML",
+          "url": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.atom",
+          "method": "GET",
+          "statusCode": 200,
+          "latencyMs": 2471,
+          "reqHeaders": "Accept: application/xml | Content-Type: application/xml | X-Trace-Id: ba72e876d75140d5a98d02cf431d3b5e",
+          "reqBody": "<?xml version='1.0' encoding='UTF-8'?><request><requestId>REQ-T2-001</requestId><keyword>USGS 2.5+ past day</keyword></request>",
+          "respBody": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<feed xmlns=\"http://www.w3.org/2005/Atom\" xmlns:georss=\"http://www.georss.org/georss\"><title>USGS Magnitude 2.5+ Earthquakes, Past Day</title><updated>2026-09-21T02:11:38Z</updated><author><name>U.S. Geological Survey</name><uri>https://earthquake.usgs.gov/</uri></author><id>https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.atom</id><link rel=\"self\" href=\"https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.atom\"/><icon>https://earthquake.usgs.gov/favicon.ico</icon>\n<entry><id>urn:earthquake-usgs-gov:us:7000tiur</id><title>M 5.5 - 35 km NNE of Ruteng, Indonesia</title><updated>2026-09-21T02:09:54.880Z</updated><link rel=\"alternate\" type=\"text/html\" href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiur\"/><summary type=\"html\"><![CDATA[<p class=\"quicksummary\"><a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiur#pager\" title=\"PAGER estimated impact alert level\" class=\"pager-green\">PAGER - <strong class=\"roman\">GREEN</strong></a> <a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiur#shakemap\" title=\"ShakeMap maximum estimated intensity\" class=\"mmi-VII\">ShakeMap - <strong class=\"roman\">VII</strong></a></p><dl><dt>Time</dt><dd>2026-09-21 01:41:36 UTC</dd><dd>2026-09-21 01:41:36 UTC at epicenter</dd><dt>Location</dt><dd>8.307&deg;S 120.579&deg;E</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>]]></summary><georss:point>-8.307 120.5793</georss:point><georss:elev>-10000</georss:elev><category label=\"Age\" term=\"Past Hour\"/><category label=\"Magnitude\" term=\"Magnitude 5\"/><category label=\"Contributor\" term=\"us\"/><category label=\"Author\" term=\"us\"/></entry>\n<entry><id>urn:earthquake-usgs-gov:pr:71533708</id><title>M 3.4 - 87 km NE of Punta Cana, Dominican Republic</title><updated>2026-09-21T01:52:04.520Z</updated><link rel=\"alternate\" type=\"text/html\" href=\"https://earthquake.usgs.gov/earthquakes/eventpage/pr71533708\"/><summary type=\"html\"><![CDATA[<dl><dt>Time</dt><dd>2026-09-21 01:33:51 UTC</dd><dd>2026-09-21 01:33:51 UTC at epicenter</dd><dt>Location</dt><dd>19.215&deg;N 67.908&deg;W</dd><dt>Depth</dt><dd>24.71 km (15.35 mi)</dd></dl>]]></summary><georss:point>19.2145 -67.908333333333</georss:point><georss:elev>-24710</georss:elev><category label=\"Age\" term=\"Past Hour\"/><category label=\"Magnitude\" term=\"Magnitude 3\"/><category label=\"Contributor\" term=\"pr\"/><category label=\"Author\" term=\"pr\"/></entry>\n<entry><id>urn:earthquake-usgs-gov:us:7000tiui</id><title>M 4.9 - 26 km SE of Saimbeyli, Turkey</title><updated>2026-09-21T01:25:41.887Z</updated><link rel=\"alternate\" type=\"text/html\" href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiui\"/><summary type=\"html\"><![CDATA[<p class=\"quicksummary\"><a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiui#dyfi\" class=\"mmi-III\" title=\"Did You Feel It? maximum reported intensity (1 reports)\">DYFI? - <strong class=\"roman\">III</strong></a></p><dl><dt>Time</dt><dd>2026-09-21 01:02:04 UTC</dd><dd>2026-09-21 01:02:04 UTC at epicenter</dd><dt>Location</dt><dd>37.814&deg;N 36.299&deg;E</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>]]></summary><georss:point>37.8136 36.2994</georss:point><georss:elev>-10000</georss:elev><category label=\"Age\" term=\"Past Day\"/><category label=\"Magnitude\" term=\"Magnitude 4\"/><category label=\"Contributor\" term=\"us\"/><category label=\"Author\" term=\"us\"/></entry>\n<entry><id>urn:earthquake-usgs-gov:hv:75040987</id><title>M 2.9 - 14 km NNE of Pāhala, Hawaii</title><updated>2026-09-21T01:00:09.270Z</updated><link rel=\"alternate\" type=\"text/html\" href=\"https://earthquake.usgs.gov/earthquakes/eventpage/hv75040987\"/><summary type=\"html\"><![CDATA[<dl><dt>Time</dt><dd>2026-09-21 00:56:33 UTC</dd><dd>2026-09-21 00:56:33 UTC at epicenter</dd><dt>Location</dt><dd>19.327&deg;N 155.444&deg;W</dd><dt>Depth</dt><dd>25.22 km (15.67 mi)</dd></dl>]]></summary><georss:point>19.327333450317 -155.44400024414</georss:point><georss:elev>-25219.999313354</georss:elev><category label=\"Age\" term=\"Past Day\"/><category label=\"Magnitude\" term=\"Magnitude 2\"/><...[truncated]",
+          "createdAt": "2026-09-21T10:11:38"
+        }
+      ]
+    },
+    {
+      "key": "T3",
+      "combo": "XML→XML",
+      "iface": {
+        "code": "PM-T3-XX",
+        "name": "协议矩阵 T3 XML→XML（USGS atom 真实 XML 响应）",
+        "ifType": "OUTBOUND",
+        "method": "GET",
+        "path": "/pm/t3-xx",
+        "protocolIn": "XML",
+        "protocolOut": "XML",
+        "appId": "USGSXML",
+        "groupId": 2131,
+        "upstreamPath": "/earthquakes/feed/v1.0/summary/2.5_day.atom",
+        "callbackUrl": null,
+        "status": "DRAFT",
+        "timeoutMs": 15000,
+        "maxRetries": 2,
+        "desc": "协议组合矩阵 T3：调用方 XML → 平台 → USGS（XML）。含 entry 数组白名单。",
+        "version": 1.0,
+        "params": [
+          {
+            "side": "IN",
+            "name": "requestId",
+            "type": "string",
+            "required": true,
+            "sample": "REQ-T3-001",
+            "sortOrder": 0
+          },
+          {
+            "side": "IN",
+            "name": "keyword",
+            "type": "string",
+            "required": true,
+            "sample": "XML 入站",
+            "sortOrder": 1
+          },
+          {
+            "side": "OUT",
+            "name": "requestId",
+            "type": "string",
+            "required": false,
+            "sample": null,
+            "sortOrder": 0
+          },
+          {
+            "side": "OUT",
+            "name": "keyword",
+            "type": "string",
+            "required": false,
+            "sample": null,
+            "sortOrder": 1
+          }
+        ],
+        "bodies": [
+          {
+            "side": "IN",
+            "bodyType": "xml",
+            "raw": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><request><requestId>REQ-T3-001</requestId><keyword>XML 入站</keyword></request>",
+            "form": "[]"
+          },
+          {
+            "side": "OUT",
+            "bodyType": "none",
+            "raw": "",
+            "form": "[]"
+          }
+        ],
+        "mappings": [
+          {
+            "source": "requestId",
+            "op": "rename",
+            "target": "requestId",
+            "param": null,
+            "nullStrategy": "KEEP",
+            "sortOrder": 0
+          },
+          {
+            "source": "keyword",
+            "op": "rename",
+            "target": "keyword",
+            "param": null,
+            "nullStrategy": "KEEP",
+            "sortOrder": 1
+          }
+        ],
+        "fieldDefs": [
+          {
+            "kind": "RESP",
+            "name": "title",
+            "type": "string",
+            "desc": "feed 标题",
+            "sortOrder": 0
+          },
+          {
+            "kind": "RESP",
+            "name": "updated",
+            "type": "string",
+            "desc": "feed 更新时间",
+            "sortOrder": 1
+          },
+          {
+            "kind": "RESP",
+            "name": "entry",
+            "type": "array",
+            "desc": "地震条目数组",
+            "sortOrder": 2
+          }
+        ],
+        "bindings": [
+          {
+            "role": "AUTH",
+            "adapterId": null,
+            "version": null
+          },
+          {
+            "role": "MESSAGE",
+            "adapterId": null,
+            "version": null
+          }
+        ],
+        "steps": []
+      },
+      "inbound": [
+        "GET",
+        "/pm/t3-xx",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><request><requestId>REQ-T3-001</requestId><keyword>XML 入站</keyword></request>",
+        {
+          "Content-Type": "application/xml",
+          "X-Biz-Id": "PM-T3-001"
+        }
+      ],
+      "expect": "HTTP 200 + code=0；data={title,updated,entry[]}（entry 为数组）",
+      "id": 3785,
+      "publish_ok": true,
+      "http": 200,
+      "resp_text": "{\"code\":0,\"msg\":\"ok\",\"data\":{\"title\":\"USGS Magnitude 2.5+ Earthquakes, Past Day\",\"updated\":\"2026-09-21T02:11:38Z\",\"entry\":[{\"id\":\"urn:earthquake-usgs-gov:us:7000tiur\",\"title\":\"M 5.5 - 35 km NNE of Ruteng, Indonesia\",\"updated\":\"2026-09-21T02:09:54.880Z\",\"link\":null,\"summary\":\"<p class=\\\"quicksummary\\\"><a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiur#pager\\\" title=\\\"PAGER estimated impact alert level\\\" class=\\\"pager-green\\\">PAGER - <strong class=\\\"roman\\\">GREEN</strong></a> <a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiur#shakemap\\\" title=\\\"ShakeMap maximum estimated intensity\\\" class=\\\"mmi-VII\\\">ShakeMap - <strong class=\\\"roman\\\">VII</strong></a></p><dl><dt>Time</dt><dd>2026-09-21 01:41:36 UTC</dd><dd>2026-09-21 01:41:36 UTC at epicenter</dd><dt>Location</dt><dd>8.307&deg;S 120.579&deg;E</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>\",\"point\":\"-8.307 120.5793\",\"elev\":\"-10000\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:pr:71533708\",\"title\":\"M 3.4 - 87 km NE of Punta Cana, Dominican Republic\",\"updated\":\"2026-09-21T01:52:04.520Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-21 01:33:51 UTC</dd><dd>2026-09-21 01:33:51 UTC at epicenter</dd><dt>Location</dt><dd>19.215&deg;N 67.908&deg;W</dd><dt>Depth</dt><dd>24.71 km (15.35 mi)</dd></dl>\",\"point\":\"19.2145 -67.908333333333\",\"elev\":\"-24710\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tiui\",\"title\":\"M 4.9 - 26 km SE of Saimbeyli, Turkey\",\"updated\":\"2026-09-21T01:25:41.887Z\",\"link\":null,\"summary\":\"<p class=\\\"quicksummary\\\"><a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiui#dyfi\\\" class=\\\"mmi-III\\\" title=\\\"Did You Feel It? maximum reported intensity (1 reports)\\\">DYFI? - <strong class=\\\"roman\\\">III</strong></a></p><dl><dt>Time</dt><dd>2026-09-21 01:02:04 UTC</dd><dd>2026-09-21 01:02:04 UTC at epicenter</dd><dt>Location</dt><dd>37.814&deg;N 36.299&deg;E</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>\",\"point\":\"37.8136 36.2994\",\"elev\":\"-10000\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:hv:75040987\",\"title\":\"M 2.9 - 14 km NNE of Pāhala, Hawaii\",\"updated\":\"2026-09-21T01:00:09.270Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-21 00:56:33 UTC</dd><dd>2026-09-21 00:56:33 UTC at epicenter</dd><dt>Location</dt><dd>19.327&deg;N 155.444&deg;W</dd><dt>Depth</dt><dd>25.22 km (15.67 mi)</dd></dl>\",\"point\":\"19.327333450317 -155.44400024414\",\"elev\":\"-25219.999313354\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:hv:75040982\",\"title\":\"M 2.6 - 21 km SSE of Volcano, Hawaii\",\"updated\":\"2026-09-21T00:59:40.870Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-21 00:56:11 UTC</dd><dd>2026-09-21 00:56:11 UTC at epicenter</dd><dt>Location</dt><dd>19.261&deg;N 155.164&deg;W</dd><dt>Depth</dt><dd>41.29 km (25.66 mi)</dd></dl>\",\"point\":\"19.260999679565 -155.16366577148\",\"elev\":\"-41290.000915527\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:pr:71533688\",\"title\":\"M 2.5 - 3 km WSW of Fuig, Puerto Rico\",\"updated\":\"2026-09-20T23:52:54.250Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 23:38:39 UTC</dd><dd>2026-09-20 23:38:39 UTC at epicenter</dd><dt>Location</dt><dd>17.970&deg;N 66.946&deg;W</dd><dt>Depth</dt><dd>7.40 km (4.60 mi)</dd></dl>\",\"point\":\"17.970166666667 -66.945833333333\",\"elev\":\"-7400\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tiu3\",\"title\":\"M 5.0 - 16 km WSW of Shikotan, Russia\",\"updated\":\"2026-09-20T23:41:59.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 23:25:38 UTC</dd><dd>2026-09-20 23:25:38 UTC at epicenter</dd><dt>Location</dt><dd>43.744&deg;N 146.534&deg;E</dd><dt>Depth</dt><dd>64.94 km (40.35 mi)</dd></dl>\",\"point\":\"43.7443 146.5339\",\"elev\":\"-64936\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000titt\",\"title\":\"M 4.9 - southeast of the Loyalty Islands\",\"updated\":\"2026-09-21T01:26:45.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 22:09:59 UTC</dd><dd>2026-09-20 22:09:59 UTC at epicenter</dd><dt>Location</dt><dd>23.040&deg;S 171.747&deg;E</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>\",\"point\":\"-23.0403 171.7471\",\"elev\":\"-10000\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tit6\",\"title\":\"M 5.0 - 248 km SSE of False Pass, Alaska\",\"updated\":\"2026-09-21T01:16:35.301Z\",\"link\":null,\"summary\":\"<p class=\\\"quicksummary\\\"><a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tit6#shakemap\\\" title=\\\"ShakeMap maximum estimated intensity\\\" class=\\\"mmi-II\\\">ShakeMap - <strong class=\\\"roman\\\">II</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 21:06:19 UTC</dd><dd>2026-09-20 21:06:19 UTC at epicenter</dd><dt>Location</dt><dd>52.697&deg;N 162.469&deg;W</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>\",\"point\":\"52.6966 -162.4693\",\"elev\":\"-10000\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tit5\",\"title\":\"M 5.7 - south of Africa\",\"updated\":\"2026-09-20T23:01:46.104Z\",\"link\":null,\"summary\":\"<p class=\\\"quicksummary\\\"><a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tit5#pager\\\" title=\\\"PAGER estimated impact alert level\\\" class=\\\"pager-green\\\">PAGER - <strong class=\\\"roman\\\">GREEN</strong></a> <a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tit5#shakemap\\\" title=\\\"ShakeMap maximum estimated intensity\\\" class=\\\"mmi-I\\\">ShakeMap - <strong class=\\\"roman\\\">I</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 20:54:37 UTC</dd><dd>2026-09-20 20:54:37 UTC at epicenter</dd><dt>Location</dt><dd>48.428&deg;S 31.235&deg;E</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>\",\"point\":\"-48.4279 31.2345\",\"elev\":\"-10000\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:pr:71533593\",\"title\":\"M 3.0 - 4 km WSW of Guánica, Puerto Rico\",\"updated\":\"2026-09-20T20:54:49.592Z\",\"link\":null,\"summary\":\"<p class=\\\"quicksummary\\\"><a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/pr71533593#dyfi\\\" class=\\\"mmi-II\\\" title=\\\"Did You Feel It? maximum reported intensity (1 reports)\\\">DYFI? - <strong class=\\\"roman\\\">II</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 20:32:36 UTC</dd><dd>2026-09-20 20:32:36 UTC at epicenter</dd><dt>Location</dt><dd>17.958&deg;N 66.952&deg;W</dd><dt>Depth</dt><dd>7.96 km (4.95 mi)</dd></dl>\",\"point\":\"17.9575 -66.9515\",\"elev\":\"-7960\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:ci:41335663\",\"title\":\"M 3.0 - 12 km SW of Estacion Coahuila, B.C., MX\",\"updated\":\"2026-09-20T20:30:22.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 19:50:17 UTC</dd><dd>2026-09-20 19:50:17 UTC at epicenter</dd><dt>Location</dt><dd>32.122&deg;N 115.093&deg;W</dd><dt>Depth</dt><dd>19.13 km (11.89 mi)</dd></dl>\",\"point\":\"32.1215 -115.093\",\"elev\":\"-19130\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:tx:2026sokvli\",\"title\":\"M 2.6 - 8 km SSE of Barstow, Texas\",\"updated\":\"2026-09-20T20:08:52.772Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 19:23:48 UTC</dd><dd>2026-09-20 19:23:48 UTC at epicenter</dd><dt>Location</dt><dd>31.390&deg;N 103.369&deg;W</dd><dt>Depth</dt><dd>0.00 km (0.00 mi)</dd></dl>\",\"point\":\"31.39 -103.369\",\"elev\":\"-0\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tisq\",\"title\":\"M 2.9 - 29 km E of Malaga, New Mexico\",\"updated\":\"2026-09-20T19:29:02.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 19:23:14 UTC</dd><dd>2026-09-20 19:23:14 UTC at epicenter</dd><dt>Location</dt><dd>32.275&deg;N 103.762&deg;W</dd><dt>Depth</dt><dd>6.39 km (3.97 mi)</dd></dl>\",\"point\":\"32.2749 -103.7623\",\"elev\":\"-6393\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:ak:a2026srkhbo\",\"title\":\"M 3.5 - 168 km SW of Nikolski, Alaska\",\"updated\":\"2026-09-20T21:41:35.127Z\",\"link\":null,\"summary\":\"<p class=\\\"quicksummary\\\"><a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/aka2026srkhbo#shakemap\\\" title=\\\"ShakeMap maximum estimated intensity\\\" class=\\\"mmi-I\\\">ShakeMap - <strong class=\\\"roman\\\">I</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 19:15:56 UTC</dd><dd>2026-09-20 19:15:56 UTC at epicenter</dd><dt>Location</dt><dd>52.106&deg;N 170.937&deg;W</dd><dt>Depth</dt><dd>103.50 km (64.31 mi)</dd></dl>\",\"point\":\"52.106 -170.937\",\"elev\":\"-103500\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:ak:a2026srikrm\",\"title\":\"M 3.5 - 121 km S of Yakutat, Alaska\",\"updated\":\"2026-09-20T21:39:07.722Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 18:19:40 UTC</dd><dd>2026-09-20 18:19:40 UTC at epicenter</dd><dt>Location</dt><dd>58.468&deg;N 139.373&deg;W</dd><dt>Depth</dt><dd>5.00 km (3.11 mi)</dd></dl>\",\"point\":\"58.468 -139.373\",\"elev\":\"-5000\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tisi\",\"title\":\"M 4.4 - 69 km SSW of Lembar, Indonesia\",\"updated\":\"2026-09-20T18:35:31.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 17:51:32 UTC</dd><dd>2026-09-20 17:51:32 UTC at epicenter</dd><dt>Location</dt><dd>9.286&deg;S 115.780&deg;E</dd><dt>Depth</dt><dd>76.42 km (47.48 mi)</dd></dl>\",\"point\":\"-9.286 115.7801\",\"elev\":\"-76416\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tisg\",\"title\":\"M 4.4 - 135 km SW of Hihifo, Tonga\",\"updated\":\"2026-09-20T18:27:39.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 17:17:05 UTC</dd><dd>2026-09-20 17:17:05 UTC at epicenter</dd><dt>Location</dt><dd>16.779&deg;S 174.737&deg;W</dd><dt>Depth</dt><dd>160.74 km (99.88 mi)</dd></dl>\",\"point\":\"-16.7787 -174.7369\",\"elev\":\"-160742\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:ak:a2026srgcdi\",\"title\":\"M 3.6 - 55 km SE of Chignik, Alaska\",\"updated\":\"2026-09-20T21:39:31.105Z\",\"link\":null,\"summary\":\"<p class=\\\"quicksummary\\\"><a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/aka2026srgcdi#shakemap\\\" title=\\\"ShakeMap maximum estimated intensity\\\" class=\\\"mmi-III\\\">ShakeMap - <strong class=\\\"roman\\\">III</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 17:10:13 UTC</dd><dd>2026-09-20 17:10:13 UTC at epicenter</dd><dt>Location</dt><dd>55.946&deg;N 157.772&deg;W</dd><dt>Depth</dt><dd>33.70 km (20.94 mi)</dd></dl>\",\"point\":\"55.946 -157.772\",\"elev\":\"-33700\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tisb\",\"title\":\"M 3.1 - 77 km S of Boca de Yuma, Dominican Republic\",\"updated\":\"2026-09-20T17:56:13.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 16:59:30 UTC</dd><dd>2026-09-20 16:59:30 UTC at epicenter</dd><dt>Location</dt><dd>17.686&deg;N 68.691&deg;W</dd><dt>Depth</dt><dd>35.00 km (21.75 mi)</dd></dl>\",\"point\":\"17.6862 -68.6909\",\"elev\":\"-35000\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:pr:2026263000\",\"title\":\"M 3.8 - 180 km NNW of The Valley, Anguilla\",\"updated\":\"2026-09-20T18:01:56.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 15:36:28 UTC</dd><dd>2026-09-20 15:36:28 UTC at epicenter</dd><dt>Location</dt><dd>19.746&deg;N 63.643&deg;W</dd><dt>Depth</dt><dd>38.00 km (23.61 mi)</dd></dl>\",\"point\":\"19.7456 -63.6425\",\"elev\":\"-38000\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tis4\",\"title\":\"M 4.4 - 276 km WNW of Houma, Tonga\",\"updated\":\"2026-09-20T15:56:35.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 15:33:50 UTC</dd><dd>2026-09-20 15:33:50 UTC at epicenter</dd><dt>Location</dt><dd>20.308&deg;S 177.794&deg;W</dd><dt>Depth</dt><dd>507.08 km (315.09 mi)</dd></dl>\",\"point\":\"-20.3079 -177.7935\",\"elev\":\"-507081\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:ak:a2026sraido\",\"title\":\"M 3.2 - 57 km ENE of Chenega, Alaska\",\"updated\":\"2026-09-20T15:39:18.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 14:17:12 UTC</dd><dd>2026-09-20 14:17:12 UTC at epicenter</dd><dt>Location</dt><dd>60.216&deg;N 147.015&deg;W</dd><dt>Depth</dt><dd>16.00 km (9.94 mi)</dd></dl>\",\"point\":\"60.216 -147.015\",\"elev\":\"-16000\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tirv\",\"title\":\"M 4.6 - 102 km WSW of Nikolski, Alaska\",\"updated\":\"2026-09-20T21:37:07.805Z\",\"link\":null,\"summary\":\"<p class=\\\"quicksummary\\\"><a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tirv#shakemap\\\" title=\\\"ShakeMap maximum estimated intensity\\\" class=\\\"mmi-II\\\">ShakeMap - <strong class=\\\"roman\\\">II</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 13:55:47 UTC</dd><dd>2026-09-20 13:55:47 UTC at epicenter</dd><dt>Location</dt><dd>52.750&deg;N 170.347&deg;W</dd><dt>Depth</dt><dd>87.28 km (54.23 mi)</dd></dl>\",\"point\":\"52.7501 -170.3466\",\"elev\":\"-87277\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tirt\",\"title\":\"M 4.7 - 54 km SE of Shima, Japan\",\"updated\":\"2026-09-20T14:33:23.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 13:54:56 UTC</dd><dd>2026-09-20 13:54:56 UTC at epicenter</dd><dt>Location</dt><dd>33.968&deg;N 137.228&deg;E</dd><dt>Depth</dt><dd>354.93 km (220.54 mi)</dd></dl>\",\"point\":\"33.9678 137.2284\",\"elev\":\"-354932\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tirn\",\"title\":\"M 2.7 - 94 km N of Yakutat, Alaska\",\"updated\":\"2026-09-20T15:27:35.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 13:21:50 UTC</dd><dd>2026-09-20 13:21:50 UTC at epicenter</dd><dt>Location</dt><dd>60.395&deg;N 139.561&deg;W</dd><dt>Depth</dt><dd>5.00 km (3.11 mi)</dd></dl>\",\"point\":\"60.3947 -139.5607\",\"elev\":\"-5000\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tirq\",\"title\":\"M 5.2 - 109 km W of Hihifo, Tonga\",\"updated\":\"2026-09-20T21:58:20.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 13:00:45 UTC</dd><dd>2026-09-20 13:00:45 UTC at epicenter</dd><dt>Location</dt><dd>15.868&deg;S 174.817&deg;W</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>\",\"point\":\"-15.8682 -174.8169\",\"elev\":\"-10000\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tirh\",\"title\":\"M 5.4 - 68 km NNE of Kainantu, Papua New Guinea\",\"updated\":\"2026-09-20T20:38:16.629Z\",\"link\":null,\"summary\":\"<p class=\\\"quicksummary\\\"><a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tirh#pager\\\" title=\\\"PAGER estimated impact alert level\\\" class=\\\"pager-green\\\">PAGER - <strong class=\\\"roman\\\">GREEN</strong></a> <a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tirh#shakemap\\\" title=\\\"ShakeMap maximum estimated intensity\\\" class=\\\"mmi-IV\\\">ShakeMap - <strong class=\\\"roman\\\">IV</strong></a> <a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tirh#dyfi\\\" class=\\\"mmi-V\\\" title=\\\"Did You Feel It? maximum reported intensity (7 reports)\\\">DYFI? - <strong class=\\\"roman\\\">V</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 12:45:53 UTC</dd><dd>2026-09-20 12:45:53 UTC at epicenter</dd><dt>Location</dt><dd>5.771&deg;S 146.204&deg;E</dd><dt>Depth</dt><dd>116.02 km (72.09 mi)</dd></dl>\",\"point\":\"-5.7711 146.2041\",\"elev\":\"-116019\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tirf\",\"title\":\"M 4.8 - 92 km W of Lata, Solomon Islands\",\"updated\":\"2026-09-20T12:50:47.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 12:24:22 UTC</dd><dd>2026-09-20 12:24:22 UTC at epicenter</dd><dt>Location</dt><dd>10.645&deg;S 164.956&deg;E</dd><dt>Depth</dt><dd>33.90 km (21.06 mi)</dd></dl>\",\"point\":\"-10.6446 164.9562\",\"elev\":\"-33900\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tir6\",\"title\":\"M 4.4 - Volcano Islands, Japan region\",\"updated\":\"2026-09-20T12:17:50.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 11:43:25 UTC</dd><dd>2026-09-20 11:43:25 UTC at epicenter</dd><dt>Location</dt><dd>25.038&deg;N 141.168&deg;E</dd><dt>Depth</dt><dd>162.51 km (100.98 mi)</dd></dl>\",\"point\":\"25.0379 141.1682\",\"elev\":\"-162510\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:ak:a2026sqtfof\",\"title\":\"M 2.5 - 14 km WNW of Anchor Point, Alaska\",\"updated\":\"2026-09-20T10:47:19.100Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 10:44:16 UTC</dd><dd>2026-09-20 10:44:16 UTC at epicenter</dd><dt>Location</dt><dd>59.827&deg;N 152.062&deg;W</dd><dt>Depth</dt><dd>70.70 km (43.93 mi)</dd></dl>\",\"point\":\"59.827 -152.062\",\"elev\":\"-70700\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tiqc\",\"title\":\"M 6.4 - 49 km NNE of Kainantu, Papua New Guinea\",\"updated\":\"2026-09-20T22:27:47.804Z\",\"link\":null,\"summary\":\"<p class=\\\"quicksummary\\\"><a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiqc#pager\\\" title=\\\"PAGER estimated impact alert level\\\" class=\\\"pager-green\\\">PAGER - <strong class=\\\"roman\\\">GREEN</strong></a> <a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiqc#shakemap\\\" title=\\\"ShakeMap maximum estimated intensity\\\" class=\\\"mmi-V\\\">ShakeMap - <strong class=\\\"roman\\\">V</strong></a> <a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiqc#dyfi\\\" class=\\\"mmi-VI\\\" title=\\\"Did You Feel It? maximum reported intensity (29 reports)\\\">DYFI? - <strong class=\\\"roman\\\">VI</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 09:17:35 UTC</dd><dd>2026-09-20 09:17:35 UTC at epicenter</dd><dt>Location</dt><dd>5.902&deg;S 146.092&deg;E</dd><dt>Depth</dt><dd>104.33 km (64.83 mi)</dd></dl>\",\"point\":\"-5.9021 146.0922\",\"elev\":\"-104329\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:ak:a2026sqqbej\",\"title\":\"M 2.5 - 74 km WNW of Ninilchik, Alaska\",\"updated\":\"2026-09-20T10:08:30.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 09:09:19 UTC</dd><dd>2026-09-20 09:09:19 UTC at epicenter</dd><dt>Location</dt><dd>60.200&deg;N 152.971&deg;W</dd><dt>Depth</dt><dd>139.50 km (86.68 mi)</dd></dl>\",\"point\":\"60.2 -152.971\",\"elev\":\"-139500\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tiq8\",\"title\":\"M 4.4 - 115 km WSW of Gorontalo, Indonesia\",\"updated\":\"2026-09-20T10:01:44.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 09:05:23 UTC</dd><dd>2026-09-20 09:05:23 UTC at epicenter</dd><dt>Location</dt><dd>0.139&deg;N 122.105&deg;E</dd><dt>Depth</dt><dd>197.14 km (122.50 mi)</dd></dl>\",\"point\":\"0.1391 122.1049\",\"elev\":\"-197143\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tiq2\",\"title\":\"M 5.3 - 64 km W of Cafayate, Argentina\",\"updated\":\"2026-09-20T11:11:33.357Z\",\"link\":null,\"summary\":\"<p class=\\\"quicksummary\\\"><a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiq2#dyfi\\\" class=\\\"mmi-III\\\" title=\\\"Did You Feel It? maximum reported intensity (3 reports)\\\">DYFI? - <strong class=\\\"roman\\\">III</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 08:47:54 UTC</dd><dd>2026-09-20 08:47:54 UTC at epicenter</dd><dt>Location</dt><dd>25.987&deg;S 66.612&deg;W</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>\",\"point\":\"-25.9869 -66.6117\",\"elev\":\"-10000\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:pr:71533463\",\"title\":\"M 3.1 - 6 km SSE of Ponce, Puerto Rico\",\"updated\":\"2026-09-20T08:13:20.070Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 07:53:04 UTC</dd><dd>2026-09-20 07:53:04 UTC at epicenter</dd><dt>Location</dt><dd>17.951&deg;N 66.602&deg;W</dd><dt>Depth</dt><dd>14.03 km (8.72 mi)</dd></dl>\",\"point\":\"17.951333333333 -66.6015\",\"elev\":\"-14030\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tipl\",\"title\":\"M 5.1 - 14 km WNW of Naze, Japan\",\"updated\":\"2026-09-20T07:53:03.980Z\",\"link\":null,\"summary\":\"<p class=\\\"quicksummary\\\"><a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tipl#dyfi\\\" class=\\\"mmi-III\\\" title=\\\"Did You Feel It? maximum reported intensity (1 reports)\\\">DYFI? - <strong class=\\\"roman\\\">III</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 07:28:22 UTC</dd><dd>2026-09-20 07:28:22 UTC at epicenter</dd><dt>Location</dt><dd>28.395&deg;N 129.341&deg;E</dd><dt>Depth</dt><dd>68.83 km (42.77 mi)</dd></dl>\",\"point\":\"28.3947 129.3406\",\"elev\":\"-68834\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:ak:a2026sqlsqi\",\"title\":\"M 2.5 - 25 km S of Port Graham, Alaska\",\"updated\":\"2026-09-20T07:04:08.772Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 06:59:28 UTC</dd><dd>2026-09-20 06:59:28 UTC at epicenter</dd><dt>Location</dt><dd>59.125&deg;N 151.896&deg;W</dd><dt>Depth</dt><dd>54.80 km (34.05 mi)</dd></dl>\",\"point\":\"59.125 -151.896\",\"elev\":\"-54800\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tipi\",\"title\":\"M 4.9 - 93 km ESE of Yigo Village, Guam\",\"updated\":\"2026-09-20T07:03:54.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 06:47:56 UTC</dd><dd>2026-09-20 06:47:56 UTC at epicenter</dd><dt>Location</dt><dd>13.265&deg;N 145.708&deg;E</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>\",\"point\":\"13.2653 145.7081\",\"elev\":\"-10000\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tipf\",\"title\":\"M 4.3 - Fiji region\",\"updated\":\"2026-09-20T12:32:25.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 06:30:07 UTC</dd><dd>2026-09-20 06:30:07 UTC at epicenter</dd><dt>Location</dt><dd>19.212&deg;S 177.713&deg;W</dd><dt>Depth</dt><dd>580.28 km (360.57 mi)</dd></dl>\",\"point\":\"-19.2124 -177.7128\",\"elev\":\"-580282\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tip2\",\"title\":\"M 5.0 - 103 km W of Hihifo, Tonga\",\"updated\":\"2026-09-20T05:23:42.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 05:07:03 UTC</dd><dd>2026-09-20 05:07:03 UTC at epicenter</dd><dt>Location</dt><dd>15.893&deg;S 174.764&deg;W</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>\",\"point\":\"-15.8926 -174.7641\",\"elev\":\"-10000\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:tx:2026sngzur\",\"title\":\"M 3.0 - 56 km S of Whites City, New Mexico\",\"updated\":\"2026-09-20T04:37:19.844Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 04:23:40 UTC</dd><dd>2026-09-20 04:23:40 UTC at epicenter</dd><dt>Location</dt><dd>31.669&deg;N 104.364&deg;W</dd><dt>Depth</dt><dd>7.38 km (4.59 mi)</dd></dl>\",\"point\":\"31.669 -104.364\",\"elev\":\"-7381.6\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tinl\",\"title\":\"M 5.3 - 108 km ESE of Yigo Village, Guam\",\"updated\":\"2026-09-20T21:53:28.805Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 03:43:24 UTC</dd><dd>2026-09-20 03:43:24 UTC at epicenter</dd><dt>Location</dt><dd>13.057&deg;N 145.759&deg;E</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>\",\"point\":\"13.0568 145.7591\",\"elev\":\"-10000\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:ak:a2026sqeovj\",\"title\":\"M 2.6 - 55 km W of Anchor Point, Alaska\",\"updated\":\"2026-09-20T03:38:24.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 03:25:28 UTC</dd><dd>2026-09-20 03:25:28 UTC at epicenter</dd><dt>Location</dt><dd>59.713&deg;N 152.802&deg;W</dd><dt>Depth</dt><dd>98.90 km (61.45 mi)</dd></dl>\",\"point\":\"59.713 -152.802\",\"elev\":\"-98900\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tinf\",\"title\":\"M 4.5 - 54 km ENE of Sainte-Marie, Martinique\",\"updated\":\"2026-09-20T13:08:02.024Z\",\"link\":null,\"summary\":\"<p class=\\\"quicksummary\\\"><a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tinf#dyfi\\\" class=\\\"mmi-III\\\" title=\\\"Did You Feel It? maximum reported intensity (3 reports)\\\">DYFI? - <strong class=\\\"roman\\\">III</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 02:44:21 UTC</dd><dd>2026-09-20 02:44:21 UTC at epicenter</dd><dt>Location</dt><dd>15.040&deg;N 60.558&deg;W</dd><dt>Depth</dt><dd>46.42 km (28.85 mi)</dd></dl>\",\"point\":\"15.0395 -60.5578\",\"elev\":\"-46424\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:pr:71533373\",\"title\":\"M 3.0 - 58 km N of Culebra, Puerto Rico\",\"updated\":\"2026-09-20T04:21:14.020Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 02:42:23 UTC</dd><dd>2026-09-20 02:42:23 UTC at epicenter</dd><dt>Location</dt><dd>18.832&deg;N 65.278&deg;W</dd><dt>Depth</dt><dd>19.95 km (12.40 mi)</dd></dl>\",\"point\":\"18.831666666667 -65.278333333333\",\"elev\":\"-19950\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:pr:71533328\",\"title\":\"M 3.1 - 75 km N of Brenas, Puerto Rico\",\"updated\":\"2026-09-20T03:27:23.940Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 02:31:58 UTC</dd><dd>2026-09-20 02:31:58 UTC at epicenter</dd><dt>Location</dt><dd>19.149&deg;N 66.272&deg;W</dd><dt>Depth</dt><dd>10.50 km (6.52 mi)</dd></dl>\",\"point\":\"19.149 -66.271666666667\",\"elev\":\"-10500\",\"category\":[null,null,null,null]}]}}",
+      "wall_ms": 1856,
+      "resp_json": {
+        "code": 0,
+        "msg": "ok",
+        "data": {
+          "title": "USGS Magnitude 2.5+ Earthquakes, Past Day",
+          "updated": "2026-09-21T02:11:38Z",
+          "entry": [
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tiur",
+              "title": "M 5.5 - 35 km NNE of Ruteng, Indonesia",
+              "updated": "2026-09-21T02:09:54.880Z",
+              "link": null,
+              "summary": "<p class=\"quicksummary\"><a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiur#pager\" title=\"PAGER estimated impact alert level\" class=\"pager-green\">PAGER - <strong class=\"roman\">GREEN</strong></a> <a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiur#shakemap\" title=\"ShakeMap maximum estimated intensity\" class=\"mmi-VII\">ShakeMap - <strong class=\"roman\">VII</strong></a></p><dl><dt>Time</dt><dd>2026-09-21 01:41:36 UTC</dd><dd>2026-09-21 01:41:36 UTC at epicenter</dd><dt>Location</dt><dd>8.307&deg;S 120.579&deg;E</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>",
+              "point": "-8.307 120.5793",
+              "elev": "-10000",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:pr:71533708",
+              "title": "M 3.4 - 87 km NE of Punta Cana, Dominican Republic",
+              "updated": "2026-09-21T01:52:04.520Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-21 01:33:51 UTC</dd><dd>2026-09-21 01:33:51 UTC at epicenter</dd><dt>Location</dt><dd>19.215&deg;N 67.908&deg;W</dd><dt>Depth</dt><dd>24.71 km (15.35 mi)</dd></dl>",
+              "point": "19.2145 -67.908333333333",
+              "elev": "-24710",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tiui",
+              "title": "M 4.9 - 26 km SE of Saimbeyli, Turkey",
+              "updated": "2026-09-21T01:25:41.887Z",
+              "link": null,
+              "summary": "<p class=\"quicksummary\"><a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiui#dyfi\" class=\"mmi-III\" title=\"Did You Feel It? maximum reported intensity (1 reports)\">DYFI? - <strong class=\"roman\">III</strong></a></p><dl><dt>Time</dt><dd>2026-09-21 01:02:04 UTC</dd><dd>2026-09-21 01:02:04 UTC at epicenter</dd><dt>Location</dt><dd>37.814&deg;N 36.299&deg;E</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>",
+              "point": "37.8136 36.2994",
+              "elev": "-10000",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:hv:75040987",
+              "title": "M 2.9 - 14 km NNE of Pāhala, Hawaii",
+              "updated": "2026-09-21T01:00:09.270Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-21 00:56:33 UTC</dd><dd>2026-09-21 00:56:33 UTC at epicenter</dd><dt>Location</dt><dd>19.327&deg;N 155.444&deg;W</dd><dt>Depth</dt><dd>25.22 km (15.67 mi)</dd></dl>",
+              "point": "19.327333450317 -155.44400024414",
+              "elev": "-25219.999313354",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:hv:75040982",
+              "title": "M 2.6 - 21 km SSE of Volcano, Hawaii",
+              "updated": "2026-09-21T00:59:40.870Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-21 00:56:11 UTC</dd><dd>2026-09-21 00:56:11 UTC at epicenter</dd><dt>Location</dt><dd>19.261&deg;N 155.164&deg;W</dd><dt>Depth</dt><dd>41.29 km (25.66 mi)</dd></dl>",
+              "point": "19.260999679565 -155.16366577148",
+              "elev": "-41290.000915527",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:pr:71533688",
+              "title": "M 2.5 - 3 km WSW of Fuig, Puerto Rico",
+              "updated": "2026-09-20T23:52:54.250Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 23:38:39 UTC</dd><dd>2026-09-20 23:38:39 UTC at epicenter</dd><dt>Location</dt><dd>17.970&deg;N 66.946&deg;W</dd><dt>Depth</dt><dd>7.40 km (4.60 mi)</dd></dl>",
+              "point": "17.970166666667 -66.945833333333",
+              "elev": "-7400",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tiu3",
+              "title": "M 5.0 - 16 km WSW of Shikotan, Russia",
+              "updated": "2026-09-20T23:41:59.040Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 23:25:38 UTC</dd><dd>2026-09-20 23:25:38 UTC at epicenter</dd><dt>Location</dt><dd>43.744&deg;N 146.534&deg;E</dd><dt>Depth</dt><dd>64.94 km (40.35 mi)</dd></dl>",
+              "point": "43.7443 146.5339",
+              "elev": "-64936",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000titt",
+              "title": "M 4.9 - southeast of the Loyalty Islands",
+              "updated": "2026-09-21T01:26:45.040Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 22:09:59 UTC</dd><dd>2026-09-20 22:09:59 UTC at epicenter</dd><dt>Location</dt><dd>23.040&deg;S 171.747&deg;E</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>",
+              "point": "-23.0403 171.7471",
+              "elev": "-10000",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tit6",
+              "title": "M 5.0 - 248 km SSE of False Pass, Alaska",
+              "updated": "2026-09-21T01:16:35.301Z",
+              "link": null,
+              "summary": "<p class=\"quicksummary\"><a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tit6#shakemap\" title=\"ShakeMap maximum estimated intensity\" class=\"mmi-II\">ShakeMap - <strong class=\"roman\">II</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 21:06:19 UTC</dd><dd>2026-09-20 21:06:19 UTC at epicenter</dd><dt>Location</dt><dd>52.697&deg;N 162.469&deg;W</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>",
+              "point": "52.6966 -162.4693",
+              "elev": "-10000",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tit5",
+              "title": "M 5.7 - south of Africa",
+              "updated": "2026-09-20T23:01:46.104Z",
+              "link": null,
+              "summary": "<p class=\"quicksummary\"><a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tit5#pager\" title=\"PAGER estimated impact alert level\" class=\"pager-green\">PAGER - <strong class=\"roman\">GREEN</strong></a> <a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tit5#shakemap\" title=\"ShakeMap maximum estimated intensity\" class=\"mmi-I\">ShakeMap - <strong class=\"roman\">I</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 20:54:37 UTC</dd><dd>2026-09-20 20:54:37 UTC at epicenter</dd><dt>Location</dt><dd>48.428&deg;S 31.235&deg;E</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>",
+              "point": "-48.4279 31.2345",
+              "elev": "-10000",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:pr:71533593",
+              "title": "M 3.0 - 4 km WSW of Guánica, Puerto Rico",
+              "updated": "2026-09-20T20:54:49.592Z",
+              "link": null,
+              "summary": "<p class=\"quicksummary\"><a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/pr71533593#dyfi\" class=\"mmi-II\" title=\"Did You Feel It? maximum reported intensity (1 reports)\">DYFI? - <strong class=\"roman\">II</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 20:32:36 UTC</dd><dd>2026-09-20 20:32:36 UTC at epicenter</dd><dt>Location</dt><dd>17.958&deg;N 66.952&deg;W</dd><dt>Depth</dt><dd>7.96 km (4.95 mi)</dd></dl>",
+              "point": "17.9575 -66.9515",
+              "elev": "-7960",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:ci:41335663",
+              "title": "M 3.0 - 12 km SW of Estacion Coahuila, B.C., MX",
+              "updated": "2026-09-20T20:30:22.040Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 19:50:17 UTC</dd><dd>2026-09-20 19:50:17 UTC at epicenter</dd><dt>Location</dt><dd>32.122&deg;N 115.093&deg;W</dd><dt>Depth</dt><dd>19.13 km (11.89 mi)</dd></dl>",
+              "point": "32.1215 -115.093",
+              "elev": "-19130",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:tx:2026sokvli",
+              "title": "M 2.6 - 8 km SSE of Barstow, Texas",
+              "updated": "2026-09-20T20:08:52.772Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 19:23:48 UTC</dd><dd>2026-09-20 19:23:48 UTC at epicenter</dd><dt>Location</dt><dd>31.390&deg;N 103.369&deg;W</dd><dt>Depth</dt><dd>0.00 km (0.00 mi)</dd></dl>",
+              "point": "31.39 -103.369",
+              "elev": "-0",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tisq",
+              "title": "M 2.9 - 29 km E of Malaga, New Mexico",
+              "updated": "2026-09-20T19:29:02.040Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 19:23:14 UTC</dd><dd>2026-09-20 19:23:14 UTC at epicenter</dd><dt>Location</dt><dd>32.275&deg;N 103.762&deg;W</dd><dt>Depth</dt><dd>6.39 km (3.97 mi)</dd></dl>",
+              "point": "32.2749 -103.7623",
+              "elev": "-6393",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:ak:a2026srkhbo",
+              "title": "M 3.5 - 168 km SW of Nikolski, Alaska",
+              "updated": "2026-09-20T21:41:35.127Z",
+              "link": null,
+              "summary": "<p class=\"quicksummary\"><a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/aka2026srkhbo#shakemap\" title=\"ShakeMap maximum estimated intensity\" class=\"mmi-I\">ShakeMap - <strong class=\"roman\">I</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 19:15:56 UTC</dd><dd>2026-09-20 19:15:56 UTC at epicenter</dd><dt>Location</dt><dd>52.106&deg;N 170.937&deg;W</dd><dt>Depth</dt><dd>103.50 km (64.31 mi)</dd></dl>",
+              "point": "52.106 -170.937",
+              "elev": "-103500",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:ak:a2026srikrm",
+              "title": "M 3.5 - 121 km S of Yakutat, Alaska",
+              "updated": "2026-09-20T21:39:07.722Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 18:19:40 UTC</dd><dd>2026-09-20 18:19:40 UTC at epicenter</dd><dt>Location</dt><dd>58.468&deg;N 139.373&deg;W</dd><dt>Depth</dt><dd>5.00 km (3.11 mi)</dd></dl>",
+              "point": "58.468 -139.373",
+              "elev": "-5000",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tisi",
+              "title": "M 4.4 - 69 km SSW of Lembar, Indonesia",
+              "updated": "2026-09-20T18:35:31.040Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 17:51:32 UTC</dd><dd>2026-09-20 17:51:32 UTC at epicenter</dd><dt>Location</dt><dd>9.286&deg;S 115.780&deg;E</dd><dt>Depth</dt><dd>76.42 km (47.48 mi)</dd></dl>",
+              "point": "-9.286 115.7801",
+              "elev": "-76416",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tisg",
+              "title": "M 4.4 - 135 km SW of Hihifo, Tonga",
+              "updated": "2026-09-20T18:27:39.040Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 17:17:05 UTC</dd><dd>2026-09-20 17:17:05 UTC at epicenter</dd><dt>Location</dt><dd>16.779&deg;S 174.737&deg;W</dd><dt>Depth</dt><dd>160.74 km (99.88 mi)</dd></dl>",
+              "point": "-16.7787 -174.7369",
+              "elev": "-160742",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:ak:a2026srgcdi",
+              "title": "M 3.6 - 55 km SE of Chignik, Alaska",
+              "updated": "2026-09-20T21:39:31.105Z",
+              "link": null,
+              "summary": "<p class=\"quicksummary\"><a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/aka2026srgcdi#shakemap\" title=\"ShakeMap maximum estimated intensity\" class=\"mmi-III\">ShakeMap - <strong class=\"roman\">III</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 17:10:13 UTC</dd><dd>2026-09-20 17:10:13 UTC at epicenter</dd><dt>Location</dt><dd>55.946&deg;N 157.772&deg;W</dd><dt>Depth</dt><dd>33.70 km (20.94 mi)</dd></dl>",
+              "point": "55.946 -157.772",
+              "elev": "-33700",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tisb",
+              "title": "M 3.1 - 77 km S of Boca de Yuma, Dominican Republic",
+              "updated": "2026-09-20T17:56:13.040Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 16:59:30 UTC</dd><dd>2026-09-20 16:59:30 UTC at epicenter</dd><dt>Location</dt><dd>17.686&deg;N 68.691&deg;W</dd><dt>Depth</dt><dd>35.00 km (21.75 mi)</dd></dl>",
+              "point": "17.6862 -68.6909",
+              "elev": "-35000",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:pr:2026263000",
+              "title": "M 3.8 - 180 km NNW of The Valley, Anguilla",
+              "updated": "2026-09-20T18:01:56.040Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 15:36:28 UTC</dd><dd>2026-09-20 15:36:28 UTC at epicenter</dd><dt>Location</dt><dd>19.746&deg;N 63.643&deg;W</dd><dt>Depth</dt><dd>38.00 km (23.61 mi)</dd></dl>",
+              "point": "19.7456 -63.6425",
+              "elev": "-38000",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tis4",
+              "title": "M 4.4 - 276 km WNW of Houma, Tonga",
+              "updated": "2026-09-20T15:56:35.040Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 15:33:50 UTC</dd><dd>2026-09-20 15:33:50 UTC at epicenter</dd><dt>Location</dt><dd>20.308&deg;S 177.794&deg;W</dd><dt>Depth</dt><dd>507.08 km (315.09 mi)</dd></dl>",
+              "point": "-20.3079 -177.7935",
+              "elev": "-507081",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:ak:a2026sraido",
+              "title": "M 3.2 - 57 km ENE of Chenega, Alaska",
+              "updated": "2026-09-20T15:39:18.040Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 14:17:12 UTC</dd><dd>2026-09-20 14:17:12 UTC at epicenter</dd><dt>Location</dt><dd>60.216&deg;N 147.015&deg;W</dd><dt>Depth</dt><dd>16.00 km (9.94 mi)</dd></dl>",
+              "point": "60.216 -147.015",
+              "elev": "-16000",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tirv",
+              "title": "M 4.6 - 102 km WSW of Nikolski, Alaska",
+              "updated": "2026-09-20T21:37:07.805Z",
+              "link": null,
+              "summary": "<p class=\"quicksummary\"><a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tirv#shakemap\" title=\"ShakeMap maximum estimated intensity\" class=\"mmi-II\">ShakeMap - <strong class=\"roman\">II</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 13:55:47 UTC</dd><dd>2026-09-20 13:55:47 UTC at epicenter</dd><dt>Location</dt><dd>52.750&deg;N 170.347&deg;W</dd><dt>Depth</dt><dd>87.28 km (54.23 mi)</dd></dl>",
+              "point": "52.7501 -170.3466",
+              "elev": "-87277",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tirt",
+              "title": "M 4.7 - 54 km SE of Shima, Japan",
+              "updated": "2026-09-20T14:33:23.040Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 13:54:56 UTC</dd><dd>2026-09-20 13:54:56 UTC at epicenter</dd><dt>Location</dt><dd>33.968&deg;N 137.228&deg;E</dd><dt>Depth</dt><dd>354.93 km (220.54 mi)</dd></dl>",
+              "point": "33.9678 137.2284",
+              "elev": "-354932",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tirn",
+              "title": "M 2.7 - 94 km N of Yakutat, Alaska",
+              "updated": "2026-09-20T15:27:35.040Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 13:21:50 UTC</dd><dd>2026-09-20 13:21:50 UTC at epicenter</dd><dt>Location</dt><dd>60.395&deg;N 139.561&deg;W</dd><dt>Depth</dt><dd>5.00 km (3.11 mi)</dd></dl>",
+              "point": "60.3947 -139.5607",
+              "elev": "-5000",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tirq",
+              "title": "M 5.2 - 109 km W of Hihifo, Tonga",
+              "updated": "2026-09-20T21:58:20.040Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 13:00:45 UTC</dd><dd>2026-09-20 13:00:45 UTC at epicenter</dd><dt>Location</dt><dd>15.868&deg;S 174.817&deg;W</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>",
+              "point": "-15.8682 -174.8169",
+              "elev": "-10000",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tirh",
+              "title": "M 5.4 - 68 km NNE of Kainantu, Papua New Guinea",
+              "updated": "2026-09-20T20:38:16.629Z",
+              "link": null,
+              "summary": "<p class=\"quicksummary\"><a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tirh#pager\" title=\"PAGER estimated impact alert level\" class=\"pager-green\">PAGER - <strong class=\"roman\">GREEN</strong></a> <a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tirh#shakemap\" title=\"ShakeMap maximum estimated intensity\" class=\"mmi-IV\">ShakeMap - <strong class=\"roman\">IV</strong></a> <a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tirh#dyfi\" class=\"mmi-V\" title=\"Did You Feel It? maximum reported intensity (7 reports)\">DYFI? - <strong class=\"roman\">V</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 12:45:53 UTC</dd><dd>2026-09-20 12:45:53 UTC at epicenter</dd><dt>Location</dt><dd>5.771&deg;S 146.204&deg;E</dd><dt>Depth</dt><dd>116.02 km (72.09 mi)</dd></dl>",
+              "point": "-5.7711 146.2041",
+              "elev": "-116019",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tirf",
+              "title": "M 4.8 - 92 km W of Lata, Solomon Islands",
+              "updated": "2026-09-20T12:50:47.040Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 12:24:22 UTC</dd><dd>2026-09-20 12:24:22 UTC at epicenter</dd><dt>Location</dt><dd>10.645&deg;S 164.956&deg;E</dd><dt>Depth</dt><dd>33.90 km (21.06 mi)</dd></dl>",
+              "point": "-10.6446 164.9562",
+              "elev": "-33900",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tir6",
+              "title": "M 4.4 - Volcano Islands, Japan region",
+              "updated": "2026-09-20T12:17:50.040Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 11:43:25 UTC</dd><dd>2026-09-20 11:43:25 UTC at epicenter</dd><dt>Location</dt><dd>25.038&deg;N 141.168&deg;E</dd><dt>Depth</dt><dd>162.51 km (100.98 mi)</dd></dl>",
+              "point": "25.0379 141.1682",
+              "elev": "-162510",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:ak:a2026sqtfof",
+              "title": "M 2.5 - 14 km WNW of Anchor Point, Alaska",
+              "updated": "2026-09-20T10:47:19.100Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 10:44:16 UTC</dd><dd>2026-09-20 10:44:16 UTC at epicenter</dd><dt>Location</dt><dd>59.827&deg;N 152.062&deg;W</dd><dt>Depth</dt><dd>70.70 km (43.93 mi)</dd></dl>",
+              "point": "59.827 -152.062",
+              "elev": "-70700",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tiqc",
+              "title": "M 6.4 - 49 km NNE of Kainantu, Papua New Guinea",
+              "updated": "2026-09-20T22:27:47.804Z",
+              "link": null,
+              "summary": "<p class=\"quicksummary\"><a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiqc#pager\" title=\"PAGER estimated impact alert level\" class=\"pager-green\">PAGER - <strong class=\"roman\">GREEN</strong></a> <a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiqc#shakemap\" title=\"ShakeMap maximum estimated intensity\" class=\"mmi-V\">ShakeMap - <strong class=\"roman\">V</strong></a> <a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiqc#dyfi\" class=\"mmi-VI\" title=\"Did You Feel It? maximum reported intensity (29 reports)\">DYFI? - <strong class=\"roman\">VI</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 09:17:35 UTC</dd><dd>2026-09-20 09:17:35 UTC at epicenter</dd><dt>Location</dt><dd>5.902&deg;S 146.092&deg;E</dd><dt>Depth</dt><dd>104.33 km (64.83 mi)</dd></dl>",
+              "point": "-5.9021 146.0922",
+              "elev": "-104329",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:ak:a2026sqqbej",
+              "title": "M 2.5 - 74 km WNW of Ninilchik, Alaska",
+              "updated": "2026-09-20T10:08:30.040Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 09:09:19 UTC</dd><dd>2026-09-20 09:09:19 UTC at epicenter</dd><dt>Location</dt><dd>60.200&deg;N 152.971&deg;W</dd><dt>Depth</dt><dd>139.50 km (86.68 mi)</dd></dl>",
+              "point": "60.2 -152.971",
+              "elev": "-139500",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tiq8",
+              "title": "M 4.4 - 115 km WSW of Gorontalo, Indonesia",
+              "updated": "2026-09-20T10:01:44.040Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 09:05:23 UTC</dd><dd>2026-09-20 09:05:23 UTC at epicenter</dd><dt>Location</dt><dd>0.139&deg;N 122.105&deg;E</dd><dt>Depth</dt><dd>197.14 km (122.50 mi)</dd></dl>",
+              "point": "0.1391 122.1049",
+              "elev": "-197143",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tiq2",
+              "title": "M 5.3 - 64 km W of Cafayate, Argentina",
+              "updated": "2026-09-20T11:11:33.357Z",
+              "link": null,
+              "summary": "<p class=\"quicksummary\"><a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiq2#dyfi\" class=\"mmi-III\" title=\"Did You Feel It? maximum reported intensity (3 reports)\">DYFI? - <strong class=\"roman\">III</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 08:47:54 UTC</dd><dd>2026-09-20 08:47:54 UTC at epicenter</dd><dt>Location</dt><dd>25.987&deg;S 66.612&deg;W</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>",
+              "point": "-25.9869 -66.6117",
+              "elev": "-10000",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:pr:71533463",
+              "title": "M 3.1 - 6 km SSE of Ponce, Puerto Rico",
+              "updated": "2026-09-20T08:13:20.070Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 07:53:04 UTC</dd><dd>2026-09-20 07:53:04 UTC at epicenter</dd><dt>Location</dt><dd>17.951&deg;N 66.602&deg;W</dd><dt>Depth</dt><dd>14.03 km (8.72 mi)</dd></dl>",
+              "point": "17.951333333333 -66.6015",
+              "elev": "-14030",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tipl",
+              "title": "M 5.1 - 14 km WNW of Naze, Japan",
+              "updated": "2026-09-20T07:53:03.980Z",
+              "link": null,
+              "summary": "<p class=\"quicksummary\"><a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tipl#dyfi\" class=\"mmi-III\" title=\"Did You Feel It? maximum reported intensity (1 reports)\">DYFI? - <strong class=\"roman\">III</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 07:28:22 UTC</dd><dd>2026-09-20 07:28:22 UTC at epicenter</dd><dt>Location</dt><dd>28.395&deg;N 129.341&deg;E</dd><dt>Depth</dt><dd>68.83 km (42.77 mi)</dd></dl>",
+              "point": "28.3947 129.3406",
+              "elev": "-68834",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:ak:a2026sqlsqi",
+              "title": "M 2.5 - 25 km S of Port Graham, Alaska",
+              "updated": "2026-09-20T07:04:08.772Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 06:59:28 UTC</dd><dd>2026-09-20 06:59:28 UTC at epicenter</dd><dt>Location</dt><dd>59.125&deg;N 151.896&deg;W</dd><dt>Depth</dt><dd>54.80 km (34.05 mi)</dd></dl>",
+              "point": "59.125 -151.896",
+              "elev": "-54800",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tipi",
+              "title": "M 4.9 - 93 km ESE of Yigo Village, Guam",
+              "updated": "2026-09-20T07:03:54.040Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 06:47:56 UTC</dd><dd>2026-09-20 06:47:56 UTC at epicenter</dd><dt>Location</dt><dd>13.265&deg;N 145.708&deg;E</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>",
+              "point": "13.2653 145.7081",
+              "elev": "-10000",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tipf",
+              "title": "M 4.3 - Fiji region",
+              "updated": "2026-09-20T12:32:25.040Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 06:30:07 UTC</dd><dd>2026-09-20 06:30:07 UTC at epicenter</dd><dt>Location</dt><dd>19.212&deg;S 177.713&deg;W</dd><dt>Depth</dt><dd>580.28 km (360.57 mi)</dd></dl>",
+              "point": "-19.2124 -177.7128",
+              "elev": "-580282",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tip2",
+              "title": "M 5.0 - 103 km W of Hihifo, Tonga",
+              "updated": "2026-09-20T05:23:42.040Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 05:07:03 UTC</dd><dd>2026-09-20 05:07:03 UTC at epicenter</dd><dt>Location</dt><dd>15.893&deg;S 174.764&deg;W</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>",
+              "point": "-15.8926 -174.7641",
+              "elev": "-10000",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:tx:2026sngzur",
+              "title": "M 3.0 - 56 km S of Whites City, New Mexico",
+              "updated": "2026-09-20T04:37:19.844Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 04:23:40 UTC</dd><dd>2026-09-20 04:23:40 UTC at epicenter</dd><dt>Location</dt><dd>31.669&deg;N 104.364&deg;W</dd><dt>Depth</dt><dd>7.38 km (4.59 mi)</dd></dl>",
+              "point": "31.669 -104.364",
+              "elev": "-7381.6",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tinl",
+              "title": "M 5.3 - 108 km ESE of Yigo Village, Guam",
+              "updated": "2026-09-20T21:53:28.805Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 03:43:24 UTC</dd><dd>2026-09-20 03:43:24 UTC at epicenter</dd><dt>Location</dt><dd>13.057&deg;N 145.759&deg;E</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>",
+              "point": "13.0568 145.7591",
+              "elev": "-10000",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:ak:a2026sqeovj",
+              "title": "M 2.6 - 55 km W of Anchor Point, Alaska",
+              "updated": "2026-09-20T03:38:24.040Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 03:25:28 UTC</dd><dd>2026-09-20 03:25:28 UTC at epicenter</dd><dt>Location</dt><dd>59.713&deg;N 152.802&deg;W</dd><dt>Depth</dt><dd>98.90 km (61.45 mi)</dd></dl>",
+              "point": "59.713 -152.802",
+              "elev": "-98900",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:us:7000tinf",
+              "title": "M 4.5 - 54 km ENE of Sainte-Marie, Martinique",
+              "updated": "2026-09-20T13:08:02.024Z",
+              "link": null,
+              "summary": "<p class=\"quicksummary\"><a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tinf#dyfi\" class=\"mmi-III\" title=\"Did You Feel It? maximum reported intensity (3 reports)\">DYFI? - <strong class=\"roman\">III</strong></a></p><dl><dt>Time</dt><dd>2026-09-20 02:44:21 UTC</dd><dd>2026-09-20 02:44:21 UTC at epicenter</dd><dt>Location</dt><dd>15.040&deg;N 60.558&deg;W</dd><dt>Depth</dt><dd>46.42 km (28.85 mi)</dd></dl>",
+              "point": "15.0395 -60.5578",
+              "elev": "-46424",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:pr:71533373",
+              "title": "M 3.0 - 58 km N of Culebra, Puerto Rico",
+              "updated": "2026-09-20T04:21:14.020Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 02:42:23 UTC</dd><dd>2026-09-20 02:42:23 UTC at epicenter</dd><dt>Location</dt><dd>18.832&deg;N 65.278&deg;W</dd><dt>Depth</dt><dd>19.95 km (12.40 mi)</dd></dl>",
+              "point": "18.831666666667 -65.278333333333",
+              "elev": "-19950",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "id": "urn:earthquake-usgs-gov:pr:71533328",
+              "title": "M 3.1 - 75 km N of Brenas, Puerto Rico",
+              "updated": "2026-09-20T03:27:23.940Z",
+              "link": null,
+              "summary": "<dl><dt>Time</dt><dd>2026-09-20 02:31:58 UTC</dd><dd>2026-09-20 02:31:58 UTC at epicenter</dd><dt>Location</dt><dd>19.149&deg;N 66.272&deg;W</dd><dt>Depth</dt><dd>10.50 km (6.52 mi)</dd></dl>",
+              "point": "19.149 -66.271666666667",
+              "elev": "-10500",
+              "category": [
+                null,
+                null,
+                null,
+                null
+              ]
+            }
+          ]
+        }
+      },
+      "call_logs": [
+        {
+          "id": 5185,
+          "traceId": "5304b3c7a2414b3ea0dc7d2cf26e79be",
+          "direction": "IN",
+          "stepCode": null,
+          "interfaceId": 3785,
+          "appId": "USGSXML",
+          "url": "/pm/t3-xx",
+          "method": "GET",
+          "statusCode": 200,
+          "latencyMs": 1840,
+          "reqHeaders": "Accept-Encoding: identity | Connection: close | Content-Length: 119 | Content-Type: application/xml | Host: localhost:8081 | User-Agent: Python-urllib/3.9 | X-Biz-Id: PM-T3-001",
+          "reqBody": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><request><requestId>REQ-T3-001</requestId><keyword>XML 入站</keyword></request>",
+          "respBody": "{\"code\":0,\"msg\":\"ok\",\"data\":{\"title\":\"USGS Magnitude 2.5+ Earthquakes, Past Day\",\"updated\":\"2026-09-21T02:11:38Z\",\"entry\":[{\"id\":\"urn:earthquake-usgs-gov:us:7000tiur\",\"title\":\"M 5.5 - 35 km NNE of Ruteng, Indonesia\",\"updated\":\"2026-09-21T02:09:54.880Z\",\"link\":null,\"summary\":\"<p class=\\\"quicksummary\\\"><a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiur#pager\\\" title=\\\"PAGER estimated impact alert level\\\" class=\\\"pager-green\\\">PAGER - <strong class=\\\"roman\\\">GREEN</strong></a> <a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiur#shakemap\\\" title=\\\"ShakeMap maximum estimated intensity\\\" class=\\\"mmi-VII\\\">ShakeMap - <strong class=\\\"roman\\\">VII</strong></a></p><dl><dt>Time</dt><dd>2026-09-21 01:41:36 UTC</dd><dd>2026-09-21 01:41:36 UTC at epicenter</dd><dt>Location</dt><dd>8.307&deg;S 120.579&deg;E</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>\",\"point\":\"-8.307 120.5793\",\"elev\":\"-10000\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:pr:71533708\",\"title\":\"M 3.4 - 87 km NE of Punta Cana, Dominican Republic\",\"updated\":\"2026-09-21T01:52:04.520Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-21 01:33:51 UTC</dd><dd>2026-09-21 01:33:51 UTC at epicenter</dd><dt>Location</dt><dd>19.215&deg;N 67.908&deg;W</dd><dt>Depth</dt><dd>24.71 km (15.35 mi)</dd></dl>\",\"point\":\"19.2145 -67.908333333333\",\"elev\":\"-24710\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tiui\",\"title\":\"M 4.9 - 26 km SE of Saimbeyli, Turkey\",\"updated\":\"2026-09-21T01:25:41.887Z\",\"link\":null,\"summary\":\"<p class=\\\"quicksummary\\\"><a href=\\\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiui#dyfi\\\" class=\\\"mmi-III\\\" title=\\\"Did You Feel It? maximum reported intensity (1 reports)\\\">DYFI? - <strong class=\\\"roman\\\">III</strong></a></p><dl><dt>Time</dt><dd>2026-09-21 01:02:04 UTC</dd><dd>2026-09-21 01:02:04 UTC at epicenter</dd><dt>Location</dt><dd>37.814&deg;N 36.299&deg;E</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>\",\"point\":\"37.8136 36.2994\",\"elev\":\"-10000\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:hv:75040987\",\"title\":\"M 2.9 - 14 km NNE of Pāhala, Hawaii\",\"updated\":\"2026-09-21T01:00:09.270Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-21 00:56:33 UTC</dd><dd>2026-09-21 00:56:33 UTC at epicenter</dd><dt>Location</dt><dd>19.327&deg;N 155.444&deg;W</dd><dt>Depth</dt><dd>25.22 km (15.67 mi)</dd></dl>\",\"point\":\"19.327333450317 -155.44400024414\",\"elev\":\"-25219.999313354\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:hv:75040982\",\"title\":\"M 2.6 - 21 km SSE of Volcano, Hawaii\",\"updated\":\"2026-09-21T00:59:40.870Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-21 00:56:11 UTC</dd><dd>2026-09-21 00:56:11 UTC at epicenter</dd><dt>Location</dt><dd>19.261&deg;N 155.164&deg;W</dd><dt>Depth</dt><dd>41.29 km (25.66 mi)</dd></dl>\",\"point\":\"19.260999679565 -155.163****7148\",\"elev\":\"-41290.000915527\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:pr:71533688\",\"title\":\"M 2.5 - 3 km WSW of Fuig, Puerto Rico\",\"updated\":\"2026-09-20T23:52:54.250Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 23:38:39 UTC</dd><dd>2026-09-20 23:38:39 UTC at epicenter</dd><dt>Location</dt><dd>17.970&deg;N 66.946&deg;W</dd><dt>Depth</dt><dd>7.40 km (4.60 mi)</dd></dl>\",\"point\":\"17.970166666667 -66.945833333333\",\"elev\":\"-7400\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000tiu3\",\"title\":\"M 5.0 - 16 km WSW of Shikotan, Russia\",\"updated\":\"2026-09-20T23:41:59.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 23:25:38 UTC</dd><dd>2026-09-20 23:25:38 UTC at epicenter</dd><dt>Location</dt><dd>43.744&deg;N 146.534&deg;E</dd><dt>Depth</dt><dd>64.94 km (40.35 mi)</dd></dl>\",\"point\":\"43.7443 146.5339\",\"elev\":\"-64936\",\"category\":[null,null,null,null]},{\"id\":\"urn:earthquake-usgs-gov:us:7000titt\",\"title\":\"M 4.9 - southeast of the Loyalty Islands\",\"updated\":\"2026-09-21T01:26:45.040Z\",\"link\":null,\"summary\":\"<dl><dt>Time</dt><dd>2026-09-20 22:09:59 UTC</dd><dd>2026-09-20 22:09:59 UTC at epicenter</dd><dt>Location</d...[truncated]",
+          "createdAt": "2026-09-21T10:11:42"
+        },
+        {
+          "id": 5184,
+          "traceId": "5304b3c7a2414b3ea0dc7d2cf26e79be",
+          "direction": "OUT",
+          "stepCode": null,
+          "interfaceId": 3785,
+          "appId": "USGSXML",
+          "url": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.atom",
+          "method": "GET",
+          "statusCode": 200,
+          "latencyMs": 446,
+          "reqHeaders": "Accept: application/xml | Content-Type: application/xml | X-Trace-Id: 5304b3c7a2414b3ea0dc7d2cf26e79be",
+          "reqBody": "<?xml version='1.0' encoding='UTF-8'?><request><requestId>REQ-T3-001</requestId><keyword>XML 入站</keyword></request>",
+          "respBody": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<feed xmlns=\"http://www.w3.org/2005/Atom\" xmlns:georss=\"http://www.georss.org/georss\"><title>USGS Magnitude 2.5+ Earthquakes, Past Day</title><updated>2026-09-21T02:11:38Z</updated><author><name>U.S. Geological Survey</name><uri>https://earthquake.usgs.gov/</uri></author><id>https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.atom</id><link rel=\"self\" href=\"https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.atom\"/><icon>https://earthquake.usgs.gov/favicon.ico</icon>\n<entry><id>urn:earthquake-usgs-gov:us:7000tiur</id><title>M 5.5 - 35 km NNE of Ruteng, Indonesia</title><updated>2026-09-21T02:09:54.880Z</updated><link rel=\"alternate\" type=\"text/html\" href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiur\"/><summary type=\"html\"><![CDATA[<p class=\"quicksummary\"><a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiur#pager\" title=\"PAGER estimated impact alert level\" class=\"pager-green\">PAGER - <strong class=\"roman\">GREEN</strong></a> <a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiur#shakemap\" title=\"ShakeMap maximum estimated intensity\" class=\"mmi-VII\">ShakeMap - <strong class=\"roman\">VII</strong></a></p><dl><dt>Time</dt><dd>2026-09-21 01:41:36 UTC</dd><dd>2026-09-21 01:41:36 UTC at epicenter</dd><dt>Location</dt><dd>8.307&deg;S 120.579&deg;E</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>]]></summary><georss:point>-8.307 120.5793</georss:point><georss:elev>-10000</georss:elev><category label=\"Age\" term=\"Past Hour\"/><category label=\"Magnitude\" term=\"Magnitude 5\"/><category label=\"Contributor\" term=\"us\"/><category label=\"Author\" term=\"us\"/></entry>\n<entry><id>urn:earthquake-usgs-gov:pr:71533708</id><title>M 3.4 - 87 km NE of Punta Cana, Dominican Republic</title><updated>2026-09-21T01:52:04.520Z</updated><link rel=\"alternate\" type=\"text/html\" href=\"https://earthquake.usgs.gov/earthquakes/eventpage/pr71533708\"/><summary type=\"html\"><![CDATA[<dl><dt>Time</dt><dd>2026-09-21 01:33:51 UTC</dd><dd>2026-09-21 01:33:51 UTC at epicenter</dd><dt>Location</dt><dd>19.215&deg;N 67.908&deg;W</dd><dt>Depth</dt><dd>24.71 km (15.35 mi)</dd></dl>]]></summary><georss:point>19.2145 -67.908333333333</georss:point><georss:elev>-24710</georss:elev><category label=\"Age\" term=\"Past Hour\"/><category label=\"Magnitude\" term=\"Magnitude 3\"/><category label=\"Contributor\" term=\"pr\"/><category label=\"Author\" term=\"pr\"/></entry>\n<entry><id>urn:earthquake-usgs-gov:us:7000tiui</id><title>M 4.9 - 26 km SE of Saimbeyli, Turkey</title><updated>2026-09-21T01:25:41.887Z</updated><link rel=\"alternate\" type=\"text/html\" href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiui\"/><summary type=\"html\"><![CDATA[<p class=\"quicksummary\"><a href=\"https://earthquake.usgs.gov/earthquakes/eventpage/us7000tiui#dyfi\" class=\"mmi-III\" title=\"Did You Feel It? maximum reported intensity (1 reports)\">DYFI? - <strong class=\"roman\">III</strong></a></p><dl><dt>Time</dt><dd>2026-09-21 01:02:04 UTC</dd><dd>2026-09-21 01:02:04 UTC at epicenter</dd><dt>Location</dt><dd>37.814&deg;N 36.299&deg;E</dd><dt>Depth</dt><dd>10.00 km (6.21 mi)</dd></dl>]]></summary><georss:point>37.8136 36.2994</georss:point><georss:elev>-10000</georss:elev><category label=\"Age\" term=\"Past Day\"/><category label=\"Magnitude\" term=\"Magnitude 4\"/><category label=\"Contributor\" term=\"us\"/><category label=\"Author\" term=\"us\"/></entry>\n<entry><id>urn:earthquake-usgs-gov:hv:75040987</id><title>M 2.9 - 14 km NNE of Pāhala, Hawaii</title><updated>2026-09-21T01:00:09.270Z</updated><link rel=\"alternate\" type=\"text/html\" href=\"https://earthquake.usgs.gov/earthquakes/eventpage/hv75040987\"/><summary type=\"html\"><![CDATA[<dl><dt>Time</dt><dd>2026-09-21 00:56:33 UTC</dd><dd>2026-09-21 00:56:33 UTC at epicenter</dd><dt>Location</dt><dd>19.327&deg;N 155.444&deg;W</dd><dt>Depth</dt><dd>25.22 km (15.67 mi)</dd></dl>]]></summary><georss:point>19.327333450317 -155.44400024414</georss:point><georss:elev>-25219.999313354</georss:elev><category label=\"Age\" term=\"Past Day\"/><category label=\"Magnitude\" term=\"Magnitude 2\"/><...[truncated]",
+          "createdAt": "2026-09-21T10:11:41"
+        }
+      ]
+    },
+    {
+      "key": "T4",
+      "combo": "XML→JSON",
+      "iface": {
+        "code": "PM-T4-XJ",
+        "name": "协议矩阵 T4 XML→JSON（EVOLink）",
+        "ifType": "OUTBOUND",
+        "method": "POST",
+        "path": "/pm/t4-xj",
+        "protocolIn": "XML",
+        "protocolOut": "JSON",
+        "appId": "EVOLINK",
+        "groupId": 1,
+        "upstreamPath": "/v1/images/generations",
+        "callbackUrl": null,
+        "status": "DRAFT",
+        "timeoutMs": 15000,
+        "maxRetries": 0,
+        "desc": "协议组合矩阵 T4：调用方 XML → 平台 → EVOLink（JSON）。故意用非法模型走的错误路径（XML→JSON 编码同样被真实发送）。",
+        "version": 1.0,
+        "params": [
+          {
+            "side": "IN",
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "sample": "gpt-image-2-pm-probe",
+            "sortOrder": 0
+          },
+          {
+            "side": "IN",
+            "name": "prompt",
+            "type": "string",
+            "required": true,
+            "sample": "协议矩阵 T4",
+            "sortOrder": 1
+          },
+          {
+            "side": "OUT",
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "sample": null,
+            "sortOrder": 0
+          },
+          {
+            "side": "OUT",
+            "name": "prompt",
+            "type": "string",
+            "required": true,
+            "sample": null,
+            "sortOrder": 1
+          }
+        ],
+        "bodies": [
+          {
+            "side": "IN",
+            "bodyType": "xml",
+            "raw": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><request><model>gpt-image-2-pm-probe</model><prompt>协议矩阵 T4</prompt></request>",
+            "form": "[]"
+          },
+          {
+            "side": "OUT",
+            "bodyType": "none",
+            "raw": "",
+            "form": "[]"
+          }
+        ],
+        "mappings": [
+          {
+            "source": "model",
+            "op": "rename",
+            "target": "model",
+            "param": null,
+            "nullStrategy": "KEEP",
+            "sortOrder": 0
+          },
+          {
+            "source": "prompt",
+            "op": "rename",
+            "target": "prompt",
+            "param": null,
+            "nullStrategy": "KEEP",
+            "sortOrder": 1
+          }
+        ],
+        "fieldDefs": [],
+        "bindings": [
+          {
+            "role": "AUTH",
+            "adapterId": null,
+            "version": null
+          },
+          {
+            "role": "MESSAGE",
+            "adapterId": null,
+            "version": null
+          }
+        ],
+        "steps": []
+      },
+      "inbound": [
+        "POST",
+        "/pm/t4-xj",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><request><model>gpt-image-2-pm-probe</model><prompt>协议矩阵 T4：XML 入站 → JSON 出站</prompt></request>",
+        {
+          "Content-Type": "application/xml",
+          "X-Biz-Id": "PM-T4-001"
+        }
+      ],
+      "expect": "链路应全通；预期供应商业务错误（HTTP 4xx/2xx+错误体），XML→JSON 编码产物见调用日志 OUT 条 req_body",
+      "id": 3786,
+      "publish_ok": true,
+      "http": 502,
+      "resp_text": "{\"code\":50201,\"msg\":\"供应商拒绝（4xx）：供应商 404：404 NOT_FOUND，死信编号 255\",\"data\":null}",
+      "wall_ms": 1244,
+      "resp_json": {
+        "code": 50201,
+        "msg": "供应商拒绝（4xx）：供应商 404：404 NOT_FOUND，死信编号 255",
+        "data": null
+      },
+      "call_logs": [
+        {
+          "id": 5187,
+          "traceId": "bbb7ecb447d14879a21adfa15bc58658",
+          "direction": "IN",
+          "stepCode": null,
+          "interfaceId": 3786,
+          "appId": "EVOLINK",
+          "url": "/pm/t4-xj",
+          "method": "POST",
+          "statusCode": 502,
+          "latencyMs": 1230,
+          "reqHeaders": "Accept-Encoding: identity | Connection: close | Content-Length: 153 | Content-Type: application/xml | Host: localhost:8081 | User-Agent: Python-urllib/3.9 | X-Biz-Id: PM-T4-001",
+          "reqBody": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><request><model>gpt-image-2-pm-probe</model><prompt>协议矩阵 T4：XML 入站 → JSON 出站</prompt></request>",
+          "respBody": "{\"code\":50201,\"msg\":\"供应商拒绝（4xx）：供应商 404：404 NOT_FOUND，死信编号 255\",\"data\":null}",
+          "createdAt": "2026-09-21T10:11:44"
+        },
+        {
+          "id": 5186,
+          "traceId": "bbb7ecb447d14879a21adfa15bc58658",
+          "direction": "OUT",
+          "stepCode": null,
+          "interfaceId": 3786,
+          "appId": "EVOLINK",
+          "url": "https://api.evolink.ai/v1/images/generations",
+          "method": "POST",
+          "statusCode": 404,
+          "latencyMs": 396,
+          "reqHeaders": "Accept: application/json | Authorization: Bear****5ZFd | Content-Type: application/json | X-Trace-Id: bbb7ecb447d14879a21adfa15bc58658",
+          "reqBody": "{\"model\":\"gpt-image-2-pm-probe\",\"prompt\":\"协议矩阵 T4：XML 入站 → JSON 出站\"}",
+          "respBody": "{\"error\":{\"code\":\"model_not_found\",\"did_you_mean\":\"gpt-image-2\",\"message\":\"Model 'gpt-image-2-pm-probe' is not available for this API key (unknown model id, or not enabled for your group). This error is permanent — do not retry with the same model id. Did you mean 'gpt-image-2'? Call GET /v1/models to list the models available to this key. (request id: 20260921101144427243518OQJrCu8P)\",\"param\":null,\"retryable\":false,\"type\":\"invalid_request_error\"}}",
+          "createdAt": "2026-09-21T10:11:44"
+        }
+      ]
+    },
+    {
+      "key": "A1",
+      "combo": "JSON→XML（辅助·传输取证）",
+      "auxiliary": true,
+      "iface": {
+        "code": "PM-A1-XT",
+        "name": "协议矩阵 A1 辅助：XML 出站报文发送取证（httpbin 回显）",
+        "ifType": "OUTBOUND",
+        "method": "POST",
+        "path": "/pm/a1-xml-tx",
+        "protocolIn": "JSON",
+        "protocolOut": "XML",
+        "appId": "BRIEF",
+        "groupId": 2064,
+        "upstreamPath": "/post",
+        "callbackUrl": null,
+        "status": "DRAFT",
+        "timeoutMs": 15000,
+        "maxRetries": 0,
+        "desc": "辅助用例（非 4 组合之一）：POST + protocol_out=XML 打到 httpbin/post，上游把收到的原始 body 回显，用于证明「XML 出站报文真的发出去了」（GET/DELETE 不传 body，见 UpstreamInvoker）。",
+        "version": 1.0,
+        "params": [
+          {
+            "side": "IN",
+            "name": "requestId",
+            "type": "string",
+            "required": true,
+            "sample": "REQ-A1-001",
+            "sortOrder": 0
+          },
+          {
+            "side": "IN",
+            "name": "keyword",
+            "type": "string",
+            "required": true,
+            "sample": "xml-out-transmit-proof",
+            "sortOrder": 1
+          },
+          {
+            "side": "OUT",
+            "name": "requestId",
+            "type": "string",
+            "required": false,
+            "sample": null,
+            "sortOrder": 0
+          },
+          {
+            "side": "OUT",
+            "name": "keyword",
+            "type": "string",
+            "required": false,
+            "sample": null,
+            "sortOrder": 1
+          }
+        ],
+        "bodies": [
+          {
+            "side": "IN",
+            "bodyType": "json",
+            "raw": "{\"requestId\":\"REQ-A1-001\",\"keyword\":\"xml-out-transmit-proof\"}",
+            "form": "[]"
+          },
+          {
+            "side": "OUT",
+            "bodyType": "none",
+            "raw": "",
+            "form": "[]"
+          }
+        ],
+        "mappings": [
+          {
+            "source": "requestId",
+            "op": "rename",
+            "target": "requestId",
+            "param": null,
+            "nullStrategy": "KEEP",
+            "sortOrder": 0
+          },
+          {
+            "source": "keyword",
+            "op": "rename",
+            "target": "keyword",
+            "param": null,
+            "nullStrategy": "KEEP",
+            "sortOrder": 1
+          }
+        ],
+        "fieldDefs": [],
+        "bindings": [
+          {
+            "role": "AUTH",
+            "adapterId": null,
+            "version": null
+          },
+          {
+            "role": "MESSAGE",
+            "adapterId": null,
+            "version": null
+          }
+        ],
+        "steps": []
+      },
+      "inbound": [
+        "POST",
+        "/pm/a1-xml-tx",
+        "{\"requestId\": \"REQ-A1-001\", \"keyword\": \"xml-out-transmit-proof\"}",
+        {
+          "Content-Type": "application/json",
+          "X-Biz-Id": "PM-A1-001"
+        }
+      ],
+      "expect": "HTTP 200；调用日志 OUT 条 resp_body 的 data 字段包含 <request><requestId>REQ-A1-001</requestId>…（= 平台发出的 XML 原文）",
+      "id": 3787,
+      "publish_ok": true,
+      "http": 200,
+      "resp_text": "{\"code\":0,\"msg\":\"ok\",\"data\":{}}",
+      "wall_ms": 3505,
+      "resp_json": {
+        "code": 0,
+        "msg": "ok",
+        "data": {}
+      },
+      "call_logs": [
+        {
+          "id": 5189,
+          "traceId": "39b3da91158f4209a05c80e2cff00096",
+          "direction": "IN",
+          "stepCode": null,
+          "interfaceId": 3787,
+          "appId": "BRIEF",
+          "url": "/pm/a1-xml-tx",
+          "method": "POST",
+          "statusCode": 200,
+          "latencyMs": 3494,
+          "reqHeaders": "Accept-Encoding: identity | Connection: close | Content-Length: 64 | Content-Type: application/json | Host: localhost:8081 | User-Agent: Python-urllib/3.9 | X-Biz-Id: PM-A1-001",
+          "reqBody": "{\"requestId\": \"REQ-A1-001\", \"keyword\": \"xml-out-transmit-proof\"}",
+          "respBody": "{\"code\":0,\"msg\":\"ok\",\"data\":{}}",
+          "createdAt": "2026-09-21T10:11:49"
+        },
+        {
+          "id": 5188,
+          "traceId": "39b3da91158f4209a05c80e2cff00096",
+          "direction": "OUT",
+          "stepCode": null,
+          "interfaceId": 3787,
+          "appId": "BRIEF",
+          "url": "https://httpbin.org/post",
+          "method": "POST",
+          "statusCode": 200,
+          "latencyMs": 2522,
+          "reqHeaders": "Accept: application/xml | Content-Type: application/xml | X-Trace-Id: 39b3da91158f4209a05c80e2cff00096",
+          "reqBody": "<?xml version='1.0' encoding='UTF-8'?><request><requestId>REQ-A1-001</requestId><keyword>xml-out-transmit-proof</keyword></request>",
+          "respBody": "{\n  \"args\": {}, \n  \"data\": \"<?xml version='1.0' encoding='UTF-8'?><request><requestId>REQ-A1-001</requestId><keyword>xml-out-transmit-proof</keyword></request>\", \n  \"files\": {}, \n  \"form\": {}, \n  \"headers\": {\n    \"Accept\": \"application/xml\", \n    \"Accept-Encoding\": \"gzip,deflate\", \n    \"Content-Length\": \"131\", \n    \"Content-Type\": \"application/xml\", \n    \"Host\": \"httpbin.org\", \n    \"User-Agent\": \"Java-http-client/21.0.12\", \n    \"X-Amzn-Trace-Id\": \"Root=1-6ab09265-280ea6223895c4ab23d0343a\", \n    \"X-Trace-Id\": \"39b3da91158f4209a05c80e2cff00096\"\n  }, \n  \"json\": null, \n  \"origin\": \"43.198.151.82\", \n  \"url\": \"https://httpbin.org/post\"\n}\n",
+          "createdAt": "2026-09-21T10:11:49"
+        }
+      ]
+    }
+  ]
+}
