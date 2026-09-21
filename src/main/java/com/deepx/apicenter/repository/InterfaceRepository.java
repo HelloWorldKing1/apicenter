@@ -122,9 +122,9 @@ public class InterfaceRepository {
         jdbc.update(con -> {
             PreparedStatement ps = con.prepareStatement("""
                     INSERT INTO interface (code, name, if_type, method, path, protocol_in, protocol_out,
-                                           app_id, group_id, upstream_path, callback_url, status,
+                                           protocol_params, app_id, group_id, upstream_path, callback_url, status,
                                            timeout_ms, max_retries, `desc`)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, Statement.RETURN_GENERATED_KEYS);
             ps.setString(1, row.code());
             ps.setString(2, row.name());
@@ -133,14 +133,15 @@ public class InterfaceRepository {
             ps.setString(5, row.path());
             ps.setString(6, row.protocolIn());
             ps.setString(7, row.protocolOut());
-            ps.setString(8, row.appId());
-            ps.setLong(9, row.groupId());
-            ps.setString(10, row.upstreamPath());
-            ps.setString(11, row.callbackUrl());
-            ps.setString(12, row.status());
-            ps.setInt(13, row.timeoutMs());
-            ps.setInt(14, row.maxRetries());
-            ps.setString(15, row.desc());
+            ps.setString(8, row.protocolParams());
+            ps.setString(9, row.appId());
+            ps.setLong(10, row.groupId());
+            ps.setString(11, row.upstreamPath());
+            ps.setString(12, row.callbackUrl());
+            ps.setString(13, row.status());
+            ps.setInt(14, row.timeoutMs());
+            ps.setInt(15, row.maxRetries());
+            ps.setString(16, row.desc());
             return ps;
         }, kh);
         Number key = kh.getKey();
@@ -151,13 +152,13 @@ public class InterfaceRepository {
     public int updateWithVersion(InterfaceRow row) {
         return jdbc.update("""
                 UPDATE interface SET code = ?, name = ?, if_type = ?, method = ?, path = ?,
-                       protocol_in = ?, protocol_out = ?, app_id = ?, group_id = ?,
+                       protocol_in = ?, protocol_out = ?, protocol_params = ?, app_id = ?, group_id = ?,
                        upstream_path = ?, callback_url = ?, status = ?, version = version + 0.1,
                        timeout_ms = ?, max_retries = ?, `desc` = ?
                 WHERE id = ? AND version = ?
                 """,
                 row.code(), row.name(), row.ifType(), row.method(), row.path(),
-                row.protocolIn(), row.protocolOut(), row.appId(), row.groupId(),
+                row.protocolIn(), row.protocolOut(), row.protocolParams(), row.appId(), row.groupId(),
                 row.upstreamPath(), row.callbackUrl(), row.status(),
                 row.timeoutMs(), row.maxRetries(), row.desc(),
                 row.id(), row.version());

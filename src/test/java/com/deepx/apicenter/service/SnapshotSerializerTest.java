@@ -151,9 +151,9 @@ class SnapshotSerializerTest {
 
     private InterfaceRow row(String code, int version) {
         return new InterfaceRow(9, code, "演示", "OUTBOUND", "POST", "/m5/" + code,
-                "JSON", "JSON", "M5-APP", 11,
+                "JSON", "JSON", "M5-APP", 11L,
                 "/upstream", null, "PUBLISHED", BigDecimal.valueOf(version),
-                3000, 4, "M5 演示", null, null, null, null);
+                3000, 4, "M5 演示", null, null, null, null, null);   // 末位 = protocolParams（B1 新增；此用例不涉及）
     }
 
     private void assertTreeEqual(String a, String b) throws Exception {

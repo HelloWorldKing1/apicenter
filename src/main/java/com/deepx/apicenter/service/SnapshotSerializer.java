@@ -60,6 +60,9 @@ public class SnapshotSerializer {
         main.put("timeoutMs", row.timeoutMs());
         main.put("maxRetries", row.maxRetries());
         main.put("desc", nz(row.desc()));
+        // 协议参数（B1）：以【解析后的 JsonNode】入快照，不是裸字符串 ——
+        // 存字符串会双重转义（"{\"xml\":…}"），使版本变更详情（SnapshotChangeDiff）不可读
+        putProtocolParams(main, row.protocolParams());
 
         ArrayNode paramsArr = root.putArray("params");
         for (InterfaceRow.ParamRow p : params) {
@@ -160,7 +163,33 @@ public class SnapshotSerializer {
                 null, // status：快照不含，回滚保留当前生命周期状态
                 main.path("timeoutMs").asInt(3000), main.path("maxRetries").asInt(4),
                 nullable(main, "desc"),
-                version, params, bodies, mappings, fieldDefs, bindings, steps);
+                version, params, bodies, mappings, fieldDefs, bindings, steps, protocolParamsText(main));
+    }
+
+    /**
+     * 读快照 main.protocolParams（协议参数，B1）：
+     * 新快照存为【对象节点】→ 转回 JSON 文本；旧/兜底形态可能为【字符串节点】→ 直取。
+     * 缺失 / null → null（= 接口用内置默认，即改造前行为）。
+     */
+    private String protocolParamsText(JsonNode main) {
+        JsonNode n = main.path("protocolParams");
+        if (n.isMissingNode() || n.isNull()) {
+            return null;
+        }
+        return n.isTextual() ? n.asText() : n.toString();
+    }
+
+    /** 写快照 main.protocolParams：解析为 JsonNode 写入；非法 JSON 时原样存字符串（读取侧兼容） */
+    private void putProtocolParams(ObjectNode main, String protocolParams) {
+        if (protocolParams == null || protocolParams.isBlank()) {
+            main.putNull("protocolParams");
+            return;
+        }
+        try {
+            main.set("protocolParams", objectMapper.readTree(protocolParams));
+        } catch (Exception e) {
+            main.put("protocolParams", protocolParams);
+        }
     }
 
     /**

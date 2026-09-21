@@ -8,6 +8,7 @@ import com.deepx.apicenter.engine.UnifiedModel.ArrayNode;
 import com.deepx.apicenter.engine.UnifiedModel.ObjectNode;
 import com.deepx.apicenter.engine.UnifiedModel.ScalarNode;
 import com.deepx.apicenter.exception.BizException;
+import com.deepx.apicenter.engine.XmlProtoConfig;
 import com.deepx.apicenter.mapping.TypeRegistry;
 import org.springframework.stereotype.Component;
 
@@ -243,25 +244,56 @@ public class XmlProtocolAdapter implements Adapter {
 
     private AdapterContext encode(AdapterContext ctx) {
         try {
+            // 协议参数（B1）：由 ChainEngine 装配期烘焙后注入；缺省 = 内置默认（= 改造前行为）
+            XmlProtoConfig cfg = ctx.attrs().get(XmlProtoConfig.ATTR) instanceof XmlProtoConfig c
+                    ? c : XmlProtoConfig.DEFAULT;
             ByteArrayOutputStream out = new ByteArrayOutputStream();
-            XMLStreamWriter w = outputFactory.createXMLStreamWriter(out, "UTF-8");
-            w.writeStartDocument("UTF-8", "1.0");
-            String root = ctx.attrs().get("xmlRoot") instanceof String s ? s : ROOT_REQUEST;
+            // ⚠ 不变式：writer 字节编码与声明必须【同源】（均取 cfg.encoding）——
+            //   实测 Woodstox 的 writeStartDocument(encoding,…) 仅在 writer 未指定编码时生效，
+            //   故 :247 才是编码权威；两者不一致会让声明“说谎”
+            XMLStreamWriter w = outputFactory.createXMLStreamWriter(out, cfg.encoding());
+            w.writeStartDocument(cfg.encoding(), cfg.version());
+            String root = ctx.attrs().get("xmlRoot") instanceof String s ? s : cfg.root();
             if (!(ctx.payload().root() instanceof ObjectNode)) {
                 // XML 文档单根约束（评审 N3）：数组/标量根无合法 XML 表示，明确报错而非产出非法多根文档
                 throw new BizException(50000, "报文编码失败：XML 根节点必须为对象");
             }
-            writeNode(w, root, ctx.payload().root());
+            writeRoot(w, root, cfg, ctx.payload().root());
             w.writeEndDocument();
             w.flush();
             w.close();
             ctx.outbound().body(out.toByteArray());
+            // Content-Type 保持 application/xml（不加 charset）：B1 不改既有行为；
+            // XML 声明是编码的权威（XML 规范），需显式 charset 的场景见设计方案 §5.4 ③
             ctx.outbound().header("Content-Type", "application/xml");
             ctx.outbound().header("Accept", "application/xml");
             return ctx;
         } catch (Exception e) {
             throw new BizException(50000, "报文编码失败：" + e.getMessage());
         }
+    }
+
+    /**
+     * 写根元素（可带命名空间）：配了 namespace 时用 StAX 三参 API + writeNamespace
+     * （探针 #2/#3 实证：`writeStartElement(prefix,local,ns)` + `writeNamespace` 才能正确输出 xmlns）；
+     * 子元素交给常规 {@link #writeNodeQuiet}（默认命名空间下自动继承，带前缀时同前缀生效）。
+     */
+    private void writeRoot(XMLStreamWriter w, String name, XmlProtoConfig cfg, UnifiedModel.UNode node)
+            throws XMLStreamException {
+        if (node instanceof ObjectNode obj) {
+            if (cfg.hasNamespace()) {
+                String prefix = cfg.nsPrefix() == null ? "" : cfg.nsPrefix();
+                w.writeStartElement(prefix, name, cfg.nsUri());
+                w.writeNamespace(prefix, cfg.nsUri());
+            } else {
+                w.writeStartElement(name);   // = 改造前行为（零回归）
+            }
+            writeAttributes(w, obj.attributes());
+            obj.fields().forEach((k, v) -> writeNodeQuiet(w, k, v));
+            w.writeEndElement();
+            return;
+        }
+        writeNode(w, name, node);   // 非对象根（数组/标量）：保持既有行为
     }
 
     /** 递归写出：fields → 元素、attributes → 属性；NULL 写空元素（D5 空值包含，与解码对称） */

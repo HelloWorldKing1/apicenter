@@ -12,6 +12,7 @@ import com.deepx.apicenter.dto.InterfaceDtos.ParamDto;
 import com.deepx.apicenter.dto.InterfaceDtos.RollbackRequest;
 import com.deepx.apicenter.dto.InterfaceDtos.StepDto;
 import com.deepx.apicenter.exception.BizException;
+import com.deepx.apicenter.engine.XmlProtoConfig;
 import com.deepx.apicenter.model.InterfaceRow;
 import com.deepx.apicenter.repository.AppRepository;
 import com.deepx.apicenter.repository.GroupRepository;
@@ -76,6 +77,8 @@ public class InterfaceService {
     private static final int MAX_MAX_RETRIES = 10;
 
     private final com.deepx.apicenter.engine.CircuitBreakerRegistry circuitBreakerRegistry;
+    /** 协议参数（interface.protocol_params）解析与校验用（《XML声明配置设计方案.md》B1） */
+    private final tools.jackson.databind.ObjectMapper objectMapper;
     private final InterfaceRepository interfaceRepository;
     private final AppRepository appRepository;
     private final GroupRepository groupRepository;
@@ -97,6 +100,7 @@ public class InterfaceService {
                             SnapshotSerializer snapshotSerializer,
                             ApplicationEventPublisher eventPublisher,
                             JdbcTemplate jdbcTemplate,
+                            tools.jackson.databind.ObjectMapper objectMapper,
                        com.deepx.apicenter.engine.CircuitBreakerRegistry circuitBreakerRegistry) {
         this.circuitBreakerRegistry = circuitBreakerRegistry;
         this.interfaceRepository = interfaceRepository;
@@ -109,6 +113,7 @@ public class InterfaceService {
         this.snapshotSerializer = snapshotSerializer;
         this.eventPublisher = eventPublisher;
         this.jdbcTemplate = jdbcTemplate;
+        this.objectMapper = objectMapper;
     }
 
     // ---------- 查询 ----------
@@ -184,7 +189,8 @@ public class InterfaceService {
                 upstream, callback, null, src.timeoutMs(), src.maxRetries(), desc, BASE_VERSION,
                 toParamDtos(src.params()), toBodyDtos(src.bodies()), toMappingDtos(src.mappings()),
                 toFieldDefDtos(src.fieldDefs()), toBindingDtos(src.bindings()),
-                src.steps() == null ? List.of() : src.steps());   // 前置步骤随复制携带（引用同一目标接口）
+                src.steps() == null ? List.of() : src.steps(),
+                src.protocolParams());   // 协议参数随复制携带（B1；否则复制品丢 XML 声明/根元素/命名空间配置）
         return createWithNote(target, "复制自 " + src.code() + "#v" + src.version());
     }
 
@@ -523,6 +529,14 @@ public class InterfaceService {
                 throw BizException.fieldInvalid("参数化操作 " + m.op() + " 需填操作参数 param");
             }
         }
+        // ---- 协议参数（B1：interface.protocol_params）----
+        // 解析+白名单校验（未知键 / version / encoding / root 名 / namespace.uri 全在此处拦 → 40001），
+        // 避免漏到运行期被 catch(Exception) 吞成 50000（探针 #6）
+        XmlProtoConfig.of(req.protocolParams(), objectMapper);
+        if (XmlProtoConfig.hasXmlSection(req.protocolParams())
+                && !"XML".equals(pin) && !"XML".equals(pout)) {
+            throw BizException.fieldInvalid("协议参数含 xml 段，但该接口入站/出站协议均为 JSON（配错了方向）");
+        }
         // ---- 前置步骤校验（编排，PS-2 / 设计方案 §10.1；hostId=0 表示新建） ----
         validateSteps(req, hostId);
     }
@@ -775,7 +789,12 @@ public class InterfaceService {
                 req.upstreamPath(), req.callbackUrl(), status, version,
                 req.timeoutMs() == null ? 3000 : req.timeoutMs(),
                 req.maxRetries() == null ? 4 : req.maxRetries(),
-                req.desc(), null, null, null, null);
+                req.desc(), null, null, null, null, normProtocolParams(req.protocolParams()));
+    }
+
+    /** 协议参数归一：空白 → NULL（DB 存 NULL 而非空串，与「空 = 内置默认」语义一致） */
+    private String normProtocolParams(String raw) {
+        return raw == null || raw.isBlank() ? null : raw.trim();
     }
 
     private InterfaceResponse toResponse(InterfaceRow row,
@@ -791,6 +810,7 @@ public class InterfaceService {
                 row.upstreamPath(), row.callbackUrl(), row.status(), row.version(),
                 row.timeoutMs(), row.maxRetries(), row.desc(),
                 row.createdAt(), row.updatedAt(), row.appName(), row.groupName(),
+                row.protocolParams(),
                 params, bodies, mappings, fieldDefs, bindings, steps, stepCount);
     }
 

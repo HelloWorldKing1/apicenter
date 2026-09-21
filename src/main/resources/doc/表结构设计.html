@@ -136,6 +136,7 @@
     <tr><td class="c">path</td><td class="c">VARCHAR(255)</td><td>NOT NULL</td><td>平台侧路径（如 /api/orders、/callback/{appId}/instance-state）</td></tr>
     <tr><td class="c">protocol_in</td><td class="c">VARCHAR(8)</td><td>NOT NULL DEFAULT 'JSON'</td><td>入站协议（来源 → 平台）：JSON / XML</td></tr>
     <tr><td class="c">protocol_out</td><td class="c">VARCHAR(8)</td><td>NOT NULL DEFAULT 'JSON'</td><td>出站协议（平台 → 目标）：JSON / XML</td></tr>
+    <tr><td class="c">protocol_params</td><td class="c">LONGTEXT</td><td>NULL</td><td>协议参数 JSON（<b>2026-09-21 新增，无新表</b>）：描述 XML 出站报文的<b>声明 / 根元素 / 命名空间</b>。空 = 平台内置默认（<code>version 1.0</code> / <code>encoding UTF-8</code> / 根元素 <code>request</code> / 无命名空间）= 改造前硬编码行为。<br>形态：<code>{"xml":{"version":"1.1","encoding":"GBK","root":"QueryRequest","namespace":{"prefix":"ns","uri":"http://…"}}}</code>；<code>namespace.prefix</code> 为空串 = 默认命名空间。<br><b>校验纪律</b>：未知键 / <code>version</code> 非 1.0·1.1 / <code>encoding</code> 非「JDK 支持且 ASCII 兼容」（显式拒 UTF-16·UTF-32）/ <code>root</code> 非合法元素名或为空值 / <code>namespace.uri</code> 缺失 → 一律 <code>40001</code>（不静默回落默认）；<b>键缺失 = 用默认</b>。JSON 协议的接口配 <code>xml</code> 段 → <code>40001</code>。<br>🔎 <code>encoding</code> 只改<b>声明</b>：非 ASCII 文本以字符引用（<code>&amp;#x4e2d;</code>）输出、字节恒 ASCII 安全（Woodstox 实测产不出原生 GBK 字节）。<code>soap</code> 段未实现（B2 延后）→ 同样 40001。<br>详见《开发文档/XML声明配置设计方案.md》v4.3。</td></tr>
     <tr><td class="c ref">app_id</td><td class="c">VARCHAR(32)</td><td>NOT NULL</td><td>归属应用（供应商，既是归属也是供应商）</td></tr>
     <tr><td class="c ref">group_id</td><td class="c">BIGINT</td><td>NOT NULL</td><td>归属分组（须属于所选应用）</td></tr>
     <tr><td class="c">upstream_path</td><td class="c">VARCHAR(255)</td><td></td><td>出站供应商接口路径（相对路径，拼 app.base_url；仅 OUTBOUND）</td></tr>
@@ -553,6 +554,7 @@
     <tr><td class="c">apps[].groups[]（name + ifs[]）</td><td class="c">app_group（ifs 由 interface.group_id 反查）</td></tr>
     <tr><td class="c">interfaces[].id / name / method / path / ifType</td><td class="c">interface.code / name / method / path / if_type</td></tr>
     <tr><td class="c">interfaces[].protocolIn / protocolOut</td><td class="c">interface.protocol_in / protocol_out</td></tr>
+    <tr><td class="c">interfaces[].protocolParams（XML 声明/根元素/命名空间）</td><td class="c">interface.protocol_params（JSON 文本；2026-09-21 新增，<b>列而非表</b>）</td></tr>
     <tr><td class="c">interfaces[].upstreamPath / deliveryUrl</td><td class="c">interface.upstream_path / callback_url（按 if_type 互斥）</td></tr>
     <tr><td class="c">interfaces[].inReqParams / outReqParams</td><td class="c">interface_param（side = IN / OUT）</td></tr>
     <tr><td class="c">interfaces[].inBody / outBody</td><td class="c">interface_body（side = IN / OUT）</td></tr>

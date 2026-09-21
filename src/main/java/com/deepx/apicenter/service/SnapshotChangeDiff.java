@@ -38,6 +38,7 @@ public final class SnapshotChangeDiff {
             {"code", "接口标识"}, {"name", "名称"}, {"ifType", "接口类型"}, {"method", "HTTP 方法"},
             {"path", "平台侧路径"}, {"groupId", "分组"},
             {"protocolIn", "入站协议"}, {"protocolOut", "出站协议"},
+            {"protocolParams", "协议参数"},
             {"upstreamPath", "供应商接口路径"}, {"callbackUrl", "回调地址"},
             {"timeoutMs", "读超时(ms)"}, {"maxRetries", "最大重试"}, {"desc", "描述"}
     };
@@ -409,6 +410,11 @@ public final class SnapshotChangeDiff {
     private static String text(JsonNode n) {
         if (n == null || n.isNull()) {
             return "";
+        }
+        // 对象 / 数组节点必须用紧凑 JSON：asText() 对它们返回【空串】→ 会导致
+        // 「值确实变了但变更摘要显示无变化」（协议参数 protocolParams 即为对象节点）
+        if (n.isObject() || n.isArray()) {
+            return n.toString();
         }
         return n.asText();
     }

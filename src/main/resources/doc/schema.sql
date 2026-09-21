@@ -58,6 +58,7 @@ CREATE TABLE interface (
     path          VARCHAR(255) NOT NULL COMMENT '平台侧路径（路由键，全局唯一）',
     protocol_in   VARCHAR(8)   NOT NULL DEFAULT 'JSON' COMMENT '入站协议（来源 → 平台）：JSON/XML',
     protocol_out  VARCHAR(8)   NOT NULL DEFAULT 'JSON' COMMENT '出站协议（平台 → 目标）：JSON/XML',
+    protocol_params LONGTEXT   COMMENT '协议参数 JSON（XML 声明 version/encoding、根元素 root、命名空间 namespace、SOAP；空 = 平台内置默认）',
     app_id        VARCHAR(32)  NOT NULL COMMENT '归属应用（供应商，既是归属也是供应商）',
     group_id      BIGINT       NOT NULL COMMENT '归属分组（须属于所选应用）',
     upstream_path VARCHAR(255) COMMENT '出站供应商接口路径（相对路径，拼 app.base_url；仅 OUTBOUND）',
@@ -394,6 +395,16 @@ CREATE TABLE admin_session (
 --   · 删被引为前置的接口 → **禁止**（interface_step.target_interface_id 引用存在时；提示引用方）
 --   · 删账号       → 级联删其会话（admin_session）；v1 无账号管理界面（仅注册/登录/改密）
 --   · dead_letter.ref_id 为多态引用（指向 outbound_request.id 或 inbound_delivery.id），不约束
+-- ============================================================
+
+-- ============================================================
+-- 2026-09-21 XML 声明/命名空间/SOAP 配置（《XML声明配置设计方案.md》v4.2 · B1）
+--   interface 新增 protocol_params：接口级 JSON，描述 XML 出站报文的声明/根元素/命名空间
+--   （SOAP 段属 B2，字段位已预留；空 = 平台内置默认 1.0/UTF-8/request/无命名空间 = 改造前行为）
+--   ✅ 已应用到开发库（2026-09-21）。
+-- ALTER TABLE interface ADD COLUMN protocol_params LONGTEXT NULL
+--   COMMENT '协议参数 JSON（XML 声明 version/encoding、根元素 root、命名空间 namespace、SOAP；空 = 平台内置默认）'
+--   AFTER protocol_out;
 -- ============================================================
 
 -- ============================================================

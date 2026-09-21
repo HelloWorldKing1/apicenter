@@ -104,7 +104,9 @@ public final class InterfaceDtos {
             List<FieldDefDto> fieldDefs,
             List<BindingDto> bindings,
             /** 前置步骤（编排，可空 = 无）；仅 OUTBOUND 支持 */
-            List<StepDto> steps
+            List<StepDto> steps,
+            /** 协议参数 JSON（XML 声明/根元素/命名空间/SOAP）；空 = 平台内置默认（见《XML声明配置设计方案.md》） */
+            String protocolParams
     ) {
         /** 兼容构造：历史/测试以整值传版本（如 1）时自动转 BigDecimal；steps 缺省 = 无 */
         public InterfaceRequest(
@@ -116,7 +118,7 @@ public final class InterfaceDtos {
                 List<FieldDefDto> fieldDefs, List<BindingDto> bindings) {
             this(code, name, ifType, method, path, protocolIn, protocolOut, appId, groupId,
                     upstreamPath, callbackUrl, status, timeoutMs, maxRetries, desc,
-                    BigDecimal.valueOf(version), params, bodies, mappings, fieldDefs, bindings, null);
+                    BigDecimal.valueOf(version), params, bodies, mappings, fieldDefs, bindings, null, null);
         }
 
         /** 兼容构造：BigDecimal 版本 + 无 steps（快照回滚等旧调用形态） */
@@ -129,7 +131,20 @@ public final class InterfaceDtos {
                 List<FieldDefDto> fieldDefs, List<BindingDto> bindings) {
             this(code, name, ifType, method, path, protocolIn, protocolOut, appId, groupId,
                     upstreamPath, callbackUrl, status, timeoutMs, maxRetries, desc,
-                    version, params, bodies, mappings, fieldDefs, bindings, null);
+                    version, params, bodies, mappings, fieldDefs, bindings, null, null);
+        }
+
+        /** 兼容构造：带 steps、无 protocolParams（历史调用形态；protocolParams 缺省 = 内置默认） */
+        public InterfaceRequest(
+                String code, String name, String ifType, String method, String path,
+                String protocolIn, String protocolOut, String appId, Long groupId,
+                String upstreamPath, String callbackUrl, String status,
+                Integer timeoutMs, Integer maxRetries, String desc, BigDecimal version,
+                List<ParamDto> params, List<BodyDto> bodies, List<MappingDto> mappings,
+                List<FieldDefDto> fieldDefs, List<BindingDto> bindings, List<StepDto> steps) {
+            this(code, name, ifType, method, path, protocolIn, protocolOut, appId, groupId,
+                    upstreamPath, callbackUrl, status, timeoutMs, maxRetries, desc,
+                    version, params, bodies, mappings, fieldDefs, bindings, steps, null);
         }
     }
 
@@ -140,6 +155,8 @@ public final class InterfaceDtos {
             int timeoutMs, int maxRetries, String desc,
             LocalDateTime createdAt, LocalDateTime updatedAt,
             String appName, String groupName,
+            /** 协议参数 JSON（XML 声明/根元素/命名空间/SOAP）；空/blank = 平台内置默认 */
+            String protocolParams,
             List<InterfaceRow.ParamRow> params,
             List<InterfaceRow.BodyRow> bodies,
             List<InterfaceRow.MappingRow> mappings,

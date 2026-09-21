@@ -349,6 +349,49 @@ curl -i -X POST http://localhost:8080/qd/ok \
 - `kind = RESP`：出站响应字段（仅 OUTBOUND）；
 - `kind = ACK`：ack 回执字段（仅 INBOUND）。
 
+**XML 协议参数（2026-09-21）** —— 位置：接口弹窗 → **高级** → 「XML 协议参数」（仅入站或出站协议为 **XML** 时显示）
+
+| 项 | 可选值 | 留空 / 默认 | 说明 |
+|---|---|---|---|
+| XML 声明 version | `1.0` / `1.1` | `1.0` | 写进出站报文的 `<?xml version="…"?>` |
+| XML 声明 encoding | `UTF-8` / `GBK` / `GB2312` / `GB18030` / `Big5` / `Shift_JIS` / `ISO-8859-1` / `US-ASCII` | `UTF-8` | 写进声明（**不改变字节**，见下） |
+| 根元素 | 合法 XML 元素名 | `request` | 出站报文的根元素（如 `QueryRequest`） |
+| 命名空间 URI | 任意合法 URI | 不写命名空间 | 留空则不输出 `xmlns` |
+| 命名空间前缀 | 合法前缀；**留空 = 默认命名空间** | 默认命名空间 | 前缀 `ns` → `<ns:QueryRequest xmlns:ns="…">`；留空 → `<QueryRequest xmlns="…">` |
+
+**两条必须知道的行为**：
+
+1. **`encoding` 只改「声明」，不改字节**：非 ASCII 文本会以**字符引用**（如 `&#x4e2d;`）输出，字节**恒为 ASCII 安全**。
+   这能满足“要求声明必须是 GBK”的供应商（声明与实际字节都合法、任何合规解析器都能读）；
+   但**产不出原生 GBK 字节** —— 若供应商用字符串切割而非 XML 解析器处理报文，当前不支持（已记 backlog）。
+   注：`UTF-16` / `UTF-32` 会被**显式拒绝**（它们会产生非 ASCII 原生字节，破坏上述前提）。
+2. **生效时机**：保存即生效（平台会失效该接口的链缓存，**无需重启、不依赖 5 分钟 TTL**）；
+   且参数会**进版本快照** → 「版本历史 → 回滚」能一并回退协议参数。
+
+**校验纪律（不静默忽落默认）**：写错参数会**直接拒绝保存**（`40001`）而非默默用默认值 ——
+未知键（如把 `root` 拼成 `rootEelement`）、`version=1.2`、`encoding=UTF-16`、根元素含冒号或为空、
+命名空间缺 URI、**JSON 协议的接口配了 `xml` 段** → 全部 `40001`；`soap` 段尚未支持（同报错并提示）。
+想用平台默认就**不要填**该项，而不是填空串。
+
+**等价 curl**（改已有接口；`protocolParams` 为 JSON **字符串**）：
+
+```bash
+# 只改协议参数（其余字段需整量提交，此处略；完整示例见 §9.3）
+curl -X PUT http://localhost:8080/api/admin/interfaces/123 \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -H 'X-Change-Note: XML 改 1.1 + 命名空间' \
+  -d '{"code":"IF-XML","name":"XML 接口","ifType":"OUTBOUND","method":"GET",
+       "path":"/x","protocolIn":"XML","protocolOut":"XML",
+       "appId":"USGSXML","groupId":1,"upstreamPath":"/x.atom","status":"PUBLISHED",
+       "timeoutMs":15000,"maxRetries":2,"version":1.0,
+       "protocolParams":"{\"xml\":{\"version\":\"1.1\",\"encoding\":\"GBK\",\"root\":\"QueryRequest\",\"namespace\":{\"prefix\":\"ns\",\"uri\":\"http://example.com/svc\"}}}",
+       "params":[],"bodies":[],"mappings":[],"fieldDefs":[],"bindings":[],"steps":[]}'
+```
+
+> **排障口径**：想确认平台到底发了什么，看**调用日志的 OUT 条 `req_body`**（那是编码后的实录）——
+> 例：`<?xml version='1.1' encoding='GBK'?><ns:QueryRequest xmlns:ns="http://example.com/svc">…</ns:QueryRequest>`。
+> 注意 GET/DELETE **不携带请求体**（协议层不发 body），此时 `req_body` 仅代表“编码产物”而非“已发送内容”。
+
 **适配器绑定（Bindings）**
 
 - `MESSAGE`：报文适配器；`AUTH`：出站签名（仅 OUTBOUND）；`CALLBACK_AUTH`：回调验签（仅 INBOUND）。

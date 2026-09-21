@@ -58,9 +58,12 @@ public class AdapterImplCatalog {
                     f("nullHandling", "空值策略", "select", false, List.of("OMIT", "INCLUDE", "AS_NULL"), null),
                     f("numberPrecision", "数字精度", "select", false, List.of("DOUBLE", "BIG_DECIMAL", "STRING"), null))),
             new ImplMeta("XmlProtocolAdapter", "protocol", "XML 编解码", List.of(
-                    f("rootElement", "根元素", "text", true, null, "如 response"),
-                    f("namespace", "命名空间", "text", false, null, "如 http://example.com/schema"),
-                    f("attrVsElement", "属性映射方式", "select", true, List.of("ELEMENT", "ATTRIBUTE"), null))),
+                    // 2026-09-21：namespace / attrVsElement 两个参数【运行时零生效】（协议适配器不进绑定表，
+                    //   且适配器代码从不读 adapterParams）→ 属“死配置”，按《XML声明配置设计方案.md》Q3 先撤下；
+                    //   真正生效的 XML 声明 / 根元素 / 命名空间配置已迁到【接口级 protocol_params】（B1）。
+                    //   注：本处只撤元数据；既有 adapter 行的 params 里若残留这些键不会被拒（校验只按声明字段逐个查）。
+                    f("rootElement", "根元素（已迁接口级）", "text", false, null,
+                            "已改为按接口配置：接口弹窗 → 高级 → 协议参数（version / encoding / root / namespace）"))),
             // ---------- 报文 message ----------
             new ImplMeta("NoopMessageAdapter", "message", "直通（无转换）", List.of()),
             new ImplMeta("EnvelopeMessageAdapter", "message", "信封报文适配", List.of(

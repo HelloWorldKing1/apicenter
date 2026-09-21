@@ -1,15 +1,14 @@
-# XML 声明 / 命名空间 / SOAP 配置设计方案（v4.2 定稿 · 2026-09-21）
+# XML 声明 / 命名空间 / SOAP 配置设计方案（v4.3 · 2026-09-21）
 
-> **v4.2 = 决策全闭合版**：v4.1 自审新增的 3 项已拍板（**Q17=是 / Q18=按建议 / Q19=B2 延后**）。
-> ⚠️ **实施计划因此变更**：**立即实施范围 = B1（7.4 人日）**；**B2（完整 SOAP，6.4 人日）延后**，
-> 触发条件 = 拿到真实 SOAP 供应商的 WSDL/报文样例（§9 开头、§12 Q19）。
-> 历次修订：v1.0 平台级 adapter 实例方案（**已废弃**）→ v2.0 接口级 `protocol_params` +
-> `encoding` 一起实现 + 命名空间/根元素 → v3.0 **完整 SOAP** → v4.0 定稿 → v4.1 自审修正 16 项 → **v4.2 闭合**。
+> **v4.3 = B1 已落地**（**代码已实现并验证**）：Q17/Q18/Q19 均按 v4.2 拍板执行；
+> **B1 全量完成**（后台 + 前端 + 测试），**B2（完整 SOAP）仍延后**。落地与验证记录见 §14。
+> 历次修订：v1.0 平台级 adapter 实例方案（**已废弃**）→ v2.0 接口级 `protocol_params` + `encoding`
+> + 命名空间/根元素 → v3.0 **完整 SOAP** → v4.0 定稿 → v4.1 自审修正 16 项 → v4.2 决策闭合 → **v4.3 B1 落地**。
 >
-> **前置状态**：开发库已于 2026-09-21 清空重开（仅保留 `adapter` 5 条 + 账号 2 个），
-> 备份 `~/apicenter-dev-db-backup-20260921-133111.sql` ⇒ **无历史数据包袱**（无迁移、无旧快照兼容）。
+> **前置状态**：开发库已于 2026-09-21 清空重开，并已**重新导入 fastmoss 种子**（`POST /api/admin/seed/import`
+> —— 集成测试依赖它）；备份 `~/apicenter-dev-db-backup-20260921-133111.sql`。
 >
-> **本方案状态**：**定稿（v4.2），无开放项**。B1 可立即开工（实现清单见 §9）。
+> **本方案状态**：**B1 已交付（325 测试全绿）**；B2 设计保留、未实施（触发条件见 §12 Q19）。
 
 ### TL;DR（30 秒版）
 
@@ -646,6 +645,63 @@ curl -s -X POST http://localhost:8080/api/admin/interfaces \
 | **9** | **出站报文模板能力**（现已核实 `interface_body.raw` 的 **OUT 侧运行时完全未被读取** —— `findBodies()` 只在 `InterfaceService` 调用，引擎侧零引用 → **该配置本身是死配置**） | 本期用"参数化"方式做 SOAP 包裹（成本可控）；模板能力是**更通用**的解法，但需模板语法 / 变量注入 / 安全边界三件套 | 出现**第二种**需要自定义报文骨架的协议（第三种出现时重复实现成本已超模板能力） | +3~4 人日 |
 | **10** | **异常路径的 OUT 调用日志缺 `resp_body`**：`CallLogAspect.writeOut(start, spec, status, null, e)` 在异常分支传 `null` → 5xx/超时的**供应商响应体进不了调用日志**（即使已在 `dead_letter.payload` 落了） | 既有行为（非本次引入）；故障时调用日志与死信表信息不对称 | 真实发生"只有死信表有原文、调用日志页面看不到"的排查障碍 | +0.3 人日（异常携带 body 时由切面取出落库；注意脱敏/截断与现有口径一致） |
 | **11** | **平台对外暴露 SOAP 端点**（入站 SOAP 服务端能力） | Q17 建议本期入站**不解包**（`protocol_in` 是平台自家契约）；若调用方只能讲 SOAP，则需真正的服务端能力（WSDL/操作路由） | 出现"只会调 SOAP 的调用方"需求 | +3~5 人日（独立的"服务端 SOAP"课题） |
+
+---
+
+## 14. B1 落地记录（v4.3 · 2026-09-21）
+
+### 14.1 实际改动（与 §9 清单对照）
+
+| 层 | 文件 | 改动 |
+|---|---|---|
+| 表 | `schema.sql` + 开发库 | `interface.protocol_params LONGTEXT NULL`（已应用） |
+| 模型 | `model/InterfaceRow.java` | 新增 `protocolParams`（canonical 末位）+ `MAPPER` 读取 |
+| 仓储 | `repository/InterfaceRepository.java` | insert（**位置绑定序号整体下移**）+ update 列清单 |
+| DTO | `dto/InterfaceDtos.java` | `InterfaceRequest` 末位新增字段 + 第三个 compat 构造器；`InterfaceResponse` 新增 |
+| 解析 | `engine/XmlProtoConfig.java`（**新**） | 解析 + 白名单 + NCName/URI 校验 + 内置默认；`ATTR` 供链上下文传递 |
+| 引擎 | `engine/ChainEngine.java` | 装配期解析并**烘焙进缓存链**（`Chain` 新增 `xmlConfig`）；ENCODE 注入；`decodeResponse` **补传**（原先从不注入）；DECODE 加“**入站不解包**”注释（Q17） |
+| 适配器 | `adapter/protocol/XmlProtocolAdapter.java` | 读配置：声明 version/encoding（同源）+ `writeRoot`（三参 API 写命名空间）；未配时走原路径 |
+| ack | `engine/AckRenderer.java` | 只取 version/encoding（根元素仍为约定 `response`） |
+| 服务 | `service/InterfaceService.java` | 保存期校验（含“JSON 接口配 xml 段”）；`toRow`/`toResponse`/「**复制带上参数**」 |
+| 快照 | `service/SnapshotSerializer.java` | `main` 新增 `protocolParams`（存**解析后的 JsonNode**）+ 读取兼容对象/字符串两形态 |
+| 变更说明 | `service/SnapshotChangeDiff.java` | `MAIN_KEYS` 加“协议参数”；`text()` **修正对象节点返回空串**的隐性 bug |
+| 元数据 | `service/AdapterImplCatalog.java` | 撤下 `namespace` / `attrVsElement`（死配置，Q3） |
+| 前端 | `utils/protocolParams.mjs` + `.test.mjs`（新） | `buildProtocolParams`（**只输出非空键**；全默认返回 `null`）/ `parseProtocolParams` / 白名单常量 |
+| 前端 | `views/Interfaces.vue` | 「高级」Tab 新增 XML 协议参数区（version/encoding/root/ns，仅 XML 显示）+ hint（含 §1 语义 A 说明） |
+| 测试 | `engine/XmlProtoConfigTest`（**新 16**）+ `adapter/protocol/XmlProtocolAdapterTest`（+7） | 默认/未知键/白名单/NCName/URI/命名空间/字节 ASCII 安全/ack 优先 |
+
+### 14.2 验证结果
+
+| 项 | 结果 |
+|---|---|
+| 后台编译 | `mvn -o clean test-compile` ✅ |
+| **全量测试** | **325 个全绿**（`mvn -o test` → BUILD SUCCESS；新增 23 例） |
+| 前端 | `npm run lint`（0 error）/ `npm test`（0 失败 + SSR 18/18）/ `npm run build` ✅ |
+| **端到端（真实 USGS XML 上游）** | S1 等价默认值 → `<?xml version='1.0' encoding='UTF-8'?><request>…</request>`（**与改造前逐字节一致**）；S2 真实值 → `<?xml version='1.1' encoding='GBK'?><ns:QueryRequest xmlns:ns="http://example.com/svc">…</ns:QueryRequest>`；两者均 200 + RESP 白名单生效 |
+| 保存期校验（8 例实测） | 拼错键 / version=1.2 / encoding=UTF-16 / root 含冒号 / root 空值 / `soap` 段 / namespace 缺 uri / JSON 接口配 xml 段 → **全部 `40001` 且消息精确** |
+
+### 14.3 实现期发现（v4.2 设计未预料，已处置）
+
+| # | 发现 | 影响 | 处置 |
+|---|---|---|---|
+| **I-1** | `SnapshotChangeDiff.text(n)` 用 `n.asText()`，对**对象节点返回空串** → “协议参数变了”会显示成**“无变化”** | 变更详情 / change_note 静默失真 | 已改为对象/数组用 `toString()`（通用修正，其他标量键行为不变） |
+| **I-2** | **“既有调用点零改动”过于乐观**：`InterfaceRow` 隐式 canonical 从 21→22 参后，21 参调用**改配 compat 构造器**（`Long groupId` / `int version`）→ 1 处测试报 `int→Long` / `BigDecimal→int` | 编译期暴露（可接受），但“加字段=零改动”不成立 | 该调用点补 `11L` + 末位 `null`；**教训：位置构造 + compat 重载下必须 `clean test-compile`** |
+| **I-3** | **增量编译假通过**：`mvn -o -q test-compile` 报 exit=0 但实际未重编（旧 class 残留）；另 `timeout` 命令在 macOS 不存在，导致一次 `mvn` 根本没执行 | 会误判“已通过” | 一律 `mvn -o clean test-compile`（呼应 CLAUDE.md 既有纪律） |
+| **I-4** | `root:""` 的口径实现时需定案 | 空串是“不要根元素”还是“用默认”？ | 定案：**键存在但空白 → 40001；键缺失 → 内置默认**（`namespace.prefix` 例外：空串 = 默认命名空间）；前端**只输出非空键**、全默认**不提交该字段** |
+
+### 14.4 文档同步（**已完成**，2026-09-21）
+
+| 文档 | 已同步内容 |
+|---|---|
+| `doc/表结构设计.html` | `interface` 新增 `protocol_params` 列（含校验纪律 / 语义 A / soap 延后说明）+ 原型映射表新增一行 |
+| `doc/API中心使用教程.md` | §4.4 新增「**XML 协议参数**」小节（字段表 / 两条行为 / 校验纪律 / 等价 curl / 排障口径） |
+| `doc/开发文档/整体测试方案.md` | §6.6 新增「**X-P 协议参数**」8 例；**更正「边界」**（“根元素写死 request”已不成立 → 新边界为“SOAP 骨架 B2 延后”）；变更记录 v2.4 |
+| `CLAUDE.md` | 状态表新增 B1 行；Gotchas 新增 4 条（对象节点 `asText()` 陷阱 / 位置构造与 compat 重载 / `clean test-compile` 纪律 / 协议参数四条纪律） |
+| 本方案 | v4.3 §14 完整落地记录（改动清单 / 验证结果 / 实现期发现 I-1~I-4） |
+
+> 顺带修掉：`整体测试方案.md` 两处既有 **GFM 破表**（表格单元里出现未转义的字面 `|`：`<m3\|m4>` 与 `curl … \| grep -E "apicenter_(calllog\|gateway\|…)"`）。
+>
+> 未改（有意）：`M0-01链引擎契约设计.md` D5 写的是“**首期**一律平台默认参数”——对 M0–M2 阶段仍属实，且为已评审契约文档，不回溯改写。
 
 ---
 

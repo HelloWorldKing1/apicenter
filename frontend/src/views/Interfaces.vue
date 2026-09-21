@@ -313,6 +313,43 @@
               </el-select>
             </div>
           </div>
+
+          <!-- XML 协议参数（B1）：仅任一协议为 XML 时显示；留空 = 平台内置默认（1.0 / UTF-8 / request / 无命名空间） -->
+          <div v-if="form.protocolIn === 'XML' || form.protocolOut === 'XML'" class="adv-grid"
+               style="margin-top: 14px; padding-top: 12px; border-top: 1px dashed #e5e7eb">
+            <div class="adv-item" style="grid-column: 1 / -1">
+              <span class="basic-label">XML 协议参数</span>
+              <div class="proto-hint">
+                留空即用平台默认（version 1.0 / encoding UTF-8 / 根元素 request / 无命名空间）。
+                <b>encoding 只改“声明”</b>：非 ASCII 字符会以字符引用（&amp;#x4e2d;）输出，字节保持 ASCII 安全，
+                以满足“要求声明必须是 GBK”的供应商；若供应商要求原生 GBK 字节，当前不支持。
+              </div>
+            </div>
+            <div class="adv-item">
+              <span class="basic-label">XML 声明 version</span>
+              <el-select v-model="form.xmlVersion" style="width: 100%">
+                <el-option v-for="v in XML_VERSIONS" :key="v" :label="v" :value="v" />
+              </el-select>
+            </div>
+            <div class="adv-item">
+              <span class="basic-label">XML 声明 encoding</span>
+              <el-select v-model="form.xmlEncoding" style="width: 100%">
+                <el-option v-for="e in XML_ENCODINGS" :key="e" :label="e" :value="e" />
+              </el-select>
+            </div>
+            <div class="adv-item">
+              <span class="basic-label">{{ form.protocolOut === 'XML' ? '根元素（出站报文）' : '根元素' }}</span>
+              <el-input v-model="form.xmlRoot" placeholder="默认 request（如 QueryRequest）" />
+            </div>
+            <div class="adv-item">
+              <span class="basic-label">命名空间前缀（可空 = 默认命名空间）</span>
+              <el-input v-model="form.xmlNsPrefix" placeholder="如 ns（留空即默认命名空间）" />
+            </div>
+            <div class="adv-item">
+              <span class="basic-label">命名空间 URI（可空 = 不写命名空间）</span>
+              <el-input v-model="form.xmlNsUri" placeholder="如 http://example.com/svc" />
+            </div>
+          </div>
         </el-tab-pane>
       </el-tabs>
 
@@ -537,6 +574,7 @@ import http, { LONG_RUNNING_TIMEOUT } from '@/api/http'
 import InterfaceParamsTab from '@/components/InterfaceParamsTab.vue'
 import InterfaceStepsTab from '@/components/InterfaceStepsTab.vue'
 import { buildStepFieldGroups } from '@/utils/stepFields.mjs'
+import { XML_VERSIONS, XML_ENCODINGS, buildProtocolParams, parseProtocolParams } from '@/utils/protocolParams.mjs'
 
 const route = useRoute()
 
@@ -616,6 +654,9 @@ function emptyForm() {
     protocolIn: 'JSON', protocolOut: 'JSON', protoSame: true, appId: '', groupId: null,
     upstreamPath: '', callbackUrl: '', status: null, timeoutMs: 3000, maxRetries: 4, desc: '',
     version: 1,
+    // 协议参数（B1，仅 XML 需要；详见《XML声明配置设计方案.md》）——
+    // 提交时由 buildProtocolParams 组装 JSON；全默认时不提交（库保持 NULL = 从未配置）
+    xmlVersion: '1.0', xmlEncoding: 'UTF-8', xmlRoot: '', xmlNsPrefix: '', xmlNsUri: '',
     // 透传模式（仅出站接口）：出站报文 = 入站原样转发，后端不做字段映射（提交空映射规则）
     passthrough: true,
     // 入站/出站参数拆为两个真实数组（ParamTable 原地编辑需要引用直连；保存时组装 side）
@@ -712,6 +753,7 @@ async function openEdit(row) {
     appId: d.appId, groupId: d.groupId,
     upstreamPath: d.upstreamPath || '', callbackUrl: d.callbackUrl || '',
     timeoutMs: d.timeoutMs, maxRetries: d.maxRetries, desc: d.desc, version: d.version,
+    ...parseProtocolParams(d.protocolParams),   // 协议参数（B1）回显
     passthrough: (d.mappings?.length || 0) === 0, // 回显推断：无映射规则 = 透传模式
     inParams: d.params.filter((p) => p.side === 'IN').map(toParamRow),
     outParams: d.params.filter((p) => p.side === 'OUT').map(toParamRow),
@@ -871,6 +913,11 @@ async function save() {
     callbackUrl: form.ifType === 'INBOUND' ? form.callbackUrl : null,
     status: null, timeoutMs: form.timeoutMs, maxRetries: form.maxRetries, desc: form.desc,
     version: form.version, params, bodies, mappings: passthrough ? [] : form.mappings,
+    // 协议参数（B1）：仅 XML 接口有意义；全默认 → null（不提交，库保持 NULL）
+    protocolParams: buildProtocolParams({
+      version: form.xmlVersion, encoding: form.xmlEncoding, root: form.xmlRoot,
+      nsPrefix: form.xmlNsPrefix, nsUri: form.xmlNsUri,
+    }),
     fieldDefs: form.fieldDefs, bindings,
     // 前置步骤（编排）：仅出站中转提交；seq 按当前顺序归一
     steps: form.ifType === 'OUTBOUND'
@@ -1354,5 +1401,13 @@ h4 { margin: 20px 0 10px; color: #303133; }
 }
 .group-new-form.err-input :deep(.el-input__wrapper) {
   box-shadow: 0 0 0 1px var(--el-color-danger) inset;
+}
+
+/* XML 协议参数区说明文字（B1）：沿用其他页 hint 的视觉（12px / #909399） */
+.proto-hint {
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.7;
+  margin-top: 4px;
 }
 </style>

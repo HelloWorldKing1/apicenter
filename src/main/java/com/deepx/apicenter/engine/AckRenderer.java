@@ -83,6 +83,9 @@ public class AckRenderer {
                             appRepository.findById(iface.appId()).map(AppRow::baseUrl).orElse("")),
                     new AdapterContext.TraceMeta(null), null, new OutboundRequestSpec());
             ctx.attrs().put("xmlRoot", XmlProtocolAdapter.ROOT_RESPONSE);
+            // 协议参数（B1）：ack 与出站【同源】但只限声明 version / encoding ——
+            //   根元素保持约定 response（D-XD-6），故不取 cfg.root()/namespace；也不 SOAP 化（D-SOAP-6）
+            ctx.attrs().put(XmlProtoConfig.ATTR, XmlProtoConfig.of(iface.protocolParams(), objectMapper));
             xmlProtocolAdapter.process(ctx);
             return ResponseEntity.ok().contentType(MediaType.APPLICATION_XML).body(ctx.outbound().body());
         }

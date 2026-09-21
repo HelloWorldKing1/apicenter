@@ -8,6 +8,7 @@ import com.deepx.apicenter.engine.UnifiedModel.ArrayNode;
 import com.deepx.apicenter.engine.UnifiedModel.ObjectNode;
 import com.deepx.apicenter.engine.UnifiedModel.ScalarNode;
 import com.deepx.apicenter.engine.UnifiedModel.ScalarType;
+import com.deepx.apicenter.engine.XmlProtoConfig;
 import com.deepx.apicenter.exception.BizException;
 import org.junit.jupiter.api.Test;
 
@@ -191,6 +192,95 @@ class XmlProtocolAdapterTest {
         if (!paramTypes.isEmpty()) {
             ctx.attrs().put("paramTypes", paramTypes);
         }
+        return ctx;
+    }
+
+    // ---------- 协议参数（B1：interface.protocol_params → 声明 / 根元素 / 命名空间） ----------
+
+    @Test
+    void 未配协议参数_与改造前逐字节一致() {
+        AdapterContext ctx = encodeCtx(textModel("v"), null);
+        adapter.process(ctx);
+        String out = new String(ctx.outbound().body(), StandardCharsets.UTF_8);
+        // 零回归：声明 1.0 / UTF-8 + 根元素 request + 无命名空间
+        assertThat(out).startsWith("<?xml version='1.0' encoding='UTF-8'?>");
+        assertThat(out).contains("<request>");
+        assertThat(out).doesNotContain("xmlns");
+    }
+
+    @Test
+    void 配version11_声明为11() {
+        AdapterContext ctx = encodeCtx(model(ObjectNode.of()), null,
+                new XmlProtoConfig("1.1", "UTF-8", "request", null, null));
+        adapter.process(ctx);
+        String out = new String(ctx.outbound().body(), StandardCharsets.UTF_8);
+        assertThat(out).startsWith("<?xml version='1.1' encoding='UTF-8'?>");
+    }
+
+    @Test
+    void 配encodingGBK_声明GBK且字节保持ASCII安全() {
+        AdapterContext ctx = encodeCtx(textModel("中文"), null,
+                new XmlProtoConfig("1.0", "GBK", "request", null, null));
+        adapter.process(ctx);
+        byte[] body = ctx.outbound().body();
+        String out = new String(body, StandardCharsets.UTF_8);
+        assertThat(out).startsWith("<?xml version='1.0' encoding='GBK'?>");
+        // 实测（探针 #9）：Woodstox 对非 UTF-8 编码将非 ASCII 写成【数字字符引用】，字节仍 ASCII 安全
+        assertThat(out).contains("&#x");
+        for (byte b : body) {
+            assertThat(b & 0x80).as("字节必须保持 ASCII 安全（不产原生 GBK 字节）").isZero();
+        }
+    }
+
+    @Test
+    void 配root_根元素按配置() {
+        AdapterContext ctx = encodeCtx(textModel("v"), null,
+                new XmlProtoConfig("1.0", "UTF-8", "QueryRequest", null, null));
+        adapter.process(ctx);
+        String out = new String(ctx.outbound().body(), StandardCharsets.UTF_8);
+        assertThat(out).contains("<QueryRequest>");
+    }
+
+    @Test
+    void ack的xmlRoot优先于配置root() {
+        // D-XD-6：ack 根元素维持约定 response，不被 protocol_params.root 覆盖
+        AdapterContext ctx = encodeCtx(model(ObjectNode.of()), "response",
+                new XmlProtoConfig("1.0", "UTF-8", "QueryRequest", null, null));
+        adapter.process(ctx);
+        String out = new String(ctx.outbound().body(), StandardCharsets.UTF_8);
+        assertThat(out).contains("<response");
+        assertThat(out).doesNotContain("QueryRequest");
+    }
+
+    @Test
+    void 配默认命名空间_输出xmlns() {
+        AdapterContext ctx = encodeCtx(textModel("v"), null,
+                new XmlProtoConfig("1.0", "UTF-8", "QueryRequest", "", "http://example.com/svc"));
+        adapter.process(ctx);
+        String out = new String(ctx.outbound().body(), StandardCharsets.UTF_8);
+        assertThat(out).contains("<QueryRequest xmlns=\"http://example.com/svc\">");
+    }
+
+    @Test
+    void 配带前缀命名空间_输出前缀与xmlns() {
+        AdapterContext ctx = encodeCtx(textModel("v"), null,
+                new XmlProtoConfig("1.0", "UTF-8", "QueryRequest", "ns", "http://example.com/svc"));
+        adapter.process(ctx);
+        String out = new String(ctx.outbound().body(), StandardCharsets.UTF_8);
+        // 探针 #2：三参 writeStartElement + writeNamespace 才能正确输出前缀绑定
+        assertThat(out).contains("<ns:QueryRequest xmlns:ns=\"http://example.com/svc\">");
+    }
+
+    /** 含单个字段的根对象模型（用于校验报文内容） */
+    private UnifiedModel textModel(String value) {
+        ObjectNode root = ObjectNode.of();
+        root.fields().put("data", ScalarNode.str(value));
+        return UnifiedModel.of(root);
+    }
+
+    private AdapterContext encodeCtx(UnifiedModel model, String xmlRoot, XmlProtoConfig cfg) {
+        AdapterContext ctx = encodeCtx(model, xmlRoot);
+        ctx.attrs().put(XmlProtoConfig.ATTR, cfg);
         return ctx;
     }
 

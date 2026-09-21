@@ -207,6 +207,11 @@ public class ChainEngine {
         List<InterfaceRow.BindingRow> binds = interfaceRepository.findBindings(iface.id());
         AppRow app = appRepository.findById(iface.appId()).orElseThrow();
 
+        // 协议参数（interface.protocol_params，B1）：装配期一次解析并烘焙进缓存链
+        // （M5 D-M5-2「解析时机上移」；变更经 InterfaceService 的 INTERFACE 事件失效）
+        // 非法配置应在保存期已被 40001 拦住；此处仍抛出（不静默兜底），避免直接改库导致行为不明
+        XmlProtoConfig xmlCfg = XmlProtoConfig.of(iface.protocolParams(), objectMapper);
+
         // 前置步骤（编排，PS-4）：装配期一次读取并烘焙进缓存链（与 mapping rules 同源，INTERFACE 事件
         // 已覆盖即时失效）；仅 OUTBOUND 支持；全局开关关闭时忽略（配置保留不执行）
         List<InterfaceRow.StepView> preSteps = "OUTBOUND".equals(ifType) && preStepEnabled
@@ -239,7 +244,10 @@ public class ChainEngine {
         steps.put(ChainPhase.DECODE, ctx -> {
             ctx.attrs().put("adapterParams", objectMapper.createObjectNode());
             ctx.attrs().put("paramTypes", inParamTypes);
-            // 前置调用（invocationRole=PRE / preDecoded=true）：payload 已由 PreStepExecutor 注入，跳过解码
+            // ⚠ 入站请求方向【不注入协议参数】：入站报文由调用方按其契约发送，
+            //   协议参数只作用于【出站构造】与【响应解包】（《XML声明配置设计方案.md》Q17=是）。
+            //   若在此注入，SOAP-out 接口的每次入站调用都会命中“解包失败 → log.warn”刷屏。
+            //   前置调用（invocationRole=PRE / preDecoded=true）：payload 已由 PreStepExecutor 注入，跳过解码
             if (Boolean.TRUE.equals(ctx.attrs().get("preDecoded"))) {
                 return ctx;
             }
@@ -269,6 +277,8 @@ public class ChainEngine {
                 ReservedKeys.stripSteps(ctx.payload());
             }
             ctx.attrs().put("adapterParams", objectMapper.createObjectNode());
+            // 协议参数仅作用于出站构造（XML 声明 / 根元素 / 命名空间）；响应解包见 decodeResponse
+            ctx.attrs().put(XmlProtoConfig.ATTR, xmlCfg);
             return encodeOut.process(ctx);
         });
 
@@ -290,7 +300,7 @@ public class ChainEngine {
             return authFinal.process(ctx);
         });
 
-        return new Chain(steps, bound, !preSteps.isEmpty());
+        return new Chain(steps, bound, !preSteps.isEmpty(), xmlCfg);
     }
 
     /** 协议适配器自动推导（M0-01 §5.1）：JSON / XML 双实现（XML 为 M3 交付） */
@@ -302,6 +312,11 @@ public class ChainEngine {
             return bean("XmlProtocolAdapter");
         }
         throw BizException.fieldInvalid("协议 " + protocol + " " + action + " 未实现");
+    }
+
+    /** 接口的协议参数（读缓存链，装配期已烘焙；供 test 端点 / 诊断查询用） */
+    public XmlProtoConfig xmlConfigOf(InterfaceRow iface) {
+        return chain(iface).xmlConfig();
     }
 
     /**
@@ -321,6 +336,9 @@ public class ChainEngine {
                 new AdapterContext.TraceMeta(null),
                 null, new com.deepx.apicenter.client.OutboundRequestSpec());
         ctx.attrs().put("rawBody", body);
+        // 协议参数（B1）：响应方向需注入——否则 XML 声明/根元素配置对「供应商响应解码」不可见
+        // （此处原先从不注入 adapterParams，是本方案新发现的缺口）
+        ctx.attrs().put(XmlProtoConfig.ATTR, chain(iface).xmlConfig());
         return adapter.process(ctx).payload();
     }
 
@@ -474,9 +492,10 @@ public class ChainEngine {
     }
 
     /** 装配结果链：steps（含烘焙的实例与规则）+ 绑定角色 → 实例明细（留痕 / span tag / 一致性读取）
-     *  + hasPreSteps（是否配置了前置步骤，供 OutboundEngine 决定补偿预算下限，D-PS-11） */
+     *  + hasPreSteps（是否配置了前置步骤，供 OutboundEngine 决定补偿预算下限，D-PS-11）
+     *  + xmlConfig（协议参数，装配期烘焙；M5 D-M5-2 解析时机上移） */
     private record Chain(Map<ChainPhase, ChainStep> steps, Map<String, AdapterInstance> boundByRole,
-                         boolean hasPreSteps) {
+                         boolean hasPreSteps, XmlProtoConfig xmlConfig) {
     }
 
     /** 接口是否配置了前置步骤（读缓存链；与装配同源） */

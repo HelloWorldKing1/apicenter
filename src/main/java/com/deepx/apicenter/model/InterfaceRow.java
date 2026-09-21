@@ -15,7 +15,9 @@ public record InterfaceRow(
         String upstreamPath, String callbackUrl, String status, BigDecimal version,
         int timeoutMs, int maxRetries, String desc,
         LocalDateTime createdAt, LocalDateTime updatedAt,
-        String appName, String groupName
+        String appName, String groupName,
+        /** 协议参数 JSON（XML 声明/根元素/命名空间/SOAP；空 = 平台内置默认）—— 见《XML声明配置设计方案.md》 */
+        String protocolParams
 ) {
 
     /** 便捷构造：整值版本（历史/测试直构）转 BigDecimal（v{n}.0） */
@@ -28,7 +30,7 @@ public record InterfaceRow(
             String appName, String groupName) {
         this(id, code, name, ifType, method, path, protocolIn, protocolOut, appId, groupId,
                 upstreamPath, callbackUrl, status, BigDecimal.valueOf(version),
-                timeoutMs, maxRetries, desc, createdAt, updatedAt, appName, groupName);
+                timeoutMs, maxRetries, desc, createdAt, updatedAt, appName, groupName, null);
     }
 
     public static final RowMapper<InterfaceRow> MAPPER = (rs, i) -> new InterfaceRow(
@@ -52,7 +54,8 @@ public record InterfaceRow(
             rs.getTimestamp("created_at").toLocalDateTime(),
             rs.getTimestamp("updated_at").toLocalDateTime(),
             rs.getString("app_name"),
-            rs.getString("group_name")
+            rs.getString("group_name"),
+            rs.getString("protocol_params")
     );
 
     /** 请求参数（interface_param）：IN 入站侧 / OUT 出站侧（入站回调的 OUT = 送达报文） */
