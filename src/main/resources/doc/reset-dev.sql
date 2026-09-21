@@ -26,8 +26,11 @@ TRUNCATE TABLE call_log;             -- 调用日志
 TRUNCATE TABLE alert_event;          -- 告警触发事件
 
 -- ============================================================================
--- 二、配置数据（11 张，adapter 保留；重头开始才执行）
+-- 二、配置数据（12 张，adapter 保留；重头开始才执行）
+-- ⚠ 2026-09-21 补：原脚本漏了 interface_step（前置接口编排子表，2026-09-18 新增），
+--    不清理会在重建接口后残留孤儿前置步骤（interface_id 被复用时会误挂到新接口上）。
 -- ============================================================================
+TRUNCATE TABLE interface_step;       -- 前置步骤（编排，2026-09-18 新增；必须先于 interface）
 TRUNCATE TABLE interface_param;
 TRUNCATE TABLE interface_body;
 TRUNCATE TABLE interface_field_mapping;
@@ -51,6 +54,7 @@ TRUNCATE TABLE alert_rule;           -- 自建告警规则（seed 不重建）
 -- DELETE FROM call_log;
 -- DELETE FROM alert_event;
 --
+-- DELETE FROM interface_step;
 -- DELETE FROM interface_param;
 -- DELETE FROM interface_body;
 -- DELETE FROM interface_field_mapping;
