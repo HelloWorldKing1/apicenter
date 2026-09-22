@@ -1,11 +1,12 @@
 <template>
   <div class="rb-editor">
-    <div class="rb-bar">
+    <!-- 两行布局：上排 = 格式标签 + 操作；提示**独占一行** —— 同行会把标签/按钮挤成竖排窄条（实测） -->
+    <div class="rb-top">
       <span class="rb-fmt">{{ formatLabel }}</span>
-      <span class="rb-hint">{{ hint }}</span>
       <el-button size="small" class="rb-btn" @click="doBeautify">美化结构</el-button>
     </div>
-    <textarea v-model="text" class="rb-body" spellcheck="false" :placeholder="placeholder"></textarea>
+    <div class="rb-hint">{{ hint }}</div>
+    <textarea v-model="text" class="rb-body" spellcheck="false" :placeholder="ph"></textarea>
     <div v-if="message" class="rb-msg" :class="{ 'rb-msg-err': !ok }">{{ message }}</div>
   </div>
 </template>
@@ -21,14 +22,15 @@
  *    实际**不生效**，textarea 是浏览器默认外观）。
  */
 import { computed, ref } from 'vue'
-import { beautifyBody, bodyFormatLabel, bodyHintFor } from '@/utils/requestBody.mjs'
+import { beautifyBody, bodyFormatLabel, bodyHintFor, bodyPlaceholderFor } from '@/utils/requestBody.mjs'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
   /** 接口的入站协议：决定美化格式与提示（缺省按 JSON，与后端默认一致） */
   protocolIn: { type: String, default: 'JSON' },
-  /** true = 回调报文（仅影响提示措辞） */
+  /** true = 回调报文（仅影响提示措辞与示例） */
   callback: { type: Boolean, default: false },
+  /** 显式指定 placeholder；不传则按协议给示例 */
   placeholder: { type: String, default: '' },
 })
 const emit = defineEmits(['update:modelValue'])
@@ -39,6 +41,7 @@ const text = computed({
 })
 const formatLabel = computed(() => bodyFormatLabel(props.protocolIn))
 const hint = computed(() => bodyHintFor(props.protocolIn, { callback: props.callback }))
+const ph = computed(() => props.placeholder || bodyPlaceholderFor(props.protocolIn, { callback: props.callback }))
 
 const message = ref('')
 const ok = ref(true)
@@ -64,12 +67,12 @@ defineExpose({ reset, doBeautify })
 
 <style scoped>
 .rb-editor { width: 100%; }
-.rb-bar {
+.rb-top {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  margin-bottom: 6px;
-  flex-wrap: wrap;
+  margin-bottom: 4px;
 }
 .rb-fmt {
   flex: none;
@@ -80,15 +83,14 @@ defineExpose({ reset, doBeautify })
   color: #409eff;
   font-size: 12px;
   font-family: 'SF Mono', Menlo, Consolas, monospace;
+  white-space: nowrap;
 }
 .rb-hint {
-  flex: 1;
-  min-width: 0;
   color: #909399;
   font-size: 12px;
   line-height: 1.6;
+  margin-bottom: 6px;
 }
-.rb-btn { flex: none; }
 .rb-body {
   width: 100%;
   min-height: 260px;

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  beautifyBody, bodyFormatOf, bodyFormatLabel, bodyHintFor, bodySkeleton,
+  beautifyBody, bodyFormatOf, bodyFormatLabel, bodyHintFor, bodyPlaceholderFor, bodySkeleton,
 } from './requestBody.mjs'
 
 test('格式随「入站协议」：XML → XML；其余（含缺省）→ JSON', () => {
@@ -62,4 +62,18 @@ test('提示语把**两个方向的报错**都写出来（省一次往返）', (
   const jsonHint = bodyHintFor('JSON', { callback: true })
   assert.ok(jsonHint.includes('回调报文'), jsonHint)
   assert.ok(jsonHint.includes('必须填合法 JSON'), jsonHint)
+})
+
+test('⚠️ 提示语必须**短**（过长会挤乱工具栏布局 —— 2026-09-22 实测回归防线）', () => {
+  for (const p of ['XML', 'JSON']) {
+    assert.ok(bodyHintFor(p).length <= 60, `${p}: ${bodyHintFor(p).length}`)
+    assert.ok(bodyHintFor(p, { callback: true }).length <= 70, `${p}/callback`)
+  }
+})
+
+test('示例放 placeholder（不占提示行），且随协议与场景变化', () => {
+  assert.equal(bodyPlaceholderFor('XML'), '<request><requestId>REQ-1</requestId></request>')
+  assert.equal(bodyPlaceholderFor('XML', { callback: true }), '<request><event_id>evt-1</event_id></request>')
+  assert.equal(bodyPlaceholderFor('JSON'), '{"requestId":"REQ-1"}')
+  assert.equal(bodyPlaceholderFor('JSON', { callback: true }), '{"event_id":"evt-1"}')
 })

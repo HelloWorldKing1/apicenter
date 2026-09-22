@@ -27,16 +27,25 @@ export function bodyFormatLabel(protocolIn) {
 }
 
 /**
- * 输入框下方的提示语：该填什么 + **填错会看到什么**（把两个方向的报错都写清，省一次往返）。
+ * 输入框下方的提示语（**一短行**）：该填什么 + 填错会看到的报错码。
+ * ⚠️ 保持短：太长会把工具栏挤乱（2026-09-22 实测）；示例放 `bodyPlaceholderFor`。
  */
 export function bodyHintFor(protocolIn, { callback = false } = {}) {
   const what = callback ? '回调报文' : '请求体'
   if (bodyFormatOf(protocolIn) === 'XML') {
-    return `该接口「入站协议」为 XML ⇒ ${what}必须填 XML`
-      + `（如 <request><event_id>evt-1</event_id></request>）；填 JSON 会被后端拒：40002 报文格式非法。`
+    return `入站协议为 XML ⇒ ${what}必须填 XML；填 JSON 会被后端拒（40002 报文格式非法）`
   }
-  return `该接口「入站协议」为 JSON ⇒ ${what}必须填合法 JSON`
-    + `（如 {"event_id":"evt-1"}）；填 XML 会被前端拦下并提示格式不符。`
+  return `入站协议为 JSON ⇒ ${what}必须填合法 JSON；填 XML 会被前端拦下`
+}
+
+/** 输入框为空时的示例（placeholder）—— 具体例子放这里，不占提示行 */
+export function bodyPlaceholderFor(protocolIn, { callback = false } = {}) {
+  if (bodyFormatOf(protocolIn) === 'XML') {
+    return callback
+      ? '<request><event_id>evt-1</event_id></request>'
+      : '<request><requestId>REQ-1</requestId></request>'
+  }
+  return callback ? '{"event_id":"evt-1"}' : '{"requestId":"REQ-1"}'
 }
 
 /**

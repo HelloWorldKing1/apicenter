@@ -96,7 +96,8 @@ const CASES = [
   // 请求体输入框（2026-09-22）：格式随「入站协议」——提示语 + 格式标签 + 美化按钮都要渲染出来
   ['请求体输入框（入站 XML）',
     { __component: 'RequestBodyEditor', modelValue: '<request><event_id>evt-1</event_id></request>', protocolIn: 'XML' },
-    { text: ['XML · 按「入站协议」', '必须填 XML', '40002', '美化结构'] }],
+    { text: ['XML · 按「入站协议」', '必须填 XML', '40002', '美化结构'],
+      html: ['placeholder="<request><requestId>'] }],   // placeholder（示例）是属性；decode() 已还原实体 ⇒ 按解码后的字串断言
   ['请求体输入框（入站 JSON）',
     { __component: 'RequestBodyEditor', modelValue: '{"event_id":"evt-1"}', protocolIn: 'JSON' },
     { text: ['JSON · 按「入站协议」', '必须填合法 JSON', '美化结构'] }],
