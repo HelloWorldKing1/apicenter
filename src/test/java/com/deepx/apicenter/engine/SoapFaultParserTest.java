@@ -13,6 +13,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * SOAP Fault 解析单测（B2）：**全部用仓库内的真实服务样本**（`src/test/resources/soap-samples/`）驱动，
  * 而不是手捏 XML —— 这样解析口径与真实世界一致（含 .NET 的全堆栈 faultstring、1.2 的 Code/Reason 结构、
  * 以及“1.1-only 服务对 1.2 报文回 1.1 结构 VersionMismatch”这一实测事实）。
+ * <p>
+ * 共 **4 种** Fault 形态（服务端类也入了真实样本）：Client / Sender / VersionMismatch / **Server**。
  */
 class SoapFaultParserTest {
 
@@ -54,6 +56,21 @@ class SoapFaultParserTest {
         assertThat(f.get().normalizedCode()).isEqualTo("VersionMismatch");
         assertThat(f.get().clientSide()).isTrue();                 // ← 若不归客户端类会被无限补偿
         assertThat(f.get().message()).contains("SOAP 1.2 message is not valid");
+    }
+
+    @Test
+    void 样本_Server_Fault_判为服务端类_保持可重试() throws Exception {
+        // 实测事实（2026-09-21，dataaccess NumberToWords 省略 ubiNum）：
+        //   供应商明明收到的是【请求侧错误】（faultstring="Missing parameter 'ubiNum'"），
+        //   却回了 faultcode=**soap:Server** ⇒ 按 SOAP 规范 / 按 faultcode 分类只能是【服务端类】。
+        // 本用例把“不被误归客户端类”钉死：误归客户端类会让这类错误直接死信、不重试、不计熔断。
+        Optional<SoapFaultParser.Fault> f = SoapFaultParser.parse(
+                fixture("fault/dataaccess-server-missingparam-11.resp.xml"));
+        assertThat(f).isPresent();
+        assertThat(f.get().soapVersion()).isEqualTo("1.1");
+        assertThat(f.get().normalizedCode()).isEqualTo("Server");
+        assertThat(f.get().clientSide()).isFalse();            // ← 关键：不归客户端类
+        assertThat(f.get().message()).contains("Missing parameter");
     }
 
     // ---------- 真实样本：非 Fault（不得误判） ----------

@@ -400,8 +400,13 @@ SOAP 用例涉及**重试 + 熔断**，隔离尤其重要（否则与 worker `sc
 | SOAP **1.1** 成功（NumberConversion，HTTPS） | 200 + 业务字段 | ✅ `data.NumberToWordsResult="one thousand two hundred and thirty four"`；头 `text/xml; charset=UTF-8` + `SOAPAction: "…"`；envelope ns `schemas.xmlsoap.org` |
 | SOAP **1.2** 成功（同端点） | 200 | ✅ `"four thousand three hundred and twenty one"`；头 `application/soap+xml; charset=UTF-8; action="…"`、**无 SOAPAction**；envelope ns `2003/05` |
 | 响应**解包** + 前缀剥离 | 业务字段直接在 `data` 根 | ✅ 上游用 `m:` 前缀（`<m:NumberToWordsResponse>`）仍正确解出 |
-| **VersionMismatch**（1.2 → 1.1-only 服务） | 死信 + 不重试 + 不熔断 | ✅ `502` + `code=50203` + 死信；**OUT 调用日志条数 = 1（零重试）**；链 `MAPPING→DEAD_LETTER`；**熔断 = 0.0（CLOSED）**；指标 `outcome=upstream_fail`；死信 reason 含 `soap:VersionMismatch` + 供应商原文 |
+| **VersionMismatch**（1.2 → 1.1-only 服务） | 死信 + 不重试 + 不熔断 | ✅ `502` + `code=50203` + 死信；**「出站状态机」尝试数 = 1（零重试）**；链 `MAPPING→DEAD_LETTER`；**熔断 = 0.0（CLOSED）**；指标 `outcome=upstream_fail`；死信 reason 含 `soap:VersionMismatch` + 供应商原文 |
 | **POX 回归**（type 缺省） | 出站无 Envelope | ✅ `<?xml …?><NumberToWords xmlns="…"><ubiNum>7</ubiNum></NumberToWords>` |
+
+> ⚠️ **取证口径更正（2026-09-21 复核）**：`CallLogAspect` 带 `@Order(HIGHEST_PRECEDENCE)`，**位于 `@Retryable` advisor 之外**
+> ⇒ **一次逻辑调用恒 1 条 OUT 日志**，与重试次数无关。因此 **“OUT 条数”不能用来证明“没有重试”**；
+> 正确判据是 `outbound_request.attempt_count`（页面：**出站状态机 Tab 的「尝试」列**）。
+> 本次结论（零重试）本身仍成立 —— 由 `@Retryable.includes` 白名单机制 + `SoapClientFaultExceptionTest` 钉死。
 
 ### 8.3 实现期发现（新，已处置）
 

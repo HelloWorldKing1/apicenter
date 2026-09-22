@@ -108,6 +108,20 @@
 ⇒ 印证设计取舍：**`readElement` 取 `localName` 剥离前缀**是对的；**响应命名空间与请求不一致**也是常态
 （MNB 就是这样），所以**解包不能要求命名空间匹配**。
 
+### 🔴 C-5 供应商的 `faultcode` 可能与语义不符（**平台只能按 faultcode 分类**）
+
+实测（2026-09-21，dataaccess NumberToWords **省略 `ubiNum`**）：供应商收到的是**请求侧错误**（`faultstring="Missing parameter 'ubiNum'"`），
+却回 **`faultcode=soap:Server`**（HTTP 500）⇒ 按 SOAP 规范 / 按 faultcode 分类**只能归服务端类** ⇒ 平台走**重试 + 补偿**（而非 `50203` 死信）。
+
+- **设计含义**：这不是平台缺陷 —— `faultcode` 是规范给出的**唯一可靠信号**，我们没有更好的判据；
+- **落档**：真实响应已入回归（`fault/dataaccess-server-missingparam-11.resp.xml` + `SoapFaultParserTest` 钉住"不归客户端类"）；
+  手动验收的判据写在《协议参数手动验收测试方案.md》**阶段五-5.6**（与 5.5 的客户端类做**对比**）。
+
+### 🟡 C-6 供应商可能对非法输入**静默兜底**（HTTP 200 + 错误结果）
+
+同一服务实测：`ubiNum` 传**非数字**（如 `abc`）→ **不报错**，而是**算出一个错误结果**（HTTP 200 `NumberToWordsResult`）。
+⇒ **平台无法检测**这类静默兜底（响应完全合法）；属供应商行为，验收时**别当平台缺陷**。
+
 ## 3. 样本索引（离线夹具）
 
 ```
@@ -131,7 +145,8 @@ src/test/resources/soap-samples/
 ├── fault/                                      # Fault 样本（三种形态）
 │   ├── dneonline-client-11.*                   # 1.1：faultcode=soap:Client + faultstring(1.5KB 堆栈)
 │   ├── dneonline-sender-12.*                   # 1.2：Code/Value=soap:Sender + Reason/Text
-│   └── hello-versionmismatch-11only.*          # 1.1 结构 + VersionMismatch（1.1-only 服务收到 1.2）
+│   ├── hello-versionmismatch-11only.*          # 1.1 结构 + VersionMismatch（1.1-only 服务收到 1.2）
+│   └── dataaccess-server-missingparam-11.*    # 🆕 faultcode=**soap:Server**（缺参数，1.1；见 C-5）
 └── header/                                     # 🆕 企业级 SOAP Header（G1 关闭证据；手写合成夹具，值全为假值）
     ├── README.md                               #   三种家族 + 观察点 O-1~O-5 + 对 D-SOAP-8 的结论
     ├── wsdl-soap-header-declaration.xml        #   WSDL 声明 soap:header 的最小片段（Header 有独立 message）
