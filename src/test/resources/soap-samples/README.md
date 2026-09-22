@@ -6,8 +6,10 @@
 > **采集时间**：2026-09-21 ｜ **采集方式**：`POST` 直连（脚本见 §5）｜ **全部为公网免密钥服务**
 >
 > ⚠️ **样本局限（必读）**：这些是**公开演示/便民服务**（.NET / Java 混合），
-> **没有一个要求 SOAP `Header`**，也**没有 WS-Security**。企业内网供应商常用 `Header` 做认证/路由
-> —— 所以本样本集**不能证明"真实供应商不需要 Header"**（这也是 B2 的 `D-SOAP-8` 仍需真实样本的原因）。
+> **没有一个要求 SOAP `Header`**，也**没有 WS-Security** —— 属**抽样偏差**，**不能证明"真实供应商不需要 Header"**。
+>
+> ✅ **该缺口已于同日补上**：企业级 `Header` 样本见 **`header/`**（Amadeus 公开客户端仓库：WSDL 真实声明 `soap:header` + 三种 Header 家族）。
+> 结论：`D-SOAP-8` 由"不做"改判**分两步**（静态 Header = B2.1、密码学 Header = B3）——见《B2完整SOAP开发计划.md》§2.7 与 `header/README.md`。
 
 ## 0. 类型学盘点（**先分清“XML”到底是什么**）
 
@@ -17,7 +19,7 @@
 |---|---|---|---|---|
 | **① POX（Plain Old XML）** | 无统一规范；平台/调用方自定义契约 | ❌ 无 | ✅ 已支持（B1） | B1 手动验收 / 协议矩阵：平台入站 `<request>`、出站 `<?xml …?><request>…`、**ack `<response>`**；M3 回调（POX + HMAC 头） |
 | **② XML 文档型 API**（只读、非服务） | **Atom 1.0（RFC 4287）** / RSS 2.0 | ❌ 无 | ✅ 已支持（当普通 XML 解） | 真实上游 **USGS 地震 Atom Feed**（`application/atom+xml`，GET-only）；hnrss（RSS 变体） |
-| **③ SOAP** | **SOAP 1.1 / SOAP 1.2**（两套 envelope ns） | **WSDL 1.1**（全样本） | ⏸ **B2 待实现** | 本目录 6 个服务（见 §1） |
+| **③ SOAP** | **SOAP 1.1 / SOAP 1.2**（两套 envelope ns） | **WSDL 1.1**（全样本） | 🟡 **部分已落地（B2 T1–T9，2026-09-21）**：信封包裹 / 响应解包 / Fault 分类 | 本目录 6 个服务（见 §1）+ `header/`（企业级 Header） |
 | ④ XML-RPC | XML-RPC 规范（`<methodCall>` / `<methodResponse>`） | ❌ 自身无 WSDL | ❌ 不考虑 | **无**（不在设计范围） |
 
 ### 样本的精确类型（从样本实测抽取，非推断）
@@ -27,14 +29,15 @@
 | **WSDL 版本** | **6/6 均为 WSDL 1.1**（默认 ns `http://schemas.xmlsoap.org/wsdl/`）；**WSDL 2.0 = 0** |
 | **SOAP 版本** | 6/6 支持 **SOAP 1.1**；**5/6 额外暴露 SOAP 1.2 binding**（唯一例外：LearnWebServices Hello → 只有 1.1，发 1.2 得 `VersionMismatch`——与 binding 事实完全对上） |
 | **绑定风格 style/use** | **6/6 都是 `document` / `literal`**（**没有 rpc/encoded**） |
-| **SOAP Header** | **6/6 的 WSDL 都未定义 `soap:header`** |
+| **SOAP Header** | 公开样本 **6/6 未定义 `soap:header`**；**但企业级样本 1/1 定义**（Amadeus）⇒ **本条为抽样偏差**，详见 `header/` |
 | **XML-RPC** | **0 个** |
 
 **三条对 B2 的直接含义**：
 1. **WSDL 2.0 不用做**（0/6，且业界几乎无人用）；只需能读 **WSDL 1.1** 的 `soap:` / `soap12:` binding；
 2. **document/literal 与平台模型天然契合**（Body 内就是“业务元素 + 子元素”，可直接映射成“根元素 + 扁平字段”）；
    而 **rpc/encoded**（需 `encodingStyle` + 参数带 `xsi:type`）**不在设计范围**（已写入 B2 计划 §1.2 范围纪律）；
-3. **Header 缺失是样本偏差**：公开演示服务不要 Header，**企业内网服务常用** —— `D-SOAP-8`（本期不写 Header）仍待真实样本定。
+3. **Header 缺失是样本偏差**（已实证）：公开演示服务不要 Header，**企业级服务常用**且**响应也回传** ——
+   企业级样本到位后，`D-SOAP-8` 由"不做"**改判分两步**（静态 Header = B2.1；密码学 Header = B3），见 `header/README.md` 与 B2 计划 §2.7。
 
 ---
 
@@ -125,11 +128,21 @@ src/test/resources/soap-samples/
 │   ├── mnb-rates-11 / -12
 │   ├── w3schools-bizerror-200.*                # 🟡 业务错误走 200
 │   └── oorsprong-unknowncountry-200.resp.xml   # 🟡 未知输入走 200
-└── fault/                                      # Fault 样本（三种形态）
-    ├── dneonline-client-11.*                   # 1.1：faultcode=soap:Client + faultstring(1.5KB 堆栈)
-    ├── dneonline-sender-12.*                   # 1.2：Code/Value=soap:Sender + Reason/Text
-    └── hello-versionmismatch-11only.*          # 1.1 结构 + VersionMismatch（1.1-only 服务收到 1.2）
+├── fault/                                      # Fault 样本（三种形态）
+│   ├── dneonline-client-11.*                   # 1.1：faultcode=soap:Client + faultstring(1.5KB 堆栈)
+│   ├── dneonline-sender-12.*                   # 1.2：Code/Value=soap:Sender + Reason/Text
+│   └── hello-versionmismatch-11only.*          # 1.1 结构 + VersionMismatch（1.1-only 服务收到 1.2）
+└── header/                                     # 🆕 企业级 SOAP Header（G1 关闭证据；手写合成夹具，值全为假值）
+    ├── README.md                               #   三种家族 + 观察点 O-1~O-5 + 对 D-SOAP-8 的结论
+    ├── wsdl-soap-header-declaration.xml        #   WSDL 声明 soap:header 的最小片段（Header 有独立 message）
+    ├── wsa-addressing-11.req.xml               #   家族①：WS-Addressing（静态/半静态 ⇒ 静态配置可覆盖）
+    ├── wsse-usernametoken-digest-11.req.xml    #   家族②：WS-Security UsernameToken+PasswordDigest（动态 ⇒ 需构造器）
+    ├── vendor-session-11.req.xml / .resp.xml   #   家族③-a：厂商会话头（请求带前缀 / 响应用默认 ns）
+    └── vendor-custom-attrs-11.req.xml          #   家族③-b：语义靠属性承载的自定义头
 ```
+
+> **`header/` 与其余样本的区别**：其余都是**真实服务实录**（可复现、可回放）；
+> `header/` 是**形态合成**（不可调用，只描述结构），**不参与自动化测试**，仅供设计依据与 B3 用例种子。
 
 **用例覆盖对照**（对 B2 测试直接有用）：
 `dneonline-*` 可用于 1.1/1.2 正常路径与两种 Fault 的 WireMock 桩（**免公网、确定性**）；
@@ -192,6 +205,7 @@ curl -s -A 'Mozilla/5.0' 'https://www.w3schools.com/xml/tempconvert.asmx?WSDL' |
 | **C-1** `action` 可选 | 改《B2完整SOAP开发计划.md》§3 T1 与验收点：**删除"1.2 缺 action → 40001"**，改为可选 + hint |
 | **C-2** Fault 分类穷举 | 改 §2.3 分类表：加 `VersionMismatch` / `MustUnderstand` → 客户端类；并加"1.1 规范固定 4 个 faultcode"说明 |
 | **C-3** 业务错误走 200 | B2 无需改动（属既有 `ResponseJudger` 职责）；加一条**测试提醒**：不要用 SOAP Fault 覆盖业务失败用例 |
+| **G1 关闭** | 企业级 `Header` 样本取得（Amadeus 公开客户端仓库）→ 新增 `header/`；B2 计划 §2.7 拍板 `D-SOAP-8` **分两步**；本期范围不变 |
 | **C-4** 解包按 localName | 设计已如此（D-SOAP-3 宽容 + 取 localName）→ 无需改动；补一条**回归夹具**（MNB 式"响应 ns ≠ 请求 ns"） |
 | G1 状态 | 由"未取得"→ **"部分满足：6 个真实可调用样本已入库；企业级 `Header`/WS-Security 样本仍缺"** |
 

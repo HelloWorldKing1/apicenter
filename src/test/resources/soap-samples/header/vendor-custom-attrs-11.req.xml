@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 合成夹具：值全部为假值（形态取自真实企业级报文，见 README） -->
+<!-- 家族③-b：厂商自定义头（**靠属性承载语义**，元素本体为空）—— 与 B1 的“前缀/命名空间”能力正交，
+     但提醒：Header 的“值”可能不是文本而是属性 ⇒ 未来做静态 Header 配置时，属性必须能表达 -->
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+                   xmlns:sec="http://example.com/svc/Security_v1"
+                   xmlns:op="http://example.com/svc/Retrieve-1.0">
+  <SOAP-ENV:Header>
+    <sec:SecurityHostedUser>
+      <sec:UserID POS_Type="1" PseudoCityCode="OFFICE" AgentDutyCode="SU" RequestorType="U"/>
+    </sec:SecurityHostedUser>
+  </SOAP-ENV:Header>
+  <SOAP-ENV:Body>
+    <op:Retrieve><op:id>ABC123</op:id></op:Retrieve>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>

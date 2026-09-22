@@ -20,7 +20,7 @@
 
 | # | 条件 | 现状 |
 |---|---|---|
-| **G1** | **真实 SOAP 供应商的 WSDL / 请求响应报文样例** | ⚠️ **部分满足（2026-09-21）**：已采集 **6 个真实可调用服务**的 WSDL + 成功/Fault **原始报文** → `src/test/resources/soap-samples/`（含 4 条对设计的修正 **C-1~C-4**，见《soap-samples/README.md》）；**企业级 `Header`/WS-Security 样本仍缺**（这才是决定 `D-SOAP-8` 的关键） |
+| **G1** | **真实 SOAP 供应商的 WSDL / 请求响应报文样例** | ✅ **已关闭（2026-09-21）**：两层都满足 —— ① **公开可调用服务** 6 个（WSDL + 成功/Fault 原始报文）→ `src/test/resources/soap-samples/`（含对设计的 4 条修正 **C-1~C-4**，见《soap-samples/README.md》）；② **企业级 Header 样本**（此前唯一缺口）→ `src/test/resources/soap-samples/header/`（Amadeus 公开客户端仓库：WSDL 真实声明 `soap:header` + 三种 Header 家族，手写合成夹具）。**结论：原“6/6 未声明 Header ⇒ 不做”的依据被推翻** → `D-SOAP-8` 改判**分两步**（§2.7） |
 | G2 | B1 已上线且稳定 | ✅ 已落地（325 测试全绿） |
 | G3 | 该供应商可联调（测试环境可达、可开关） | ❌ 待确认 |
 
@@ -32,7 +32,7 @@
 
 | 不做 | 理由 / 去向 |
 |---|---|
-| **SOAP `Header` 自定义内容** | 无真实样本；需"Header 模板"能力（模板语法/变量注入/安全边界）→ backlog §13-1 |
+| **SOAP `Header` 自定义内容** | **本期仍不做，但口径已拍板**（`D-SOAP-8` → §2.7）：静态/占位符 Header = **B2.1**；密码学 Header（`PasswordDigest`）= **B3**。样本已到位（`soap-samples/header/`），不再是“无样本无法决策” |
 | **SOAP 1.2 的 HTTP 200 + Fault** | 罕见；补它要改 `ResponseJudger`（**被前置编排共用**）→ backlog §13-2 |
 | **平台对外暴露 SOAP 端点**（服务端 SOAP） | `protocol_in` 是平台自家契约；Q17 已定**入站不解包** → backlog §13.1 #11 |
 | **WSDL 2.0** | 样本 **0/6**（且业界几乎无人用）；只需能读 **WSDL 1.1** 的 `soap:` / `soap12:` binding |
@@ -202,6 +202,29 @@
 
 ---
 
+### 2.7 `D-SOAP-8` 拍板：Header **分两步**（**G1 已关闭**，2026-09-21）
+
+> **依据**：`src/test/resources/soap-samples/header/`（手写合成夹具 + 观察点 O-1~O-5，见其 README）。
+
+**样本偏差被实证推翻**：公开免密钥服务 **0/6** 声明 `soap:header`；企业级（Amadeus 公开客户端仓库）**1/1** 声明，
+**且服务端在响应里也回传 Header**。⇒ 原“6/6 未声明 ⇒ 不做”的依据不成立，改判为下述两步（而非“一概不做”）。
+
+| 步 | 范围 | 值从哪来 | 判定 |
+|---|---|---|---|
+| **第一步（= B2.1，紧随 SOAP 主体）** | **静态 / 占位符 Header**：可配置一棵 Header 元素树（元素名 + 命名空间/前缀 + 文本值 + **属性**），值可引用凭证或入参 | 静态 / 凭证 | ✅ 可覆盖 **WS-Addressing**（夹具①）与厂商 **`Session`/`AMA_*`** 类（夹具③-a/③-b） |
+| **第二步（= B3）** | **密码学 Header 构造器**：`UsernameToken` + `PasswordDigest`（+ 可选 `Timestamp`/签名） | **每请求动态** | ❌ **静态配置不可能覆盖**：`PasswordDigest = Base64(SHA1(nonce ‖ Created ‖ password))`，`Nonce`/`Created` 都变 ⇒ 属独立能力 |
+
+**本期（B2）编码范围不变**：T1–T9 **不含** Header，§1.2 非目标继续有效；本节只做「gate 关闭 + 口径拍板」，**不新增任务**。
+
+**四条必须钉住的约束**（源自真实报文观察，B2.1/B3 落地前先读）：
+
+1. **属性必须可表达**（O-4：厂商头的语义可能全在属性上，元素本体为空）；
+2. **整体替换而非追加**（O-5：同一服务存在两代 Header 形态，供应商会演进）；
+3. **B3 的重试必须复用同一 `Created`/`Nonce`** —— 否则 `@Retryable` 重试会被供应商判为**重放**（签名/时间戳场景的经典陷阱）；
+4. **不支持的 Header 形态一律 `40001`**（不静默忽略，同 B1 纪律）—— B2.1 引入该配置项时适用。
+
+---
+
 ## 3. 任务拆解（**6.4 人日**）与任务级验收点
 
 | # | 任务 | 人日 | 工作项 | 验收点（完成的可验证标志） |
@@ -332,7 +355,7 @@ SOAP 用例涉及**重试 + 熔断**，隔离尤其重要（否则与 worker `sc
 | **R2/R9** | `SoapClientFaultException` 误继承 → ①继续重试 ②计熔断失败（**双重错**） | **中高** | §2.4-1 契约 + 用例 19 钉住类型层次 + 用例 9 断言熔断 CLOSED |
 | **R11**（样本新增） | **Fault 分类漏 `VersionMismatch`/`MustUnderstand`** → 确定性配置错误被当服务端故障**无限补偿** | 中高 | §2.3 穷举 4 个 faultcode + 新增样本用例（C-2） |
 | **R10** | `PreStepExecutor` 漏处理 → 被归 `40001 CONFIG_ERROR` | 中高 | §2.4-3 + 用例 23 |
-| **R3** | 真实样本与保守取舍不符（`D-SOAP-8`/`envelopePrefix`/`action`） | **中** | G1 拿到后**先按真实报文核对 4 项**再开 T2；差异按 backlog 排序 |
+| **R3** | 真实样本与保守取舍不符（`D-SOAP-8`/`envelopePrefix`/`action`） | ~~中~~ **已闭环** | **G1 已拿到并核对完毕（2026-09-21）**：`action` → 改可选（C-1）；`envelopePrefix` → 维持可配（样本前缀不一致，O-2/O-3 再次印证不能认前缀）；`D-SOAP-8` → 改判分两步（§2.7） |
 | R4 | Fault 探测误判（非 SOAP 报文的 5xx 里含 `<Fault`） | 低 | 判据 = `soapVersion` 非空 **且 结构匹配** `Body/Fault`（不做字符串嗅探） |
 | R5 | 1.2 的 `action` 为空 | 低 | ~~T1 保存期 40001~~ → **已撤销（C-1）**：实测 6/6 服务不强制 action，改为**可选** |
 | R6 | 解包导致"成功 + 空 data"（F-3 同类失效） | 低 | 与 backlog §13-8（warnings 暴露到信封）**同批评估** |
@@ -390,14 +413,24 @@ SOAP 用例涉及**重试 + 熔断**，隔离尤其重要（否则与 worker `sc
 
 ### 8.4 仍未做（保持 B2 未完成）
 
-- **G1 真实企业级样本**（含 `soap:Header` / WS-Security）→ 决定 §1.2 的非目标是否需推翻；
+- **`Header` 仍未实现**（`D-SOAP-8` 已拍板分两步：静态 Header = **B2.1**、密码学 Header = **B3**，见 §2.7）；
 - T11 的 4 处文档同步（见上）；
 - `dneonline` 因 F-B2-1 不作为验证锚点（保留其**样本**作 WireMock 夹具仍有效）。
+
+### 8.5 G1 关闭与 Header 定口径（2026-09-21）
+
+| 项 | 内容 |
+|---|---|
+| **缺口** | 企业级 `soap:Header` / WS-Security 样本（公开样本 **0/6**，属抽样偏差） |
+| **取得路径** | **Amadeus**（航空 GDS，真·企业级 SOAP）的**公开客户端仓库**测试夹具：WSDL 真实声明 `<soap:header message="ses:Session" part="Session" use="literal"/>`；真实报文含 **3 种 Header 家族**（WS-Addressing / WS-Security `UsernameToken`+`PasswordDigest` / 厂商 `Session` 与自定义属性头） |
+| **入库形态** | `src/test/resources/soap-samples/header/`：**6 个手写合成夹具**（保留结构与命名空间，**值全为假值**）+ README；Amadeus 的 WSDL/XSD 原文**未入库**（其标注 "Proprietary and Confidential"） |
+| **产出结论** | `D-SOAP-8` 由“不做”改为 **“分两步”**（§2.7）；并收获 5 条观察 **O-1~O-5**（真实报文可能 schema-invalid；同一 Header 请求带前缀、响应不带；冗余/内联前缀；语义靠属性；Header 会演进） |
+| **对本期影响** | **零**（T1–T9 范围不变，不新增任务）；B2.1/B3 属后续排期 |
 
 ---
 
 ## 附：变更记录
 
-- v1.0（2026-09-21）初稿；同日修订：`action` 改为可选（样本 C-1）、Fault 分类**穷举** `VersionMismatch`/`MustUnderstand`（C-2）、新增 §2.5 类型选择器（方案 A）+ §2.5.1 逐控件验收清单、新增 §8 落地记录（与样本无关部分已实施并真机验证）。
+- v1.0（2026-09-21）初稿；同日修订：`action` 改为可选（样本 C-1）、Fault 分类**穷举** `VersionMismatch`/`MustUnderstand`（C-2）、新增 §2.5 类型选择器（方案 A）+ §2.5.1 逐控件验收清单、新增 §8 落地记录（与样本无关部分已实施并真机验证）；**随即 G1 关闭**（企业级 Header 样本经 Amadeus 公开客户端仓库取得 → `soap-samples/header/`）+ 新增 **§2.7**（`D-SOAP-8` 拍板：Header 分两步）+ **§8.5** 记录。
 
 

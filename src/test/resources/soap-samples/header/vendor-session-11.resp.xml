@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 合成夹具：值全部为假值（形态取自真实企业级报文，见 README） -->
+<!-- 家族③-a 的响应侧：服务端在 Header 回传（并可能刷新）会话；注意这里是**默认命名空间**（无前缀）
+     ⇒ 同一 Header 在请求侧带前缀、响应侧不带前缀（真实报文如此）→ 解析必须按 localName/命名空间，不能认前缀 -->
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Header xmlns="http://example.com/svc/Session-2.0.xsd">
+    <Session>
+      <SessionId>ABCDEFGHIJKLM</SessionId>
+      <SequenceNumber>1</SequenceNumber>
+      <SecurityToken>1111111111111111111111111111</SecurityToken>
+    </Session>
+  </soap:Header>
+  <soap:Body>
+    <RetrieveReply xmlns="http://example.com/svc/RetrieveReply-1.0">
+      <status>OK</status>
+    </RetrieveReply>
+  </soap:Body>
+</soap:Envelope>

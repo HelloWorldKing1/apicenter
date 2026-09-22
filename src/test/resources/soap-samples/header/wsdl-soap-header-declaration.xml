@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 合成片段：展示“WSDL 如何声明 SOAP Header”（形态取自公开真实企业级 WSDL，见 README）
+     为保持可解析，用最小 <wsdl:definitions> 包住；它不是可部署的 WSDL，只是结构证据。 -->
+<wsdl:definitions xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/"
+                  xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/"
+                  xmlns:ses="http://example.com/svc/Session-2.0.xsd"
+                  targetNamespace="http://example.com/svc">
+
+  <!-- ① 关键结构事实：Header 有**独立的 message**，与 Body 的业务 message 分离 -->
+  <wsdl:message name="Session">
+    <wsdl:part name="Session" element="ses:Session"/>
+  </wsdl:message>
+
+  <!-- ② 每个 operation 的 input / output 各声明一次 soap:header -->
+  <wsdl:binding name="SvcsSoapBinding" type="ses:SvcsPortType">
+    <soap:binding style="document" transport="http://schemas.xmlsoap.org/soap/http"/>
+    <wsdl:operation name="Retrieve">
+      <soap:operation soapAction="http://example.com/svc/Retrieve-1.0"/>
+      <wsdl:input>
+        <!-- ↓ 企业级 SOAP 与公开玩具服务的分水岭就在这一行 -->
+        <soap:header message="ses:Session" part="Session" use="literal"/>
+        <soap:body use="literal"/>
+      </wsdl:input>
+      <wsdl:output>
+        <soap:header message="ses:Session" part="Session" use="literal"/>
+        <soap:body use="literal"/>
+      </wsdl:output>
+    </wsdl:operation>
+  </wsdl:binding>
+</wsdl:definitions>

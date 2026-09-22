@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 合成夹具：值全部为假值（形态取自真实企业级报文，见 README） -->
+<!-- 家族②：WS-Security UsernameToken + PasswordDigest —— 动态密码学头
+     摘要 = Base64( SHA1( Nonce 原始字节 + Created 文本 + 明文口令 ) )
+     Nonce / Created / PasswordDigest 每次请求都不同 ⇒ 静态配置无法覆盖（D-SOAP-8 第二步） -->
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
+  <SOAP-ENV:Header>
+    <wsse:Security xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
+      <wsse:UsernameToken xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd"
+                          wsu:Id="UsernameToken-1">
+        <wsse:Username>USERID</wsse:Username>
+        <wsse:Nonce EncodingType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-soap-message-security-1.0#Base64Binary">MDAwMDAwMDAwMDAwMDAwMA==</wsse:Nonce>
+        <wsse:Password Type="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordDigest">MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=</wsse:Password>
+        <wsu:Created>2026-09-21T16:40:36.497Z</wsu:Created>
+      </wsse:UsernameToken>
+    </wsse:Security>
+  </SOAP-ENV:Header>
+  <SOAP-ENV:Body>
+    <Retrieve xmlns="http://example.com/svc/Retrieve-1.0"><id>ABC123</id></Retrieve>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
