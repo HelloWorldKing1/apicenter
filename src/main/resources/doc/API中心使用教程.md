@@ -359,7 +359,7 @@ curl -i -X POST http://localhost:8080/qd/ok \
 | XML 声明 encoding | `UTF-8` / `GBK` / `GB2312` / `GB18030` / `Big5` / `Shift_JIS` / `ISO-8859-1` / `US-ASCII` | `UTF-8` | 写进声明（**不改变字节**，见下） |
 | 根元素 / **Body 内业务元素** | 合法 XML 元素名 | `request` | 标签**随类型变**：普通 XML = 文档根元素；SOAP = `<Body>` 内业务元素 |
 | 命名空间 URI | 任意合法 URI | 不写命名空间 | 留空则不输出 `xmlns` |
-| 命名空间前缀 | 合法前缀；**留空 = 默认命名空间** | 默认命名空间 | 前缀 `ns` → `<ns:QueryRequest xmlns:ns="…">`；留空 → `<QueryRequest xmlns="…">` |
+| 命名空间前缀 | 合法前缀；**留空 = 默认命名空间** | 默认命名空间 | 前缀 `ns` → `<ns:QueryRequest xmlns:ns="…">`；留空 → `<QueryRequest xmlns="…">`。⚠️ **需先填「命名空间 URI」**——没有 URI 的前缀无意义，该输入框在 URI 为空时会**禁用**（避免"填了却没保存"） |
 | ① SOAP `action`（可选） | 任意串 | 空（不发） | 1.1 → `SOAPAction: "…"` 头；1.2 → `Content-Type` 的 `action="…"`。**实测 6/6 公开服务不强制**，可留空 |
 | ② SOAP envelope 前缀 | 合法前缀 | `soap` | 包在 `Envelope`/`Body` 上的前缀（前缀无语义，绑定的是命名空间） |
 | ③ 响应解包 Envelope | 开 / 关 | **开** | 开后：业务字段直接在 `data` 根（`Envelope/Body` 被剥）；关：保留层级（`data.Body.…`） |

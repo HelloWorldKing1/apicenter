@@ -47,6 +47,12 @@ export function isValidXmlName(name) {
 
 /**
  * 表单字段 → protocol_params JSON 字符串。
+ *
+ * 注意：`prefix` **从属于** `uri` —— 只给 prefix 不给 uri 时**整个 `namespace` 块不产出**
+ * （没有 URI 的前缀无意义；后端对 `{namespace:{prefix}}` 也会以「缺 uri」回 40001）。
+ * 为防止这条规则**静默丢掉用户输入**，界面侧「命名空间前缀」输入框在 URI 为空时**禁用**，
+ * 并在清空 URI 时**联动清空前缀**（可见的显式行为）。
+ *
  * @returns {string|null} null = 不提交（用平台内置默认）
  */
 export function buildProtocolParams({

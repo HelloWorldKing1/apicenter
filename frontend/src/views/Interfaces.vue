@@ -349,12 +349,16 @@
               <el-input v-model="form.xmlRoot" placeholder="默认 request（如 QueryRequest / Add）" />
             </div>
             <div class="adv-item">
-              <span class="basic-label">命名空间前缀（可空 = 默认命名空间）</span>
-              <el-input v-model="form.xmlNsPrefix" placeholder="如 ns（留空即默认命名空间）" />
+              <!-- URI 在前、前缀在后：前缀**从属于** URI（无 URI 的前缀无意义，后端会 40001，前端也不提交） -->
+              <span class="basic-label">命名空间 URI（可空 = 不写命名空间）</span>
+              <el-input v-model="form.xmlNsUri" placeholder="如 http://example.com/svc" @input="onNsUriInput" />
             </div>
             <div class="adv-item">
-              <span class="basic-label">命名空间 URI（可空 = 不写命名空间）</span>
-              <el-input v-model="form.xmlNsUri" placeholder="如 http://example.com/svc" />
+              <span class="basic-label">命名空间前缀（可空 = 默认命名空间）</span>
+              <el-input v-model="form.xmlNsPrefix" :disabled="!hasNsUri" placeholder="如 ns（留空即默认命名空间）" />
+              <div v-if="!hasNsUri" class="proto-hint">
+                需先填「命名空间 URI」——没有 URI 的前缀无意义，不会被保存（改完 URI 再回来填）
+              </div>
             </div>
 
             <!-- SOAP 专属（仅类型为 SOAP 1.1 / 1.2 时显示与提交） -->
@@ -767,6 +771,14 @@ watch(() => (form.steps || []).map((s) => s.targetInterfaceId).join(','), async 
 }, { immediate: true })
 
 
+/** 命名空间前缀**从属于** URI：URI 为空时禁用前缀输入（避免"填了却没保存"的困惑） */
+const hasNsUri = computed(() => String(form.xmlNsUri || '').trim() !== '')
+
+/** 清空「命名空间 URI」时联动清空前缀（显式可见；不做静默丢弃） */
+function onNsUriInput(v) {
+  if (!String(v || '').trim()) form.xmlNsPrefix = ''
+}
+
 /** 协议联动（原型 protoSame） */
 function onProtocolInChange() {
   if (form.protoSame) {
@@ -823,7 +835,8 @@ function toProtocolFormFields(json) {
     xmlVersion: p.version,
     xmlEncoding: p.encoding,
     xmlRoot: p.root,
-    xmlNsPrefix: p.nsPrefix,
+    // 前缀从属于 URI：无 URI 的历史/异常配置不带出前缀（与输入禁用口径一致）
+    xmlNsPrefix: p.nsUri ? p.nsPrefix : '',
     xmlNsUri: p.nsUri,
     xmlAction: p.action,
     xmlEnvelopePrefix: p.envelopePrefix,

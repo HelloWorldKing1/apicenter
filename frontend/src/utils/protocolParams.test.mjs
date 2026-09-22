@@ -27,6 +27,10 @@ test('只输出非空键：默认值不写进 JSON（避免「键存在但为空
 
 test('命名空间：无 uri 则不输出 namespace（prefix 单独存在视为无配置 → null）', () => {
   assert.equal(buildProtocolParams({ nsPrefix: 'ns' }), null)
+  // 实际报告场景（2026-09-22）：只填前缀、不填 URI → 前缀被忽略（含非法前缀也如此）。
+  // 正因为这条规则会让用户“填了却没保存”，界面已改为：URI 为空时**禁用前缀输入**。
+  assert.equal(buildProtocolParams({ nsPrefix: 'a b' }), null)
+  assert.equal(buildProtocolParams({ root: 'Q', nsPrefix: 'a b' }), JSON.stringify({ xml: { root: 'Q' } }))
   assert.deepEqual(JSON.parse(buildProtocolParams({ nsUri: 'http://x' })), { xml: { namespace: { uri: 'http://x' } } })
   assert.deepEqual(JSON.parse(buildProtocolParams({ nsUri: 'http://x', nsPrefix: 'ns' })),
     { xml: { namespace: { uri: 'http://x', prefix: 'ns' } } })
