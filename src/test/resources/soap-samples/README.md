@@ -27,7 +27,7 @@
 | 维度 | 实测结果 |
 |---|---|
 | **WSDL 版本** | **6/6 均为 WSDL 1.1**（默认 ns `http://schemas.xmlsoap.org/wsdl/`）；**WSDL 2.0 = 0** |
-| **SOAP 版本** | 6/6 支持 **SOAP 1.1**；**5/6 额外暴露 SOAP 1.2 binding**（唯一例外：LearnWebServices Hello → 只有 1.1，发 1.2 得 `VersionMismatch`——与 binding 事实完全对上） |
+| **SOAP 版本** | **6/6 声明 SOAP 1.1 binding**；其中 **4/6 另声明 `soap12:` binding**（dataaccess / dneonline / oorsprong / w3schools）。**但「WSDL 声明」≠「实际可用」**：**mnb 未声明 1.2 却实测可调通** ⇒ 实测 **5/6 支持 1.2**；真正 1.1-only 的只有 LearnWebServices。**6/6 中没有任何 1.2-only 服务** ⇒ **选 1.1 永远是安全的** |
 | **绑定风格 style/use** | **6/6 都是 `document` / `literal`**（**没有 rpc/encoded**） |
 | **SOAP Header** | 公开样本 **6/6 未定义 `soap:header`**；**但企业级样本 1/1 定义**（Amadeus）⇒ **本条为抽样偏差**，详见 `header/` |
 | **XML-RPC** | **0 个** |
@@ -52,7 +52,7 @@
 | LearnWebServices Hello | `https://apps.learnwebservices.com/services/hello` | **仅 1.1** | ❌ 不必须 | ❌ **发 1.2 → `VersionMismatch` Fault** | ❌ |
 | 匈牙利国家银行 MNB 汇率 | `http://www.mnb.hu/arfolyamok.asmx` | 1.1 + **1.2** | ❌ 不必须 | ✅ | ❌ |
 
-> **6/6 服务都不强制 `SOAPAction`**；**5/6 支持 1.2**（唯一例外给出 `VersionMismatch` 的真实 Fault）。
+> **6/6 服务都不强制 `SOAPAction`**（4/6 的 `soapAction` 甚至是**空串**）；**5/6 支持 1.2**（唯一真不支持的是 LearnWebServices，给出 `VersionMismatch`）；**没有 1.2-only 服务**。
 > 每个服务的 WSDL 均已存 `wsdl/`（`grep -c '<soap:header'` 结果都是 0）。
 
 ## 2. 四条对 B2 有直接影响的发现
@@ -121,6 +121,46 @@
 
 同一服务实测：`ubiNum` 传**非数字**（如 `abc`）→ **不报错**，而是**算出一个错误结果**（HTTP 200 `NumberToWordsResult`）。
 ⇒ **平台无法检测**这类静默兜底（响应完全合法）；属供应商行为，验收时**别当平台缺陷**。
+
+### 🟡 C-7 WSDL **声明**可能少于**实际**支持（不能只信 WSDL）
+
+**mnb** 的 WSDL 只声明了 `soap:binding`（1.1），**没有** `soap12:binding`；但我们用 **1.2 报文实调成功**
+（`success/mnb-rates-12.*`）。
+⇒ **"WSDL 未声明 1.2" ≠ "不支持 1.2"**；反之亦可能（声明了却不实现）。
+**实践口径**：先按 binding 选一个（见 C-8 的对照表），**再用「测试接口」实调确认**。
+
+### 🟡 C-8 WSDL 可能被**拆成多份**（元素名 / 命名空间在 `import` 里）
+
+**mnb** 的主 WSDL 里 `<wsdl:types/>` 是**空的**，只有 `<wsdl:binding>` + `<wsdl:service>`，真正的
+message / portType / schema 在 **`<wsdl:import location="http://www.mnb.hu/arfolyamok.asmx?wsdl=wsdl0"/>`**
+（实测该 URL 返回 200，`targetNamespace="http://www.mnb.hu/webservices/"`）。
+⇒ 想抄「Body 内业务元素名 / 命名空间」时，**不能只看主 WSDL**——要跟着 `wsdl:import` 走（.NET/WCF 生成物常见）。
+
+### 🔴 C-9 命名空间可能**三元不一致**（mnb 实测，抄错就调不通）
+
+同一个操作 `GetCurrentExchangeRates`，三处命名空间**互不相同**：
+
+| 位置 | 值 |
+|---|---|
+| **请求** Body 元素 ns | `http://tempuri.org/`（主 WSDL 的 `targetNamespace`） |
+| **响应** Body 元素 ns | `http://www.mnb.hu/webservices/`（**import 那份**的 targetNamespace） |
+| `soapAction` 里的 ns | `http://www.mnb.hu/webservices/MNBArfolyamServiceSoap/GetCurrentExchangeRates` |
+
+- **`soapAction` 的 ns 不能拿来当 Body 的 ns**（很容易顺手抄错）；
+- **请求 ns 与响应 ns 也可能不同** ⇒ 这正是 C-4（**解包必须按 localName/结构，不能按 ns 严格匹配**）的真实依据；
+- 取值的**优先顺序**：① `<soap:body namespace="…">`（本样本 6/6 都**没有**这个属性）② 内联 schema 的 `targetNamespace`
+  ③ 主 WSDL 的 `targetNamespace` ④ **最后仍以「测试接口」实调为准**。
+
+### 📋 从 WSDL 抄到界面上的四个框（对照表）
+
+| 界面字段 | WSDL 来源 | 陷阱 |
+|---|---|---|
+| **XML 类型** | 有 `<soap12:binding>` 吗？无 → `SOAP 1.1`；有 → 1.1 或 1.2（**默认选 1.1**） | 没有 binding = 不是 SOAP → 选 **普通 XML（POX）** |
+| **根元素 / Body 内业务元素** | `<wsdl:message>` → `<wsdl:part element="tns:Xxx">` 的**元素名** | WSDL 可能被拆（**C-8**）→ 跟 `wsdl:import` |
+| **命名空间 URI** | 内联 schema 的 `targetNamespace`（通常 = 主 WSDL 的 `targetNamespace`） | **别抄 `soapAction` 里的 ns**；请求/响应 ns 可能都不同（**C-9**） |
+| **SOAP action** | `<soap:operation soapAction="…">` | **可能是空串**（本样本 **4/6** 是 `""`）→ 留空即可（平台已把它做成可选） |
+
+> 补充：4/4「同时声明 1.1 与 1.2」的服务，**两者地址相同、`soapAction` 值也相同** ⇒ **切版本只需改「XML 类型」这一个下拉**，其余字段一律不动。
 
 ## 3. 样本索引（离线夹具）
 
