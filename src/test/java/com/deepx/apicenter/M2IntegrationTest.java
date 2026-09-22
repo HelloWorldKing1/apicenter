@@ -268,7 +268,7 @@ class M2IntegrationTest {
 
     @Test
     void g4_上游超时_UNKNOWN待对账() {
-        // 全局读超时 3000ms；stub 延迟 3500ms → 读超时（ResourceAccessException）→ UNKNOWN
+        // 接口级读超时 3000ms（夹具显式值，不是平台默认）；stub 延迟 3500ms → 读超时（ResourceAccessException）→ UNKNOWN
         stubFor(post("/shop/v1/creatorList")
                 .willReturn(okJson(GOLDEN_RESPONSE).withFixedDelay(3500)));
 

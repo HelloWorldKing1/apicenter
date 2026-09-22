@@ -691,7 +691,7 @@ function emptyForm() {
   return {
     code: '', name: '', ifType: 'OUTBOUND', method: 'POST', path: '',
     protocolIn: 'JSON', protocolOut: 'JSON', protoSame: true, appId: '', groupId: null,
-    upstreamPath: '', callbackUrl: '', status: null, timeoutMs: 3000, maxRetries: 4, desc: '',
+    upstreamPath: '', callbackUrl: '', status: null, timeoutMs: 10000, maxRetries: 4, desc: '',
     version: 1,
     // 协议参数（B1/B2，仅 XML 需要；详见《XML声明配置设计方案.md》v4.4 / 《B2完整SOAP开发计划.md》§2.5）——
     // type 是**唯一真相**（POX / SOAP_1_1 / SOAP_1_2）；提交时由 buildProtocolParams 组装 JSON；

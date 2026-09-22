@@ -31,7 +31,8 @@ import java.time.Duration;
  *       HttpClient 设置（{@link JdkClientHttpRequestFactory} 无 setConnectTimeout）；缺失连接超时
  *       会导致「连不上的上游」在 TCP 连接阶段无限挂起，读超时永不触发。</li>
  *   <li>未声明作用域（如管理面自调 /test-callback 回环）→ 兜底 {@code app.api-center.default-read-timeout-ms}
- *       （默认 3000ms，与 {@code interface.timeout_ms} 默认值一致）。</li>
+ *       （默认 **10000ms**，与 {@code interface.timeout_ms} 默认值对齐；2026-09-22 前为 3000ms）。
+ *       注：管理面「模拟回调」自调另有 **20s** 专用作用域（网关侧入站送达是同步的），见 InterfaceController。</li>
  * </ul>
  */
 @Configuration
@@ -41,8 +42,8 @@ public class RestClientConfig {
     @Value("${app.api-center.connect-timeout-ms:3000}")
     private long connectTimeoutMs;
 
-    /** 兜底读超时（接口未配 / 配置非法 / 未声明作用域时使用） */
-    @Value("${app.api-center.default-read-timeout-ms:3000}")
+    /** 兜底读超时（接口未配 / 配置非法 / 未声明作用域时使用；默认 **10000ms**，与 {@code interface.timeout_ms} 对齐） */
+    @Value("${app.api-center.default-read-timeout-ms:10000}")
     private long defaultReadTimeoutMs;
 
     /**

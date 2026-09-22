@@ -65,7 +65,7 @@ CREATE TABLE interface (
     callback_url  VARCHAR(255) COMMENT '入站回调地址（送达目标 URL；仅 INBOUND，必填）',
     status        VARCHAR(16)  NOT NULL DEFAULT 'DRAFT' COMMENT 'DRAFT/PUBLISHED/OFFLINE；下线后停止路由',
     version       DECIMAL(10,1) NOT NULL DEFAULT 1.0 COMMENT '配置版本（v1.0 起每次配置变更 / 回滚 +0.1，见 interface_snapshot）',
-    timeout_ms    INT          NOT NULL DEFAULT 3000 COMMENT '读超时（出站=调供应商；入站=回调地址调用）',
+    timeout_ms    INT          NOT NULL DEFAULT 10000 COMMENT '读超时（出站=调供应商；入站=回调地址调用；2026-09-22 默认 3000→10000）',
     max_retries   INT          NOT NULL DEFAULT 4 COMMENT '短重试最大次数（补偿上限见 outbound_request.max_attempts）',
     `desc`        VARCHAR(500) COMMENT '描述',
     created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,

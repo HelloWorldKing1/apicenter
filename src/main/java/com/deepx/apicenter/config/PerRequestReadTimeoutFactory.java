@@ -47,8 +47,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class PerRequestReadTimeoutFactory implements ClientHttpRequestFactory {
 
-    /** 兜底读超时（与 {@code interface.timeout_ms} 默认值 3000ms 对齐；配置非法 / 未声明作用域时使用） */
-    private static final Duration FALLBACK_READ_TIMEOUT = Duration.ofMillis(3000);
+    /** 兜底读超时（与 {@code interface.timeout_ms} 默认值 **10000ms** 对齐；配置非法 / 未声明作用域时使用） */
+    private static final Duration FALLBACK_READ_TIMEOUT = Duration.ofMillis(10000);
 
     private final HttpClient httpClient;
 

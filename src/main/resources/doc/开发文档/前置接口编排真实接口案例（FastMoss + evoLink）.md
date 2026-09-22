@@ -226,7 +226,7 @@ curl -s -X POST http://localhost:8080/poster/publish -H 'Content-Type: applicati
 | `task_id` / `creator_total` 为 `null`（或 40001「字段缺失」） | 引用了**数组下标**（`steps.fm.list[0].nickname`）——D1 不支持，会把 `list[0]` 当**字面字段名**去找 → 找不到 → 走 null_strategy | 数组**整块**搬移（`creator_total` 取标量、`creators` 取整块）；元素级提取等 v1.1 |
 | 引用了信封外的字段（如 `steps.fm.code`）报 40001 | B 走信封适配（`envelope=data`），step 输出只有 `data` 里的字段 | 只引用 `data` 内字段（`total`/`list`/…） |
 | `401` → `40001 前置步骤 fm 失败：上游拒绝（HTTP 401）` | token 过期/未配置 | 应用 → 凭证 → 更新后重试（无重启，凭证每请求实时读） |
-| `50401 UNKNOWN` | 前置读超时（FastMoss 真实网络偶发慢） | 查 B 的读超时（默认 3000ms）→ 调大；UNKNOWN 需人工对账置位（**不会自动重试**，这是有意语义） |
+| `50401 UNKNOWN` | 前置读超时（FastMoss 真实网络偶发慢） | 查 B 的读超时（默认 10000ms）→ 视上游情况调大；UNKNOWN 需人工对账置位（**不会自动重试**，这是有意语义） |
 | `50201`/`50202` → A `COMPENSATING` | 前置 5xx / 429 耗尽 或 B 熔断 OPEN | 等补偿 worker 重放（≤3s 一轮）；重放会**重跑前置**（依赖供应商幂等，ADR 5） |
 | `40001 目标接口未发布` | B 被下线 | 重新发布 B；注意下线时服务端会返回 `warnings[]` 强提示引用方 |
 | `40001 前置链长度超限` | `A→B→C→D`（节点数 > 3） | 收敛层级，或改为「B 自己不做前置」 |

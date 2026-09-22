@@ -47,11 +47,11 @@ app:
       enabled: true
       # 前置响应体上限（默认 256KB）：超限按「链失败」处理（40001），不截断——截断会让宿主映射基于半份数据
       max-response-bytes: 262144
-    # 通用出站客户端超时（D-PS-0 修复，2026-09-13）：
+    # 通用出站客户端超时（D-PS-0 修复，2026-09-13；默认值 2026-09-22 起 3000 → **10000ms**）：
     # 读超时 = 接口级 interface.timeout_ms（per-request 生效；出站 = 调供应商，入站 = 调回调地址）；
     # 下面两项为「全局连接超时」与「接口未配 / 配置非法 / 未声明作用域时的兜底读超时」
     connect-timeout-ms: 3000
-    default-read-timeout-ms: 3000
+    default-read-timeout-ms: 10000
     # 回调地址允许内网 / 回环地址（SSRF 防护开关，M3 交付；开发 / 测试依赖本地 WireMock 为 true，
     # 生产必须 false——同时作用于管理面保存校验与运行时送达兜底）
     callback-allow-private: true
