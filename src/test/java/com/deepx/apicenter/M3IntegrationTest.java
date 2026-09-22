@@ -450,6 +450,30 @@ class M3IntegrationTest {
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
     }
 
+    @Test
+    void 模拟回调_回调地址不可达导致同步送达变慢_自调仍能拿到ack不报超时() {
+        // 反证（2026-09-22）：修复前自调用读超时 = default-read-timeout-ms(3000ms)，
+        // 而网关侧的**入站送达是同步的**，回调地址不可达时按 maxRetries=4 内联短重试
+        // （退避 200/400/800/1600ms ⇒ 合计 ≈3.0s）⇒ **自调先超时**，管理面得到 500「平台内部错误」，
+        // 但网关侧其实已处理完（ack 已回、送达另有状态）。
+        // 修复后：自调作用域 20s ⇒ 正常拿到 ack（本用例在无修复时**必红**）。
+        // 端口 1 上无服务 ⇒ 连接立即被拒（不依赖超时等待），仅退避耗时。
+        long id = interfaceService.create(jsonCallbackInterface(
+                groupId, "IF-M3-CB-DEAD", "/callback/m3/order-dead", "http://localhost:1/dead"));
+        interfaceService.publish(id);
+
+        byte[] body = "{\"event_id\":\"evt-dead\",\"order_id\":\"ORD-D\"}".getBytes(StandardCharsets.UTF_8);
+        ResponseEntity<byte[]> resp = httpPost(
+                "/api/admin/interfaces/" + id + "/test-callback", body, jsonHeaders());
+
+        assertThat(resp.getStatusCode().value()).isEqualTo(200);   // ← 修复前是 50000/500
+        JsonNode data = parse(resp.getBody()).get("data");
+        assertThat(data.get("ackStatus").asInt()).isEqualTo(200);  // ack 与送达成败解耦
+        assertThat(data.get("ackBody").asText()).contains("returnCode");
+        // 送达没成功（未 ACKED）—— 记为待重送/死信由补偿 worker 推进，不由本用例断言终态
+        assertThat(data.get("deliveryStatus").asText()).isNotEqualTo("ACKED");
+    }
+
     // ---------- 模拟回调端点（管理面测试工具） ----------
 
     @Test
@@ -484,15 +508,23 @@ class M3IntegrationTest {
     // ---------- helpers ----------
 
     private InterfaceRequest jsonCallbackInterface(long groupId) {
+        return jsonCallbackInterface(groupId, "IF-M3-CB", "/callback/m3/order", WM_BASE + "/delivery-ok");
+    }
+
+    /**
+     * 同上，但 code / path / callbackUrl 均可指定（回调地址不可达的回归用例必须用**独立** code+path，
+     * 否则与 @BeforeEach 建好的夹具撞唯一约束，2026-09-22）。
+     */
+    private InterfaceRequest jsonCallbackInterface(long groupId, String code, String path, String callbackUrl) {
         List<ParamDto> in = List.of(
                 new ParamDto("IN", "event_id", "string", true, "evt-1", 1),
                 new ParamDto("IN", "order_id", "string", true, "ORD-1", 2));
         List<ParamDto> out = List.of(
                 new ParamDto("OUT", "event_id", "string", true, null, 1),
                 new ParamDto("OUT", "order_id", "string", true, null, 2));
-        return new InterfaceRequest("IF-M3-CB", "M3 回调演示", "INBOUND", "POST", "/callback/m3/order",
+        return new InterfaceRequest(code, "M3 回调演示", "INBOUND", "POST", path,
                 "JSON", "JSON", TEST_APP, groupId,
-                null, WM_BASE + "/delivery-ok", null, 3000, 4, "M3 集成测试 JSON 回调接口", 1,
+                null, callbackUrl, null, 3000, 4, "M3 集成测试 JSON 回调接口", 1,
                 java.util.stream.Stream.concat(in.stream(), out.stream()).toList(),
                 List.of(new BodyDto("IN", "json", "{\"event_id\":\"evt-1\",\"order_id\":\"ORD-1\"}", null)),
                 List.of(new MappingDto("event_id", "rename", "event_id", null, null, 1),

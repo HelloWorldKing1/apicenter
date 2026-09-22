@@ -6,6 +6,7 @@ import com.deepx.apicenter.dto.InterfaceDtos.InterfaceRequest;
 import com.deepx.apicenter.dto.InterfaceDtos.InterfaceResponse;
 import com.deepx.apicenter.dto.InterfaceDtos.CopyRequest;
 import com.deepx.apicenter.dto.InterfaceDtos.RollbackRequest;
+import com.deepx.apicenter.config.PerRequestReadTimeoutFactory;
 import com.deepx.apicenter.engine.ChainEngine;
 import com.deepx.apicenter.engine.OutboundEngine;
 import com.deepx.apicenter.exception.BizException;
@@ -30,6 +31,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -37,6 +39,7 @@ import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
@@ -60,6 +63,19 @@ public class InterfaceController {
     private final InboundDeliveryRepository inboundDeliveryRepository;
     private final CryptoService cryptoService;
     private final RestClient restClient;
+    private final PerRequestReadTimeoutFactory readTimeoutFactory;
+
+    /**
+     * 管理面「模拟回调」自调网关时的读超时（2026-09-22）。
+     *
+     * <p>为何不能用共享 RestClient 的兜底值（`default-read-timeout-ms` 默认 3000ms）：
+     * 网关侧的**入站送达是同步的**，回调地址不可达时会按 `interface.max_retries` 内联短重试
+     * （退避 200/400/800/1600…ms，默认 4 次 ≈ 3.0s）⇒ 自调**会先超时**，管理面看到 500「平台内部错误」，
+     * 而网关侧其实**已处理完**（ack 已回、送达另有状态）。
+     *
+     * <p>取 20s：**小于**前端 `LONG_RUNNING_TIMEOUT`(30s)，保证浏览器侧先拿到结果（而不是先报网络错误）。
+     */
+    private static final Duration SELF_CALL_READ_TIMEOUT = Duration.ofSeconds(20);
 
     public InterfaceController(InterfaceService interfaceService,
                                InterfaceRepository interfaceRepository,
@@ -69,7 +85,8 @@ public class InterfaceController {
                                CredentialRepository credentialRepository,
                                InboundDeliveryRepository inboundDeliveryRepository,
                                CryptoService cryptoService,
-                               RestClient restClient) {
+                               RestClient restClient,
+                               PerRequestReadTimeoutFactory readTimeoutFactory) {
         this.interfaceService = interfaceService;
         this.interfaceRepository = interfaceRepository;
         this.outboundEngine = outboundEngine;
@@ -79,6 +96,7 @@ public class InterfaceController {
         this.inboundDeliveryRepository = inboundDeliveryRepository;
         this.cryptoService = cryptoService;
         this.restClient = restClient;
+        this.readTimeoutFactory = readTimeoutFactory;
     }
 
     @GetMapping
@@ -197,15 +215,26 @@ public class InterfaceController {
         String signature = HmacSigner.sign("HMAC-SHA256", secret, timestamp, raw);
 
         // 自调本服务网关：端口取本次请求的本地监听端口（RANDOM_PORT 测试下 server.port=0，不可用作 URL）
-        ResponseEntity<byte[]> resp = restClient.post()
-                .uri("http://localhost:" + request.getLocalPort() + iface.path())
-                .header("Content-Type", "XML".equals(iface.protocolIn()) ? "application/xml" : "application/json")
-                .header("X-Timestamp", timestamp)
-                .header("X-Partner-Signature", signature)
-                .header("X-Trace-Id", trace)
-                .body(raw)
-                .retrieve()
-                .toEntity(byte[].class);
+        // ⚠️ 读超时用**专用宽松作用域**（2026-09-22 修，成因见 SELF_CALL_READ_TIMEOUT 注释）；
+        //    超时/自调失败也要给**可读**报错（否则只会得到 500「平台内部错误」，看不出网关侧其实已处理完）
+        ResponseEntity<byte[]> resp;
+        try (var scope = readTimeoutFactory.withReadTimeout(SELF_CALL_READ_TIMEOUT)) {
+            resp = restClient.post()
+                    .uri("http://localhost:" + request.getLocalPort() + iface.path())
+                    .header("Content-Type", "XML".equals(iface.protocolIn()) ? "application/xml" : "application/json")
+                    .header("X-Timestamp", timestamp)
+                    .header("X-Partner-Signature", signature)
+                    .header("X-Trace-Id", trace)
+                    .body(raw)
+                    .retrieve()
+                    .toEntity(byte[].class);
+        } catch (ResourceAccessException e) {
+            throw new BizException(50401,
+                    "自调网关超时/失败：网关侧可能**仍在处理或已处理完**——入站送达是**同步**的，回调地址（"
+                    + iface.callbackUrl() + "）不可达时会按 maxRetries=" + iface.maxRetries()
+                    + " 短重试若干次。请到「接口监控」按 traceId=" + trace
+                    + " 核实实际结果；或让回调地址可达 / 把该接口「读超时」调小。");
+        }
 
         String deliveryStatus = inboundDeliveryRepository.findByTrace(trace).stream()
                 .findFirst()
