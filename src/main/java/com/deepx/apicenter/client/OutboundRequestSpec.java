@@ -24,6 +24,21 @@ public class OutboundRequestSpec {
     /** 前置步骤名（编排）：仅 PreStepExecutor 填充，供 OUT 方向 call_log 的 step_code 列与「按步骤筛选」 */
     private String stepCode;
 
+    /**
+     * SOAP 版本（B2）：ENCODE 阶段按 xml.type 置位（"1.1" / "1.2"；POX 保持 null）。
+     * <p>用途：{@code UpstreamInvoker} 在 5xx 时据此判断"要不要按 SOAP Fault 解析响应体"
+     * （只有 SOAP 接口才解析；非 SOAP 接口即使 body 里含 &lt;Fault&gt; 也不误判）。
+     */
+    private String soapVersion;
+
+    public String soapVersion() {
+        return soapVersion;
+    }
+
+    public void soapVersion(String soapVersion) {
+        this.soapVersion = soapVersion;
+    }
+
     public String url() {
         return url;
     }

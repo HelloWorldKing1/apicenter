@@ -82,13 +82,14 @@ class XmlProtoConfigTest {
     }
 
     @Test
-    void soap段_明确拒绝并给出延后提示() {
-        // B2 延后：若静默忽略，用户配了 SOAP 却毫无反应 → 必须显式拒绝
+    void soap段_无type时被拒_互斥_B2已支持SOAP但必须显式声明type() {
+        // B1 → B2 的语义变更（本用例反向改写）：B1 时代 soap 段是“未知键 → 带 B2 延后提示”；
+        // B2 起 soap 段已支持，但**必须先用 type 声明类型**（方案 A：type 是唯一真相）——
+        // 缺 type（= POX）时出现 soap 段 → 40001 互斥。
         assertThatThrownBy(() -> XmlProtoConfig.of(
                 "{\"xml\":{\"soap\":{\"version\":\"1.1\"}}}", mapper))
                 .isInstanceOf(BizException.class)
-                .hasMessageContaining("未知键")
-                .hasMessageContaining("SOAP 段尚未支持");
+                .hasMessageContaining("POX 时不允许出现 soap 段");
     }
 
     // ---------- 值域白名单 ----------
@@ -188,5 +189,103 @@ class XmlProtoConfigTest {
         assertThat(XmlProtoConfig.hasXmlSection("{\"xml\":{\"root\":\"X\"}}")).isTrue();
         assertThat(XmlProtoConfig.hasXmlSection(null)).isFalse();
         assertThat(XmlProtoConfig.hasXmlSection("{}")).isFalse();
+    }
+
+    // ---------- B2：xml.type 为唯一真相（方案 A） ----------
+
+    @Test
+    void type缺省视为POX_B1历史数据零迁移() {
+        // B1 时期写入的 protocol_params 【没有 type】→ 必须仍按 POX 解释（否则存量接口全乱）
+        XmlProtoConfig c = XmlProtoConfig.of(
+                "{\"xml\":{\"version\":\"1.1\",\"root\":\"QueryRequest\"}}", mapper);
+        assertThat(c.type()).isEqualTo(XmlProtoConfig.Type.POX);
+        assertThat(c.isSoap()).isFalse();
+        assertThat(c.soap()).isNull();
+        assertThat(c.version()).isEqualTo("1.1");          // 声明版本与 SOAP 版本无关
+        assertThat(c.root()).isEqualTo("QueryRequest");
+    }
+
+    @Test
+    void type白名单外_40001() {
+        assertThatThrownBy(() -> XmlProtoConfig.of("{\"xml\":{\"type\":\"SOAP_2_0\"}}", mapper))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("type 仅支持");
+    }
+
+    @Test
+    void SOAP类型_解析成功且soap段默认可省() {
+        XmlProtoConfig c = XmlProtoConfig.of(
+                "{\"xml\":{\"type\":\"SOAP_1_1\",\"root\":\"Add\",\"namespace\":{\"uri\":\"http://tempuri.org/\"}}}", mapper);
+        assertThat(c.type()).isEqualTo(XmlProtoConfig.Type.SOAP_1_1);
+        assertThat(c.type().soapVersion()).isEqualTo("1.1");
+        assertThat(c.type().envelopeNs()).isEqualTo("http://schemas.xmlsoap.org/soap/envelope/");
+        assertThat(c.isSoap()).isTrue();
+        // soap 段可省 → 全默认：action 空（实测 6/6 服务不强制）、前缀 soap、解包开
+        assertThat(c.soap()).isEqualTo(XmlProtoConfig.SoapConfig.DEFAULT);
+        assertThat(c.envelopePrefix()).isEqualTo("soap");
+        assertThat(c.unwrapResponse()).isTrue();
+        assertThat(c.soap().soapActionHeader()).as("action 为空 → 不发 SOAPAction 头").isNull();
+    }
+
+    @Test
+    void SOAP类型_解析soap段全量() {
+        XmlProtoConfig c = XmlProtoConfig.of("""
+                {"xml":{"type":"SOAP_1_2","root":"Add",
+                        "soap":{"action":"http://tempuri.org/Add","envelopePrefix":"env",
+                                 "unwrapResponse":false}}}""", mapper);
+        assertThat(c.type().soapVersion()).isEqualTo("1.2");
+        assertThat(c.type().envelopeNs()).isEqualTo("http://www.w3.org/2003/05/soap-envelope");
+        assertThat(c.soap().action()).isEqualTo("http://tempuri.org/Add");
+        assertThat(c.soap().soapActionHeader()).isEqualTo("\"http://tempuri.org/Add\"");
+        assertThat(c.envelopePrefix()).isEqualTo("env");
+        assertThat(c.unwrapResponse()).isFalse();
+    }
+
+    @Test
+    void POX带soap键_40001_互斥() {
+        // 方案 A 的要旨：版本由 type 表达，POX 下出现 soap 段必为配错
+        assertThatThrownBy(() -> XmlProtoConfig.of(
+                "{\"xml\":{\"type\":\"POX\",\"soap\":{\"action\":\"x\"}}}", mapper))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("POX 时不允许出现 soap 段");
+        // 连 type 都不写（缺省 POX）也禁止 —— 否则又回到“段存在即启用”的隐式双真相
+        assertThatThrownBy(() -> XmlProtoConfig.of("{\"xml\":{\"soap\":{}}}", mapper))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("POX 时不允许出现 soap 段");
+    }
+
+    @Test
+    void soap段里写version_40001_防双真相() {
+        assertThatThrownBy(() -> XmlProtoConfig.of(
+                "{\"xml\":{\"type\":\"SOAP_1_1\",\"soap\":{\"version\":\"1.1\"}}}", mapper))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("未知键")
+                .hasMessageContaining("version");
+    }
+
+    @Test
+    void soap段内未知键与非法前缀_40001() {
+        assertThatThrownBy(() -> XmlProtoConfig.of(
+                "{\"xml\":{\"type\":\"SOAP_1_1\",\"soap\":{\"actoin\":\"x\"}}}", mapper))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("未知键");
+        assertThatThrownBy(() -> XmlProtoConfig.of(
+                "{\"xml\":{\"type\":\"SOAP_1_1\",\"soap\":{\"envelopePrefix\":\"a b\"}}}", mapper))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("envelopePrefix");
+    }
+
+    @Test
+    void SOAP类型下的root与namespace与POX同一套规则() {
+        // root 含冒号（前缀该由 namespace.prefix 表达）—— SOAP 下同样拒绝
+        assertThatThrownBy(() -> XmlProtoConfig.of(
+                "{\"xml\":{\"type\":\"SOAP_1_1\",\"root\":\"ns:Add\"}}", mapper))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("不是合法 XML 元素名");
+        // encoding 白名单同样适用
+        assertThatThrownBy(() -> XmlProtoConfig.of(
+                "{\"xml\":{\"type\":\"SOAP_1_1\",\"encoding\":\"UTF-16\"}}", mapper))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("非 ASCII 兼容");
     }
 }

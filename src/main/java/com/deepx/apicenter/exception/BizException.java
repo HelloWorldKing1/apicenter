@@ -20,6 +20,13 @@ public class BizException extends RuntimeException {
     /** 50000 平台内部错误 */
     public static final int INTERNAL = 50000;
 
+    /**
+     * 50203 SOAP Fault（客户端类）—— B2：参数/格式/权限错、或 {@code VersionMismatch}/{@code MustUnderstand}。
+     * 属确定性错误：→ 死信、<b>不重试</b>、<b>不计熔断失败</b>。与 50201（供应商 5xx/重试耗尽转补偿）、
+     * 50202（熔断短路）语义互斥、不重叠。
+     */
+    public static final int SOAP_CLIENT_FAULT = 50203;
+
     // ---------- 管理面账号认证（2026-09-18；40100/40101 已被入站回调验签占用，故从 40104 起） ----------
     /** 40104 未登录 / 令牌缺失、无效或已过期（HTTP 401） */
     public static final int UNAUTHORIZED = 40104;

@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope"><env:Body><Add xmlns="http://tempuri.org/"><intA>1</intA><intB>2</intB></Add></env:Body></env:Envelope>

@@ -180,9 +180,14 @@ public class CallLogAspect {
         return status < 400 ? "success" : "business_fail";
     }
 
-    /** OUT 方向结局分类：2xx 成功（上游健康响应）；4xx 非 429 视为上游明确拒绝；异常（5xx/429/超时）传输失败 */
+    /** OUT 方向结局分类：2xx 成功（上游健康响应）；4xx 非 429 与 **SOAP 客户端类 Fault** 视为上游明确拒绝；异常（5xx/429/超时）传输失败 */
     private String outcomeOfOut(int status, Throwable error) {
         if (error != null) {
+            // B2：SOAP 客户端类 Fault 是「上游明确拒绝我们」（与 4xx 同类），不是传输失败 ——
+            //   否则成功率/传输失败率口径会被污染
+            if (error instanceof com.deepx.apicenter.exception.SoapClientFaultException) {
+                return "upstream_fail";
+            }
             return "transport_fail";
         }
         return status < 400 ? "success" : "upstream_fail";

@@ -211,7 +211,7 @@ class XmlProtocolAdapterTest {
     @Test
     void 配version11_声明为11() {
         AdapterContext ctx = encodeCtx(model(ObjectNode.of()), null,
-                new XmlProtoConfig("1.1", "UTF-8", "request", null, null));
+                XmlProtoConfig.pox("1.1", "UTF-8", "request", null, null));
         adapter.process(ctx);
         String out = new String(ctx.outbound().body(), StandardCharsets.UTF_8);
         assertThat(out).startsWith("<?xml version='1.1' encoding='UTF-8'?>");
@@ -220,7 +220,7 @@ class XmlProtocolAdapterTest {
     @Test
     void 配encodingGBK_声明GBK且字节保持ASCII安全() {
         AdapterContext ctx = encodeCtx(textModel("中文"), null,
-                new XmlProtoConfig("1.0", "GBK", "request", null, null));
+                XmlProtoConfig.pox("1.0", "GBK", "request", null, null));
         adapter.process(ctx);
         byte[] body = ctx.outbound().body();
         String out = new String(body, StandardCharsets.UTF_8);
@@ -235,7 +235,7 @@ class XmlProtocolAdapterTest {
     @Test
     void 配root_根元素按配置() {
         AdapterContext ctx = encodeCtx(textModel("v"), null,
-                new XmlProtoConfig("1.0", "UTF-8", "QueryRequest", null, null));
+                XmlProtoConfig.pox("1.0", "UTF-8", "QueryRequest", null, null));
         adapter.process(ctx);
         String out = new String(ctx.outbound().body(), StandardCharsets.UTF_8);
         assertThat(out).contains("<QueryRequest>");
@@ -245,7 +245,7 @@ class XmlProtocolAdapterTest {
     void ack的xmlRoot优先于配置root() {
         // D-XD-6：ack 根元素维持约定 response，不被 protocol_params.root 覆盖
         AdapterContext ctx = encodeCtx(model(ObjectNode.of()), "response",
-                new XmlProtoConfig("1.0", "UTF-8", "QueryRequest", null, null));
+                XmlProtoConfig.pox("1.0", "UTF-8", "QueryRequest", null, null));
         adapter.process(ctx);
         String out = new String(ctx.outbound().body(), StandardCharsets.UTF_8);
         assertThat(out).contains("<response");
@@ -255,7 +255,7 @@ class XmlProtocolAdapterTest {
     @Test
     void 配默认命名空间_输出xmlns() {
         AdapterContext ctx = encodeCtx(textModel("v"), null,
-                new XmlProtoConfig("1.0", "UTF-8", "QueryRequest", "", "http://example.com/svc"));
+                XmlProtoConfig.pox("1.0", "UTF-8", "QueryRequest", "", "http://example.com/svc"));
         adapter.process(ctx);
         String out = new String(ctx.outbound().body(), StandardCharsets.UTF_8);
         assertThat(out).contains("<QueryRequest xmlns=\"http://example.com/svc\">");
@@ -264,7 +264,7 @@ class XmlProtocolAdapterTest {
     @Test
     void 配带前缀命名空间_输出前缀与xmlns() {
         AdapterContext ctx = encodeCtx(textModel("v"), null,
-                new XmlProtoConfig("1.0", "UTF-8", "QueryRequest", "ns", "http://example.com/svc"));
+                XmlProtoConfig.pox("1.0", "UTF-8", "QueryRequest", "ns", "http://example.com/svc"));
         adapter.process(ctx);
         String out = new String(ctx.outbound().body(), StandardCharsets.UTF_8);
         // 探针 #2：三参 writeStartElement + writeNamespace 才能正确输出前缀绑定
@@ -276,6 +276,125 @@ class XmlProtocolAdapterTest {
         ObjectNode root = ObjectNode.of();
         root.fields().put("data", ScalarNode.str(value));
         return UnifiedModel.of(root);
+    }
+
+    // ---------- B2：SOAP 包裹 / 响应解包 / ack 不 SOAP 化 ----------
+
+    private static XmlProtoConfig soapCfg(XmlProtoConfig.Type type, String action) {
+        return new XmlProtoConfig(type, "1.0", "UTF-8", "Add", "", "http://tempuri.org/",
+                new XmlProtoConfig.SoapConfig(action, "soap", true));
+    }
+
+    private static UnifiedModel addModel() {
+        ObjectNode root = ObjectNode.of();
+        root.fields().put("intA", ScalarNode.num(1L));
+        root.fields().put("intB", ScalarNode.num(2L));
+        return UnifiedModel.of(root);
+    }
+
+    @Test
+    void soap11_包裹Envelope与Body_且头为textXml加SOAPAction() {
+        AdapterContext ctx = encodeCtx(addModel(), null, soapCfg(XmlProtoConfig.Type.SOAP_1_1,
+                "http://tempuri.org/Add"));
+        adapter.process(ctx);
+        String out = new String(ctx.outbound().body(), StandardCharsets.UTF_8);
+
+        assertThat(out).startsWith("<?xml version='1.0' encoding='UTF-8'?>");
+        assertThat(out).contains("<soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\">");
+        assertThat(out).contains("<soap:Body>");
+        assertThat(out).contains("<Add xmlns=\"http://tempuri.org/\">");
+        assertThat(out).contains("<intA>1</intA>");
+        // 头：1.1 → text/xml + SOAPAction（引号包围）
+        assertThat(ctx.outbound().headers().get("Content-Type")).containsExactly("text/xml; charset=UTF-8");
+        assertThat(ctx.outbound().headers().get("SOAPAction")).containsExactly("\"http://tempuri.org/Add\"");
+        // 关键：给 spec 置 soapVersion（供 UpstreamInvoker 判 Fault）
+        assertThat(ctx.outbound().soapVersion()).isEqualTo("1.1");
+    }
+
+    @Test
+    void soap12_包裹_头带action且无SOAPAction头() {
+        AdapterContext ctx = encodeCtx(addModel(), null, soapCfg(XmlProtoConfig.Type.SOAP_1_2,
+                "http://tempuri.org/Add"));
+        adapter.process(ctx);
+        String out = new String(ctx.outbound().body(), StandardCharsets.UTF_8);
+
+        assertThat(out).contains("<soap:Envelope xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\">");
+        assertThat(ctx.outbound().headers().get("Content-Type"))
+                .containsExactly("application/soap+xml; charset=UTF-8; action=\"http://tempuri.org/Add\"");
+        assertThat(ctx.outbound().headers().get("SOAPAction")).as("1.2 不发 SOAPAction 头").isNull();
+        assertThat(ctx.outbound().soapVersion()).isEqualTo("1.2");
+    }
+
+    @Test
+    void soap_未配action时不发SOAPAction_也不带action参数() {
+        // 实测（样本集 C-1）：6/6 公开服务不强制 action（部分 WSDL 写 soapAction=""）→ action 可选
+        AdapterContext ctx = encodeCtx(addModel(), null, soapCfg(XmlProtoConfig.Type.SOAP_1_1, null));
+        adapter.process(ctx);
+        assertThat(ctx.outbound().headers().get("SOAPAction")).isNull();
+
+        AdapterContext ctx12 = encodeCtx(addModel(), null, soapCfg(XmlProtoConfig.Type.SOAP_1_2, null));
+        adapter.process(ctx12);
+        assertThat(ctx12.outbound().headers().get("Content-Type"))
+                .containsExactly("application/soap+xml; charset=UTF-8");
+    }
+
+    @Test
+    void ack模式_即使类型是SOAP也不包裹_且根元素保持response() {
+        // D-SOAP-6：ack 是回给回调方的回执，不得被 SOAP 包裹
+        AdapterContext ctx = encodeCtx(model(ObjectNode.of()), "response",
+                soapCfg(XmlProtoConfig.Type.SOAP_1_1, "http://tempuri.org/Add"));
+        ctx.attrs().put(XmlProtocolAdapter.ATTR_ACK_MODE, Boolean.TRUE);
+        adapter.process(ctx);
+        String out = new String(ctx.outbound().body(), StandardCharsets.UTF_8);
+
+        assertThat(out).contains("<response");
+        assertThat(out).doesNotContain("Envelope");
+        assertThat(out).doesNotContain("Body");
+        assertThat(ctx.outbound().headers().get("Content-Type")).containsExactly("application/xml");
+        assertThat(ctx.outbound().soapVersion()).as("ack 不置 soapVersion").isNull();
+    }
+
+    @Test
+    void soap解包_取Body内第一个元素作为业务根() {
+        String soapResp = "<soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\">"
+                + "<soap:Body><AddResponse xmlns=\"http://tempuri.org/\"><AddResult>3</AddResult>"
+                + "</AddResponse></soap:Body></soap:Envelope>";
+        ObjectNode root = decodeRootWithConfig(bytes(soapResp),
+                soapCfg(XmlProtoConfig.Type.SOAP_1_1, null));
+
+        // 解包后：业务字段直接在根（不含 Envelope / Body 层级）
+        assertThat(root.fields()).containsKey("AddResult");
+        assertThat(root.fields()).doesNotContainKey("Body");
+        assertThat(((ScalarNode) root.fields().get("AddResult")).value()).isEqualTo("3");
+    }
+
+    @Test
+    void soap解包_关掉unwrapResponse时保留Envelope层级() {
+        String soapResp = "<soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\">"
+                + "<soap:Body><AddResponse xmlns=\"http://tempuri.org/\"><AddResult>3</AddResult>"
+                + "</AddResponse></soap:Body></soap:Envelope>";
+        XmlProtoConfig noUnwrap = new XmlProtoConfig(XmlProtoConfig.Type.SOAP_1_1, "1.0", "UTF-8",
+                "Add", "", "http://tempuri.org/", new XmlProtoConfig.SoapConfig(null, "soap", false));
+        ObjectNode root = decodeRootWithConfig(bytes(soapResp), noUnwrap);
+
+        assertThat(root.fields()).containsKey("Body");
+        assertThat(root.fields()).doesNotContainKey("AddResult");
+    }
+
+    @Test
+    void soap解包_对非SOAP报文宽容_不报错且原样() {
+        // 宽容（D-SOAP-3）：配了 SOAP 但供应商回了非 SOAP 报文 → 原样 + warn，不得判死
+        ObjectNode root = decodeRootWithConfig(bytes("<feed><title>T</title></feed>"),
+                soapCfg(XmlProtoConfig.Type.SOAP_1_1, null));
+        assertThat(root.fields()).containsKey("title");
+    }
+
+    /** 带协议参数的解码（模拟 decodeResponse 的注入方式） */
+    private ObjectNode decodeRootWithConfig(byte[] raw, XmlProtoConfig cfg) {
+        AdapterContext ctx = decodeCtx(raw, Map.of());
+        ctx.attrs().put(XmlProtoConfig.ATTR, cfg);
+        adapter.process(ctx);
+        return (ObjectNode) ctx.payload().root();
     }
 
     private AdapterContext encodeCtx(UnifiedModel model, String xmlRoot, XmlProtoConfig cfg) {

@@ -54,6 +54,14 @@ public class XmlProtocolAdapter implements Adapter {
     public static final String ROOT_REQUEST = "request";
     public static final String ROOT_RESPONSE = "response";
 
+    /**
+     * ack 模式标记（B2）：仅 {@code AckRenderer} 置位。
+     * <p>为何需要它：ack 与出站请求都走本适配器的 ENCODE，但 <b>ack 不得被 SOAP 包裹</b>（D-SOAP-6：
+     * ack 是平台回给回调方的回执，供应商回调普遍是普通 POST）。仅凭 `xmlRoot` 存在判断不够显式，
+     * 故用独立属性把它写成“显式意图”。
+     */
+    public static final String ATTR_ACK_MODE = "xmlAckMode";
+
     /** 解码递归深度上限（评审建议 7：防万层嵌套栈溢出） */
     private static final int MAX_DEPTH = 512;
 
@@ -115,6 +123,9 @@ public class XmlProtocolAdapter implements Adapter {
             }
             UnifiedModel.UNode root = readElement(reader, 0);
             ctx.payload().root(root);
+            // B2：SOAP 响应解包（必须在类型转换之前）。
+            // 注：入站请求方向不注入协议参数（Q17），所以只有「响应解码」会走到解包。
+            unwrapSoapIfConfigured(ctx);
             applyParamTypes(ctx);
             return ctx;
         } catch (BizException e) {
@@ -139,6 +150,34 @@ public class XmlProtocolAdapter implements Adapter {
         if (probe.contains("<!doctype") || probe.contains("<!entity")) {
             throw new BizException(40002, "报文格式非法：XML 不允许 DTD / 实体声明");
         }
+    }
+
+    /**
+     * SOAP 响应解包（B2）：取 {@code Envelope/Body} 内**第一个子元素**作为业务根；
+     * 宽容失败（非 SOAP 结构 / Body 为空 → 原样返回 + warn），避免把非 SOAP 报文判死。
+     *
+     * <p>注意：解码后根元素名**不进模型**（D-M3-1），所以模型根已是 `Envelope` 的**内容**（即 `{Body:{…}}`），
+     * 此处直接取 `Body` 字段即可，无需再找 `Envelope`。
+     */
+    private void unwrapSoapIfConfigured(AdapterContext ctx) {
+        XmlProtoConfig cfg = ctx.attrs().get(XmlProtoConfig.ATTR) instanceof XmlProtoConfig c ? c : null;
+        if (cfg == null || !cfg.isSoap() || !cfg.unwrapResponse()) {
+            return;
+        }
+        if (!(ctx.payload().root() instanceof ObjectNode env)) {
+            return; // 非对象根（空报文 / 标量）：原样
+        }
+        UnifiedModel.UNode bodyNode = env.fields().get("Body");
+        if (!(bodyNode instanceof ObjectNode body) || body.fields().isEmpty()) {
+            ctx.warn("SOAP 解包：响应缺少 Envelope/Body 结构，按原样处理（请核对供应商是否真为 SOAP）");
+            return;
+        }
+        var it = body.fields().entrySet().iterator();
+        var first = it.next();
+        if (it.hasNext()) {
+            ctx.warn("SOAP 解包：Body 内有多个子元素，只取第一个：" + first.getKey());
+        }
+        ctx.payload().root(first.getValue());
     }
 
     /** 递归读元素：容器元素 → ObjectNode（fields + attributes），叶元素 → 标量（文本 STRING / 空 NULL） */
@@ -244,32 +283,76 @@ public class XmlProtocolAdapter implements Adapter {
 
     private AdapterContext encode(AdapterContext ctx) {
         try {
-            // 协议参数（B1）：由 ChainEngine 装配期烘焙后注入；缺省 = 内置默认（= 改造前行为）
+            // 协议参数（B1/B2）：由 ChainEngine 装配期烘焙后注入；缺省 = 内置默认（= 改造前行为）
             XmlProtoConfig cfg = ctx.attrs().get(XmlProtoConfig.ATTR) instanceof XmlProtoConfig c
                     ? c : XmlProtoConfig.DEFAULT;
+            // ack 渲染不 SOAP 化（D-SOAP-6）：ack 是回给回调方的回执，与出站报文是两件事
+            boolean ackMode = Boolean.TRUE.equals(ctx.attrs().get(ATTR_ACK_MODE));
+            boolean soap = cfg.isSoap() && !ackMode;
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             // ⚠ 不变式：writer 字节编码与声明必须【同源】（均取 cfg.encoding）——
             //   实测 Woodstox 的 writeStartDocument(encoding,…) 仅在 writer 未指定编码时生效，
-            //   故 :247 才是编码权威；两者不一致会让声明“说谎”
+            //   故本行才是编码权威；两者不一致会让声明“说谎”
             XMLStreamWriter w = outputFactory.createXMLStreamWriter(out, cfg.encoding());
             w.writeStartDocument(cfg.encoding(), cfg.version());
-            String root = ctx.attrs().get("xmlRoot") instanceof String s ? s : cfg.root();
             if (!(ctx.payload().root() instanceof ObjectNode)) {
                 // XML 文档单根约束（评审 N3）：数组/标量根无合法 XML 表示，明确报错而非产出非法多根文档
                 throw new BizException(50000, "报文编码失败：XML 根节点必须为对象");
             }
-            writeRoot(w, root, cfg, ctx.payload().root());
+            if (soap) {
+                // SOAP 包裹（B2）：Envelope → Body → 业务元素；envelope 命名空间由 type 决定，前缀无语义
+                String prefix = cfg.envelopePrefix();
+                String envNs = cfg.type().envelopeNs();
+                w.writeStartElement(prefix, "Envelope", envNs);
+                w.writeNamespace(prefix, envNs);
+                w.writeStartElement(prefix, "Body", envNs);
+                writeRoot(w, cfg.root(), cfg, ctx.payload().root());
+                w.writeEndElement();   // </soap:Body>
+                w.writeEndElement();   // </soap:Envelope>
+            } else {
+                // 根元素：显式 xmlRoot（仅 ack 会设）优先；否则取配置 root
+                String root = ctx.attrs().get("xmlRoot") instanceof String s ? s : cfg.root();
+                writeRoot(w, root, cfg, ctx.payload().root());
+            }
             w.writeEndDocument();
             w.flush();
             w.close();
             ctx.outbound().body(out.toByteArray());
-            // Content-Type 保持 application/xml（不加 charset）：B1 不改既有行为；
-            // XML 声明是编码的权威（XML 规范），需显式 charset 的场景见设计方案 §5.4 ③
-            ctx.outbound().header("Content-Type", "application/xml");
-            ctx.outbound().header("Accept", "application/xml");
+            applyXmlHeaders(ctx, cfg, soap);
             return ctx;
+        } catch (BizException e) {
+            throw e;
         } catch (Exception e) {
             throw new BizException(50000, "报文编码失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 报文头（B2）：POX 保持 `application/xml`（= 改造前行为，零回归）；SOAP 按线协议分派。
+     * <p>1.1：`text/xml` + **`SOAPAction` 头**（有 action 才发）；1.2：`application/soap+xml; action=`（**无** SOAPAction 头）。
+     * <p>同时给 spec 置 `soapVersion` —— 供 UpstreamInvoker 在 5xx 时判断“要不要按 SOAP Fault 解析响应体”。
+     */
+    private void applyXmlHeaders(AdapterContext ctx, XmlProtoConfig cfg, boolean soap) {
+        if (!soap) {
+            ctx.outbound().header("Content-Type", "application/xml");
+            ctx.outbound().header("Accept", "application/xml");
+            return;
+        }
+        String enc = cfg.encoding();
+        ctx.outbound().soapVersion(cfg.type().soapVersion());
+        if ("1.2".equals(cfg.type().soapVersion())) {
+            String action = cfg.soap().action();
+            String ct = "application/soap+xml; charset=" + enc
+                    + (action == null || action.isBlank() ? "" : "; action=\"" + action + "\"");
+            ctx.outbound().header("Content-Type", ct);
+            ctx.outbound().header("Accept", "application/soap+xml");
+        } else {
+            ctx.outbound().header("Content-Type", "text/xml; charset=" + enc);
+            ctx.outbound().header("Accept", "text/xml");
+            String soapAction = cfg.soap().soapActionHeader();
+            if (soapAction != null) {
+                ctx.outbound().header("SOAPAction", soapAction);
+            }
         }
     }
 

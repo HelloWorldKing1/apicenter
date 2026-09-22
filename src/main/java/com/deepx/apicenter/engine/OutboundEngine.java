@@ -4,6 +4,7 @@ import com.deepx.apicenter.adapter.protocol.JsonProtocolAdapter;
 import com.deepx.apicenter.aspect.CallLogContext;
 import com.deepx.apicenter.dto.ApiResult;
 import com.deepx.apicenter.exception.BizException;
+import com.deepx.apicenter.exception.SoapClientFaultException;
 import com.deepx.apicenter.model.AppRow;
 import com.deepx.apicenter.model.InterfaceRow;
 import com.deepx.apicenter.model.OutboundRequestRow;
@@ -43,6 +44,9 @@ public class OutboundEngine {
 
     /** 熔断短路顺延上限（与补偿固定间隔 3s 口径对齐，D-M4-1） */
     private static final long CIRCUIT_DEFER_SECONDS = 3;
+
+    /** SOAP faultstring 落库截断上限（B2 §5.4 ⑤；实测原始可达 ~1.5KB，而 dead_letter.reason 列宽 2000） */
+    private static final int FAULT_MSG_MAX = 500;
 
     private final InterfaceRepository interfaceRepository;
     private final AppRepository appRepository;
@@ -209,6 +213,13 @@ public class OutboundEngine {
             // 熔断计数（D-M4-1：每请求一次）：invoke 正常返回 = 2xx 或 4xx 非 429（5xx/429/超时以异常到达 catch）
             circuitBreakerRegistry.record(iface.id(), true);
         } catch (Exception e) {
+            // B2：SOAP 客户端类 Fault 必须在 instanceof 链【最前面】：
+            //   ① 若落到下面的 `throw e`，会冒到 execute 的 catch(Exception) 被包成 50000「平台内部错误」（语义全错）；
+            //   ② 且它**不应计入熔断失败**（不是供应商不可用，而是我们请求错了），
+            //      所以不能掉进下面那个包含 HttpServerErrorException 的分支。
+            if (e instanceof SoapClientFaultException sf) {
+                throw classifySoapClientFault(recordId, sf, trigger, how, attempt);
+            }
             // 传输类异常（5xx/429/超时连接）计失败；链失败 / 业务异常不进熔断统计
             if (e instanceof org.springframework.web.client.ResourceAccessException
                     || e instanceof org.springframework.web.client.HttpClientErrorException.TooManyRequests
@@ -218,8 +229,11 @@ public class OutboundEngine {
                 // 与状态分类同一作用域——否则 finally remove 后 classifyInvokeFailure 读到空，detail 的短重试次数恒 0
                 long shortRetries = UpstreamInvoker.retryFailures();
                 BizException mapped = classifyInvokeFailure(recordId, e, trigger, how, attempt, shortRetries);
-                log.warn("出站请求 {} 传输异常（{} → code {}，短重试 {} 次）", recordId,
-                        e.getClass().getSimpleName(), mapped.getCode(), Math.max(0, shortRetries - 1));
+                // 2026-09-21（B2 验证期发现的可观测缺口）：原先只打异常类名，ResourceAccessException 下
+                //   “连接超时 / 读超时 / 连接重置 / 协议错”无法区分，排障时看不出真因 —— 补上根因（class: message）
+                log.warn("出站请求 {} 传输异常（{}【{}】→ code {}，短重试 {} 次）", recordId,
+                        e.getClass().getSimpleName(), rootCauseOf(e), mapped.getCode(),
+                        Math.max(0, shortRetries - 1));
                 throw mapped;
             }
             throw e; // 意外异常：原样抛给 execute / replay 的 catch 兜底
@@ -227,6 +241,50 @@ public class OutboundEngine {
             UpstreamInvoker.endRetryBudget();
         }
         return classify(recordId, iface, resp, trigger, how, attempt);
+    }
+
+    /**
+     * SOAP 客户端类 Fault 分类（B2）：写死信 + `DEAD_LETTER` + `50203`，**不计熔断失败、不重试**。
+     *
+     * <p>与 4xx 的死信分支口径一致：`dead_letter.payload` 落**供应商原始响应体**（取证），
+     * `reason` 落 `faultcode` + **截断后的 faultstring**。
+     */
+    private BizException classifySoapClientFault(long recordId, SoapClientFaultException e,
+                                                String trigger, String how, int attempt) {
+        String reason = "SOAP Fault（客户端 " + e.faultCode() + "）：" + truncateFault(e.faultMessage());
+        chainAppend("MAPPING", "DEAD_LETTER", attempt, "50203", trigger, how + " " + reason);
+        outboundRequestRepository.updateState(recordId, "DEAD_LETTER", null, null, null, "50203");
+        long deadLetterId = outboundRequestRepository.insertDeadLetter(
+                "OUTBOUND", recordId, reason, e.rawBody() == null ? null : bytesText(e.rawBody()));
+        String deadLetterRef = deadLetterId > 0
+                ? "，死信编号 " + deadLetterId
+                : "（死信已落库，编号未回填，请在监控「死信」区查看）";
+        log.warn("出站请求 {} SOAP 客户端类 Fault（{} {}）→ 死信（不重试、不计熔断）：{}",
+                recordId, e.soapVersion(), e.faultCode(), truncateFault(e.faultMessage()));
+        return new BizException(BizException.SOAP_CLIENT_FAULT,
+                "供应商 SOAP Fault（客户端错误，不重试）：" + e.faultCode() + deadLetterRef);
+    }
+
+    /**
+     * 传输类异常的**根因**摘要（class: message）—— 把「连接超时 / 读超时 / 连接重置 / 协议错」区分开。
+     * 原先只打最外层异常类名（ResourceAccessException），排障时看不出真因。
+     */
+    private static String rootCauseOf(Throwable e) {
+        Throwable cur = e;
+        while (cur.getCause() != null && cur.getCause() != cur) {
+            cur = cur.getCause();
+        }
+        return cur.getClass().getSimpleName() + (cur.getMessage() == null ? "" : ": " + cur.getMessage());
+    }
+
+    /** faultstring 截断口径（B2 §5.4 ⑤）：压空白 + 前 500 字符 + 原长标注 */
+    private static String truncateFault(String s) {
+        if (s == null || s.isBlank()) {
+            return "";
+        }
+        String t = s.replaceAll("\\s+", " ").trim();
+        return t.length() <= FAULT_MSG_MAX ? t
+                : t.substring(0, FAULT_MSG_MAX) + "…[截断，原长 " + t.length() + "]";
     }
 
     /** 结果分类（M0-03 §2 异常映射表 + C2 业务失败定稿） */

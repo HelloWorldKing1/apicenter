@@ -2,6 +2,8 @@ package com.deepx.apicenter.engine;
 
 import com.deepx.apicenter.client.OutboundRequestSpec;
 import com.deepx.apicenter.config.PerRequestReadTimeoutFactory;
+import com.deepx.apicenter.exception.SoapClientFaultException;
+import com.deepx.apicenter.engine.SoapFaultParser;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.resilience.annotation.Retryable;
@@ -120,7 +122,23 @@ public class UpstreamInvoker {
     public ResponseEntity<byte[]> invoke(OutboundRequestSpec spec) {
         ResponseEntity<byte[]> resp = dispatch(spec);
         if (resp.getStatusCode().is5xxServerError()) {
-            throw new HttpServerErrorException(resp.getStatusCode(), "供应商 5xx");
+            byte[] errBody = resp.getBody() == null ? new byte[0] : resp.getBody();
+            // B2：SOAP 接口先看是不是 Fault —— 客户端类 Fault（Client/Sender/VersionMismatch/MustUnderstand）
+            //   属【确定性错误】，必须死信不重试。用独立异常类型实现“不重试”：
+            //   本方法上的 @Retryable.includes 是白名单，SoapClientFaultException 不在其中 ⇒ 直接透传。
+            //   ⚠️ 所以它绝不能继承 HttpServerErrorException（会命中白名单而继续重试）。
+            if (spec.soapVersion() != null) {
+                var fault = SoapFaultParser.parse(errBody);
+                if (fault.isPresent() && fault.get().clientSide()) {
+                    throw new SoapClientFaultException(fault.get().soapVersion(), fault.get().code(),
+                            fault.get().message(), errBody);
+                }
+            }
+            // 其余 5xx（含 Server/Receiver 类 Fault、非 Fault、以及非 SOAP 接口）维持原语义。
+            // 变更点（修 C1）：带上响应体 —— 原先 new HttpServerErrorException(status, "供应商 5xx") 丢弃 body，
+            //   导致 faultstring / 供应商错误原文全程不可见（调用日志与死信都看不到真因）。
+            throw HttpServerErrorException.create(resp.getStatusCode(), "供应商 5xx",
+                    resp.getHeaders(), errBody, null);
         }
         if (resp.getStatusCode().value() == 429) {
             // Spring 7 子类构造器私有化：经静态工厂创建（按状态码返回 TooManyRequests 实例）

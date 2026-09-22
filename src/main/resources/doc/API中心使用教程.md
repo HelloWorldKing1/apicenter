@@ -349,17 +349,22 @@ curl -i -X POST http://localhost:8080/qd/ok \
 - `kind = RESP`：出站响应字段（仅 OUTBOUND）；
 - `kind = ACK`：ack 回执字段（仅 INBOUND）。
 
-**XML 协议参数（2026-09-21）** —— 位置：接口弹窗 → **高级** → 「XML 协议参数」（仅入站或出站协议为 **XML** 时显示）
+**XML 协议参数（2026-09-21）** —— 位置：接口弹窗 → **高级** → 「XML 协议参数」（**仅「出站协议」= XML 时显示**；
+入站不给入口，因为入站请求方向**不解包**——`入站XML/出站JSON` 时这些参数永不生效，不给“配了不生效”的口子）
 
 | 项 | 可选值 | 留空 / 默认 | 说明 |
 |---|---|---|---|
-| XML 声明 version | `1.0` / `1.1` | `1.0` | 写进出站报文的 `<?xml version="…"?>` |
+| **XML 类型** | **普通 XML（POX）** / **SOAP 1.1** / **SOAP 1.2** | 普通 XML（POX） | **决定“请求怎么包 / 响应怎么解 / Fault 怎么读”**；选 SOAP 后下方多出三个子项 |
+| XML 声明 version | `1.0` / `1.1` | `1.0` | 写进出站报文的 `<?xml version="…"?>`（**与 SOAP 版本无关**） |
 | XML 声明 encoding | `UTF-8` / `GBK` / `GB2312` / `GB18030` / `Big5` / `Shift_JIS` / `ISO-8859-1` / `US-ASCII` | `UTF-8` | 写进声明（**不改变字节**，见下） |
-| 根元素 | 合法 XML 元素名 | `request` | 出站报文的根元素（如 `QueryRequest`） |
+| 根元素 / **Body 内业务元素** | 合法 XML 元素名 | `request` | 标签**随类型变**：普通 XML = 文档根元素；SOAP = `<Body>` 内业务元素 |
 | 命名空间 URI | 任意合法 URI | 不写命名空间 | 留空则不输出 `xmlns` |
 | 命名空间前缀 | 合法前缀；**留空 = 默认命名空间** | 默认命名空间 | 前缀 `ns` → `<ns:QueryRequest xmlns:ns="…">`；留空 → `<QueryRequest xmlns="…">` |
+| ① SOAP `action`（可选） | 任意串 | 空（不发） | 1.1 → `SOAPAction: "…"` 头；1.2 → `Content-Type` 的 `action="…"`。**实测 6/6 公开服务不强制**，可留空 |
+| ② SOAP envelope 前缀 | 合法前缀 | `soap` | 包在 `Envelope`/`Body` 上的前缀（前缀无语义，绑定的是命名空间） |
+| ③ 响应解包 Envelope | 开 / 关 | **开** | 开后：业务字段直接在 `data` 根（`Envelope/Body` 被剥）；关：保留层级（`data.Body.…`） |
 
-**两条必须知道的行为**：
+**三条必须知道的行为**：
 
 1. **`encoding` 只改「声明」，不改字节**：非 ASCII 文本会以**字符引用**（如 `&#x4e2d;`）输出，字节**恒为 ASCII 安全**。
    这能满足“要求声明必须是 GBK”的供应商（声明与实际字节都合法、任何合规解析器都能读）；
@@ -367,16 +372,26 @@ curl -i -X POST http://localhost:8080/qd/ok \
    注：`UTF-16` / `UTF-32` 会被**显式拒绝**（它们会产生非 ASCII 原生字节，破坏上述前提）。
 2. **生效时机**：保存即生效（平台会失效该接口的链缓存，**无需重启、不依赖 5 分钟 TTL**）；
    且参数会**进版本快照** → 「版本历史 → 回滚」能一并回退协议参数。
+3. **SOAP 的 Fault 会被分类**（这是选对类型的主要收益）：供应商回的 SOAP Fault 会按代码分流——
+   `Client`/`Sender`/`VersionMismatch`/`MustUnderstand` 属**靠我们请求错了**，→ **死信（`50203`）、不重试、不计熔断**；
+   `Server`/`Receiver` 与普通 5xx 维持重试+补偿。详见《B2完整SOAP开发计划.md》§2.3。
+
+**两个 SOAP 特有的坑（实测）**：
+
+- **版本选错会得到 `VersionMismatch`**：向**只支持 1.1** 的服务发 1.2 报文，供应商会回 HTTP 500 + `faultcode=soap:VersionMismatch`。
+  ⇒ 不确定时**先用 SOAP 1.1**（实测样服 6/6 支持 1.1，仅 5/6 支持 1.2）；且该 Fault 会正确归为客户端类死信，**不会无限重试**。
+- **`ack` 不会被 SOAP 包裹**（设计如此）：入站回调接口的 ack 回执仍是约定的 `<response>`，只有**出站报文**才包 `Envelope`。
 
 **校验纪律（不静默忽落默认）**：写错参数会**直接拒绝保存**（`40001`）而非默默用默认值 ——
-未知键（如把 `root` 拼成 `rootEelement`）、`version=1.2`、`encoding=UTF-16`、根元素含冒号或为空、
-命名空间缺 URI、**JSON 协议的接口配了 `xml` 段** → 全部 `40001`；`soap` 段尚未支持（同报错并提示）。
+未知键（如把 `root` 拼成 `rootEelement`、或在 `soap` 里再写 `version`）、`version=1.2`、`encoding=UTF-16`、
+根元素含冒号或为空、命名空间缺 URI、**类型选普通 XML 却出现 `soap` 配置**（互斥）、**JSON 协议的接口配了 `xml` 段** → 全部 `40001`。
 想用平台默认就**不要填**该项，而不是填空串。
 
 **等价 curl**（改已有接口；`protocolParams` 为 JSON **字符串**）：
 
 ```bash
 # 只改协议参数（其余字段需整量提交，此处略；完整示例见 §9.3）
+# 例：SOAP 1.1（type 是唯一真相；soap 段不含 version）
 curl -X PUT http://localhost:8080/api/admin/interfaces/123 \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -H 'X-Change-Note: XML 改 1.1 + 命名空间' \
@@ -384,7 +399,7 @@ curl -X PUT http://localhost:8080/api/admin/interfaces/123 \
        "path":"/x","protocolIn":"XML","protocolOut":"XML",
        "appId":"USGSXML","groupId":1,"upstreamPath":"/x.atom","status":"PUBLISHED",
        "timeoutMs":15000,"maxRetries":2,"version":1.0,
-       "protocolParams":"{\"xml\":{\"version\":\"1.1\",\"encoding\":\"GBK\",\"root\":\"QueryRequest\",\"namespace\":{\"prefix\":\"ns\",\"uri\":\"http://example.com/svc\"}}}",
+       "protocolParams":"{\"xml\":{\"type\":\"SOAP_1_1\",\"root\":\"Add\",\"namespace\":{\"uri\":\"http://tempuri.org/\"},\"soap\":{\"action\":\"http://tempuri.org/Add\"}}}",
        "params":[],"bodies":[],"mappings":[],"fieldDefs":[],"bindings":[],"steps":[]}'
 ```
 

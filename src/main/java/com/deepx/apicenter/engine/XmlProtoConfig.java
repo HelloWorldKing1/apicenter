@@ -11,52 +11,110 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * 接口级协议参数（`interface.protocol_params`）的解析与校验（《XML声明配置设计方案.md》v4.2 · B1）。
+ * 接口级协议参数（`interface.protocol_params`）的解析与校验。
+ * 依据《XML声明配置设计方案.md》v4.4（B1 已落地；B2 增量）与《B2完整SOAP开发计划.md》§2.2/§2.5。
  *
  * <p><b>JSON 形态</b>：
  * <pre>{@code
  * { "xml": {
- *     "version":  "1.0",            // 1.0 | 1.1（默认 1.0）
- *     "encoding": "UTF-8",          // 声明用字符集，须「JDK 支持 且 ASCII 兼容」（默认 UTF-8）
- *     "root":     "QueryRequest",   // 业务根元素名（默认 request）
- *     "namespace": { "prefix": "ns", "uri": "http://example.com/svc" }   // 可选
+ *     "type":     "SOAP_1_1",          // ★ 唯一真相：POX（默认）/ SOAP_1_1 / SOAP_1_2
+ *     "version":  "1.0",               // XML 声明版本，与 SOAP 版本无关
+ *     "encoding": "UTF-8",             // 声明用字符集，须「JDK 支持 且 ASCII 兼容」
+ *     "root":     "Add",               // POX=文档根；SOAP=Body 内业务元素
+ *     "namespace": { "prefix": "ns", "uri": "http://example.com/svc" },
+ *     "soap": {                        // 仅 type=SOAP_* 允许（POX 带它 → 40001 互斥）
+ *       "action": "http://tempuri.org/Add",     // 可选
+ *       "envelopePrefix": "soap",               // 默认 soap
+ *       "unwrapResponse": true                  // 默认 true
+ *     }
  * } } }</pre>
  *
- * <p><b>为什么要求「ASCII 兼容」</b>：实测（Woodstox 6.4.0）设 factory encoding=GBK 时，非 ASCII 文本被写成
- * <b>数字字符引用</b>（`&#x4e2d;`）而字节保持 ASCII 安全 —— 因此可配 `encoding` 的收益是
- * <b>「让声明与供应商期望一致」</b>，不是「改变字节」。而 `UTF-16`/`UTF-32` 会产出原生非 ASCII 字节（含 BOM/NUL），
- * 会打破该前提、并让 `call_log`（固定 UTF-8 解码）失真 → <b>显式拒绝</b>。
+ * <p><b>为什么 `type` 是权威</b>（方案 A，2026-09-21 定稿）：SOAP 的版本决定「请求怎么包 / 响应怎么解 / Fault 怎么读」，
+ * 若靠“`soap` 段是否存在”隐式推断，则 `soap` 里再放 `version` 就会形成<b>双真相</b>。
+ * 故 `soap` 段降为<b>该类型的配置载体</b>且<b>不含 version</b>；`type` 缺省 = `POX`
+ * ⇒ <b>B1 时期的历史数据（无 `type`）零迁移</b>。
  *
- * <p><b>校验纪律（防「配错了但看起来生效」）</b>：
- * <ul>
- *   <li><b>未知键 → 40001</b>（不忽略）：拼错 `rootEelement` 会静默回落默认，是最难发现的一类失效；</li>
- *   <li>`soap` 段本期<b>未实现</b>（B2 延后）→ 同样 40001 并给出明确提示，避免「配了没生效」；</li>
- *   <li>`root` 为空串 → 40001（本期不支持「Body 直放字段」）；</li>
- *   <li>非法值 → <b>40001</b>，不得漏到运行期被 `catch(Exception)` 吞成 `50000`。</li>
- * </ul>
- *
- * <p>缺省 = {@link #DEFAULT}（`1.0` / `UTF-8` / `request` / 无命名空间）= 硬编码前的行为 ⇒ <b>零回归</b>。
+ * <p><b>校验纪律</b>（防“配错了但看起来生效”，与 B1 一致）：未知键 → 40001；白名单外取值 → 40001；
+ * `POX` + `soap` 键 → 40001（互斥）；`encoding` 拒绝 UTF-16/UTF-32（非 ASCII 兼容）。
  */
-public record XmlProtoConfig(String version, String encoding, String root, String nsPrefix, String nsUri) {
+public record XmlProtoConfig(Type type, String version, String encoding, String root,
+                             String nsPrefix, String nsUri, SoapConfig soap) {
+
+    /** XML 交互类型（**唯一真相**）：决定请求包裹 / 响应解包 / Fault 方言 */
+    public enum Type {
+        /** 普通 XML（自定义契约 / POX）：出站 = 文档根 + 字段；响应原样解包 */
+        POX(null, null),
+        /** SOAP 1.1：envelope ns + `Content-Type: text/xml` + `SOAPAction` 头 */
+        SOAP_1_1("1.1", "http://schemas.xmlsoap.org/soap/envelope/"),
+        /** SOAP 1.2：envelope ns + `application/soap+xml; action=`（无 SOAPAction 头） */
+        SOAP_1_2("1.2", "http://www.w3.org/2003/05/soap-envelope");
+
+        private final String soapVersion;
+        private final String envelopeNs;
+
+        Type(String soapVersion, String envelopeNs) {
+            this.soapVersion = soapVersion;
+            this.envelopeNs = envelopeNs;
+        }
+
+        public boolean isSoap() {
+            return soapVersion != null;
+        }
+
+        /** "1.1" / "1.2"（POX 为 null）—— 供请求规格与 Fault 探测使用 */
+        public String soapVersion() {
+            return soapVersion;
+        }
+
+        public String envelopeNs() {
+            return envelopeNs;
+        }
+    }
+
+    /** SOAP 子配置（仅 `type=SOAP_*` 存在；**不含 version**——版本由 {@link Type} 携带） */
+    public record SoapConfig(String action, String envelopePrefix, boolean unwrapResponse) {
+        /** 默认：action 空（实测 6/6 公开服务不强制）、envelope 前缀 soap、解包开 */
+        public static final SoapConfig DEFAULT = new SoapConfig(null, "soap", true);
+
+        /** SOAPAction 头值（1.1 用）：非空时按规范加引号；空 → null（不发该头） */
+        public String soapActionHeader() {
+            return action == null || action.isBlank() ? null : "\"" + action + "\"";
+        }
+    }
 
     /** 内置默认：与改造前硬编码值逐字节一致（零回归的保证） */
-    public static final XmlProtoConfig DEFAULT = new XmlProtoConfig("1.0", "UTF-8", "request", null, null);
+    public static final XmlProtoConfig DEFAULT =
+            new XmlProtoConfig(Type.POX, "1.0", "UTF-8", "request", null, null, null);
+
+    /** 便捷工厂：**POX** 配置（B1 时代的等价形态；测试与内部构造常用） */
+    public static XmlProtoConfig pox(String version, String encoding, String root, String nsPrefix, String nsUri) {
+        return new XmlProtoConfig(Type.POX, version, encoding, root, nsPrefix, nsUri, null);
+    }
+
+    /** 便捷工厂：**SOAP** 配置（soap 段用默认：action 空 / envelopePrefix soap / 解包开） */
+    public static XmlProtoConfig soap(Type type, String version, String encoding, String root,
+                                      String nsPrefix, String nsUri) {
+        return new XmlProtoConfig(type, version, encoding, root, nsPrefix, nsUri, SoapConfig.DEFAULT);
+    }
 
     /** 链上下文属性键（`ctx.attrs`）：协议适配器从这里读；由 ChainEngine 装配期烘焙后注入 */
     public static final String ATTR = "xmlProtoConfig";
 
     private static final Set<String> VERSIONS = Set.of("1.0", "1.1");
+    private static final Set<String> TYPES = Set.of("POX", "SOAP_1_1", "SOAP_1_2");
 
     /** 非 ASCII 兼容字符集：会产原生非 ASCII 字节（BOM/NUL），破坏「字节 ASCII 安全」前提 → 拒绝 */
     private static final Set<String> NON_ASCII_COMPATIBLE =
             Set.of("UTF-16", "UTF-16LE", "UTF-16BE", "UTF-32", "UTF-32LE", "UTF-32BE");
 
-    /** 顶层允许的键（B2 的 `soap` / 将来的 `json` 不在其中 → 未知键机制会明确拒绝） */
     private static final Set<String> KNOWN_TOP_KEYS = Set.of("xml");
-    private static final Set<String> KNOWN_XML_KEYS = Set.of("version", "encoding", "root", "namespace");
+    private static final Set<String> KNOWN_XML_KEYS =
+            Set.of("type", "version", "encoding", "root", "namespace", "soap");
     private static final Set<String> KNOWN_NS_KEYS = Set.of("prefix", "uri");
+    private static final Set<String> KNOWN_SOAP_KEYS =
+            Set.of("action", "envelopePrefix", "unwrapResponse");
 
-    /** 简化 NCName（禁冒号 —— 前缀只由 namespace.prefix 表达） */
+    /** 简化 NCName（禁冒号 —— 前缀只由 namespace.prefix / soap.envelopePrefix 表达） */
     private static final Pattern NCNAME = Pattern.compile("^[A-Za-z_][A-Za-z0-9._-]*$");
 
     /** 是否配了命名空间 */
@@ -64,10 +122,24 @@ public record XmlProtoConfig(String version, String encoding, String root, Strin
         return nsUri != null && !nsUri.isBlank();
     }
 
+    public boolean isSoap() {
+        return type().isSoap();
+    }
+
+    /** SOAP envelope 前缀（仅 SOAP 有效） */
+    public String envelopePrefix() {
+        return soap == null ? null : soap.envelopePrefix();
+    }
+
+    /** 响应是否解包 Envelope/Body（仅 SOAP 有效） */
+    public boolean unwrapResponse() {
+        return soap != null && soap.unwrapResponse();
+    }
+
     /**
      * 解析并校验（空 / blank / `{}` / `{"xml":null}` → {@link #DEFAULT}）。
      *
-     * @throws BizException 40001 —— 任何非法配置（未知键 / 白名单外取值 / 非法名字或 URI / 非 JSON 对象）
+     * @throws BizException 40001 —— 任何非法配置（未知键 / 白名单外取值 / 互斥冲突 / 非法名字或 URI / 非 JSON 对象）
      */
     public static XmlProtoConfig of(String json, ObjectMapper mapper) {
         if (json == null || json.isBlank()) {
@@ -96,6 +168,15 @@ public record XmlProtoConfig(String version, String encoding, String root, Strin
         }
         assertNoUnknownKeys(xml, KNOWN_XML_KEYS, "协议参数 xml");
 
+        // ── type（唯一真相；缺省 POX ⇒ B1 历史数据零迁移）──
+        String typeText = textStrict(xml, "type", Type.POX.name());
+        Type type;
+        try {
+            type = Type.valueOf(typeText.toUpperCase());
+        } catch (Exception e) {
+            throw BizException.fieldInvalid("协议参数 type 仅支持 " + TYPES + "：" + typeText);
+        }
+
         String version = textStrict(xml, "version", DEFAULT.version());
         if (!VERSIONS.contains(version)) {
             throw BizException.fieldInvalid("协议参数 version 仅支持 1.0 / 1.1：" + version);
@@ -116,36 +197,47 @@ public record XmlProtoConfig(String version, String encoding, String root, Strin
                 throw BizException.fieldInvalid("协议参数 namespace 必须是 JSON 对象（{prefix, uri}）");
             }
             assertNoUnknownKeys(ns, KNOWN_NS_KEYS, "协议参数 namespace");
-            String uri = text(ns, "uri", "");
-            if (uri.isBlank()) {
-                throw BizException.fieldInvalid("协议参数 namespace.uri 不能为空");
-            }
-            try {
-                URI.create(uri);
-            } catch (Exception e) {
-                throw BizException.fieldInvalid("协议参数 namespace.uri 不是合法 URI：" + uri);
-            }
+            nsUri = requireUri(text(ns, "uri", ""), "namespace.uri");
             String prefix = text(ns, "prefix", "");
             if (!prefix.isBlank() && !NCNAME.matcher(prefix).matches()) {
                 throw BizException.fieldInvalid("协议参数 namespace.prefix 不是合法前缀：" + prefix);
             }
-            nsUri = uri;
             nsPrefix = prefix.isBlank() ? "" : prefix;   // "" = 默认命名空间（xmlns="…"）
         }
-        return new XmlProtoConfig(version, encoding, name, nsPrefix, nsUri);
+
+        // ── soap 段：仅 SOAP_* 允许（互斥）──
+        JsonNode soapNode = xml.get("soap");
+        SoapConfig soapCfg = null;
+        if (soapNode != null && !soapNode.isNull()) {
+            if (!type.isSoap()) {
+                throw BizException.fieldInvalid(
+                        "协议参数 type=POX 时不允许出现 soap 段（互斥：SOAP 版本由 type 表达，避免双真相）");
+            }
+            if (!soapNode.isObject()) {
+                throw BizException.fieldInvalid("协议参数 soap 段必须是 JSON 对象");
+            }
+            assertNoUnknownKeys(soapNode, KNOWN_SOAP_KEYS, "协议参数 soap");
+            String action = text(soapNode, "action", "");
+            String prefix = textStrict(soapNode, "envelopePrefix", SoapConfig.DEFAULT.envelopePrefix());
+            if (!NCNAME.matcher(prefix).matches()) {
+                throw BizException.fieldInvalid("协议参数 soap.envelopePrefix 不是合法前缀：" + prefix);
+            }
+            boolean unwrap = boolParam(soapNode, "unwrapResponse", SoapConfig.DEFAULT.unwrapResponse());
+            soapCfg = new SoapConfig(action.isBlank() ? null : action, prefix, unwrap);
+        } else if (type.isSoap()) {
+            soapCfg = SoapConfig.DEFAULT;   // SOAP_* 未给 soap 段 → 全默认（action 可空）
+        }
+        return new XmlProtoConfig(type, version, encoding, name, nsPrefix, nsUri, soapCfg);
     }
 
-    /** 是否含 `xml` 段（供「JSON 协议的接口配了 xml 段 → 40001」判定） */
+    /** 是否含 `xml` 段（供「非 XML 出站的接口不该带协议参数」判定） */
     public static boolean hasXmlSection(String json) {
         return json != null && json.contains("\"xml\"");
     }
 
     // ---------- 私有 ----------
 
-    /**
-     * 未知键一律拒绝：忽略未知键会让拼写错误（如 rootEelement）静默回落默认 —— 即「配错了但看起来生效」。
-     * `soap` 段属 B2（延后实现），给出专门提示，避免被误当拼写错误。
-     */
+    /** 未知键一律拒绝：忽略会让拼写错误静默回落默认 —— 即「配错了但看起来生效」 */
     private static void assertNoUnknownKeys(JsonNode obj, Set<String> known, String where) {
         Set<String> unknown = new LinkedHashSet<>();
         obj.properties().forEach(e -> {
@@ -153,13 +245,9 @@ public record XmlProtoConfig(String version, String encoding, String root, Strin
                 unknown.add(e.getKey());
             }
         });
-        if (unknown.isEmpty()) {
-            return;
+        if (!unknown.isEmpty()) {
+            throw BizException.fieldInvalid(where + " 含未知键：" + unknown);
         }
-        String hint = unknown.contains("soap")
-                ? "（SOAP 段尚未支持：B2 延后实施，待真实 SOAP 供应商样本 —— 见《XML声明配置设计方案.md》§12 Q19）"
-                : "";
-        throw BizException.fieldInvalid(where + " 含未知键：" + unknown + hint);
     }
 
     /** 字符集校验：JDK 支持 且 ASCII 兼容（显式拒绝 UTF-16 / UTF-32） */
@@ -179,13 +267,21 @@ public record XmlProtoConfig(String version, String encoding, String root, Strin
         }
     }
 
+    private static String requireUri(String uri, String field) {
+        if (uri == null || uri.isBlank()) {
+            throw BizException.fieldInvalid("协议参数 " + field + " 不能为空");
+        }
+        try {
+            URI.create(uri);
+        } catch (Exception e) {
+            throw BizException.fieldInvalid("协议参数 " + field + " 不是合法 URI：" + uri);
+        }
+        return uri;
+    }
+
     /**
-     * 取值（严格口径）：键**缺失 / null → 内置默认**；键**存在但为空白 → 40001**。
-     *
-     * <p>为何不把空白也当成“用默认”：`"root":""` 这类写法很容易被理解为“我不要根元素”，
-     * 静默回落成 request 就是典型的“配错了但看起来生效”。想用默认就**别写这个键**。
-     *
-     * <p>特例：`namespace.prefix` 的空白是**有语义的**（= 默认命名空间），由 {@link #text} 处理。
+     * 取值（严格口径）：键**缺失 / null → 默认值**；键**存在但为空白 → 40001**。
+     * “配了但没值”一律视为笔误（想用默认就别写这个键）。
      */
     private static String textStrict(JsonNode obj, String key, String def) {
         JsonNode n = obj.get(key);
@@ -199,12 +295,20 @@ public record XmlProtoConfig(String version, String encoding, String root, Strin
         return v;
     }
 
-    /** 取值（宽松口径，仅用于 prefix）：键缺失 / null / 空白 → 默认值 */
+    /** 取值（宽松口径）：键缺失 / null / 空白 → 默认值（用于 prefix 这类“空串有语义”的字段） */
     private static String text(JsonNode obj, String key, String def) {
         JsonNode n = obj.get(key);
         if (n == null || n.isNull() || n.asText().isBlank()) {
             return def;
         }
         return n.asText().trim();
+    }
+
+    private static boolean boolParam(JsonNode obj, String key, boolean def) {
+        JsonNode n = obj.get(key);
+        if (n == null || n.isNull()) {
+            return def;
+        }
+        return n.isBoolean() ? n.booleanValue() : Boolean.parseBoolean(n.asText());
     }
 }

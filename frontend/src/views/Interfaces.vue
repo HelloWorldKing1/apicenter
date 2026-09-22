@@ -314,16 +314,22 @@
             </div>
           </div>
 
-          <!-- XML 协议参数（B1）：仅任一协议为 XML 时显示；留空 = 平台内置默认（1.0 / UTF-8 / request / 无命名空间） -->
-          <div v-if="form.protocolIn === 'XML' || form.protocolOut === 'XML'" class="adv-grid"
+          <!-- XML 协议参数（B1/B2）：仅**出站协议 = XML** 时显示（入站不解包，见设计方案 Q17）；留空 = 平台内置默认 -->
+          <div v-if="needsProtocolParams(form.protocolOut)" class="adv-grid"
                style="margin-top: 14px; padding-top: 12px; border-top: 1px dashed #e5e7eb">
             <div class="adv-item" style="grid-column: 1 / -1">
               <span class="basic-label">XML 协议参数</span>
               <div class="proto-hint">
-                留空即用平台默认（version 1.0 / encoding UTF-8 / 根元素 request / 无命名空间）。
+                留空即用平台默认（类型 普通 XML（POX） / version 1.0 / encoding UTF-8 / 根元素 request / 无命名空间）。
                 <b>encoding 只改“声明”</b>：非 ASCII 字符会以字符引用（&amp;#x4e2d;）输出，字节保持 ASCII 安全，
                 以满足“要求声明必须是 GBK”的供应商；若供应商要求原生 GBK 字节，当前不支持。
               </div>
+            </div>
+            <div class="adv-item">
+              <span class="basic-label">XML 类型</span>
+              <el-select v-model="form.xmlType" style="width: 100%">
+                <el-option v-for="t in XML_TYPES" :key="t.value" :label="t.label" :value="t.value" />
+              </el-select>
             </div>
             <div class="adv-item">
               <span class="basic-label">XML 声明 version</span>
@@ -338,8 +344,9 @@
               </el-select>
             </div>
             <div class="adv-item">
-              <span class="basic-label">{{ form.protocolOut === 'XML' ? '根元素（出站报文）' : '根元素' }}</span>
-              <el-input v-model="form.xmlRoot" placeholder="默认 request（如 QueryRequest）" />
+              <!-- 标签随类型切换：POX = 文档根元素；SOAP = Body 内业务元素（消掉双语义歧义） -->
+              <span class="basic-label">{{ rootFieldLabel(form.xmlType) }}（出站报文）</span>
+              <el-input v-model="form.xmlRoot" placeholder="默认 request（如 QueryRequest / Add）" />
             </div>
             <div class="adv-item">
               <span class="basic-label">命名空间前缀（可空 = 默认命名空间）</span>
@@ -349,6 +356,30 @@
               <span class="basic-label">命名空间 URI（可空 = 不写命名空间）</span>
               <el-input v-model="form.xmlNsUri" placeholder="如 http://example.com/svc" />
             </div>
+
+            <!-- SOAP 专属（仅类型为 SOAP 1.1 / 1.2 时显示与提交） -->
+            <template v-if="isSoapType(form.xmlType)">
+              <div class="adv-item">
+                <span class="basic-label">action（可空）</span>
+                <el-input v-model="form.xmlAction" :placeholder="form.xmlType === 'SOAP_1_2'
+                  ? '写入 Content-Type 的 action=…（可选）'
+                  : '作为 SOAPAction 头发送（可选）'" />
+              </div>
+              <div class="adv-item">
+                <span class="basic-label">envelope 前缀</span>
+                <el-input v-model="form.xmlEnvelopePrefix" placeholder="默认 soap" />
+              </div>
+              <div class="adv-item">
+                <span class="basic-label">响应解包 Envelope</span>
+                <el-switch v-model="form.xmlUnwrap" active-text="开（推荐）" inactive-text="关" />
+              </div>
+              <div class="adv-item" style="grid-column: 1 / -1">
+                <div class="proto-hint">
+                  不确定版本时**先用 SOAP 1.1**（实测样服 6/6 支持 1.1、仅 5/6 支持 1.2；发错版本会得到
+                  <code>VersionMismatch</code> Fault）；<code>action</code> 多数服务不强制，可留空。
+                </div>
+              </div>
+            </template>
           </div>
         </el-tab-pane>
       </el-tabs>
@@ -574,7 +605,10 @@ import http, { LONG_RUNNING_TIMEOUT } from '@/api/http'
 import InterfaceParamsTab from '@/components/InterfaceParamsTab.vue'
 import InterfaceStepsTab from '@/components/InterfaceStepsTab.vue'
 import { buildStepFieldGroups } from '@/utils/stepFields.mjs'
-import { XML_VERSIONS, XML_ENCODINGS, buildProtocolParams, parseProtocolParams } from '@/utils/protocolParams.mjs'
+import {
+  XML_VERSIONS, XML_ENCODINGS, XML_TYPES, protocolParamsForPayload, needsProtocolParams,
+  parseProtocolParams, isSoapType, rootFieldLabel,
+} from '@/utils/protocolParams.mjs'
 
 const route = useRoute()
 
@@ -654,9 +688,13 @@ function emptyForm() {
     protocolIn: 'JSON', protocolOut: 'JSON', protoSame: true, appId: '', groupId: null,
     upstreamPath: '', callbackUrl: '', status: null, timeoutMs: 3000, maxRetries: 4, desc: '',
     version: 1,
-    // 协议参数（B1，仅 XML 需要；详见《XML声明配置设计方案.md》）——
-    // 提交时由 buildProtocolParams 组装 JSON；全默认时不提交（库保持 NULL = 从未配置）
+    // 协议参数（B1/B2，仅 XML 需要；详见《XML声明配置设计方案.md》v4.4 / 《B2完整SOAP开发计划.md》§2.5）——
+    // type 是**唯一真相**（POX / SOAP_1_1 / SOAP_1_2）；提交时由 buildProtocolParams 组装 JSON；
+    // 全默认时不提交（库保持 NULL = 从未配置）
+    xmlType: 'POX',
     xmlVersion: '1.0', xmlEncoding: 'UTF-8', xmlRoot: '', xmlNsPrefix: '', xmlNsUri: '',
+    // SOAP 子项（仅 xmlType=SOAP_* 显示与提交）
+    xmlAction: '', xmlEnvelopePrefix: 'soap', xmlUnwrap: true,
     // 透传模式（仅出站接口）：出站报文 = 入站原样转发，后端不做字段映射（提交空映射规则）
     passthrough: true,
     // 入站/出站参数拆为两个真实数组（ParamTable 原地编辑需要引用直连；保存时组装 side）
@@ -753,7 +791,7 @@ async function openEdit(row) {
     appId: d.appId, groupId: d.groupId,
     upstreamPath: d.upstreamPath || '', callbackUrl: d.callbackUrl || '',
     timeoutMs: d.timeoutMs, maxRetries: d.maxRetries, desc: d.desc, version: d.version,
-    ...parseProtocolParams(d.protocolParams),   // 协议参数（B1）回显
+    ...toProtocolFormFields(d.protocolParams),   // 协议参数回显（B1 无 type 的历史数据 → 自动显示 POX）
     passthrough: (d.mappings?.length || 0) === 0, // 回显推断：无映射规则 = 透传模式
     inParams: d.params.filter((p) => p.side === 'IN').map(toParamRow),
     outParams: d.params.filter((p) => p.side === 'OUT').map(toParamRow),
@@ -777,6 +815,22 @@ async function openEdit(row) {
 }
 
 /** 后端参数行 → 表单行（去 side） */
+/** 协议参数 JSON → 表单字段（xml* 前缀）；B1 无 type 的历史数据自动显示为 POX */
+function toProtocolFormFields(json) {
+  const p = parseProtocolParams(json)
+  return {
+    xmlType: p.type,
+    xmlVersion: p.version,
+    xmlEncoding: p.encoding,
+    xmlRoot: p.root,
+    xmlNsPrefix: p.nsPrefix,
+    xmlNsUri: p.nsUri,
+    xmlAction: p.action,
+    xmlEnvelopePrefix: p.envelopePrefix,
+    xmlUnwrap: p.unwrapResponse,
+  }
+}
+
 function toParamRow(p) {
   return { name: p.name, type: p.type, required: p.required, sample: p.sample, sortOrder: p.sortOrder }
 }
@@ -913,10 +967,14 @@ async function save() {
     callbackUrl: form.ifType === 'INBOUND' ? form.callbackUrl : null,
     status: null, timeoutMs: form.timeoutMs, maxRetries: form.maxRetries, desc: form.desc,
     version: form.version, params, bodies, mappings: passthrough ? [] : form.mappings,
-    // 协议参数（B1）：仅 XML 接口有意义；全默认 → null（不提交，库保持 NULL）
-    protocolParams: buildProtocolParams({
+    // 协议参数（B1）：仅 XML 接口有意义；全默认 → null（不提交，库保持 NULL）。
+    // 走 protocolParamsForPayload：**只看 protocol_out**，非 XML 时恒 null（屏蔽隐藏块残留值）。
+    // 为何不看 protocol_in：入站请求方向不解包（Q17），所以 in=XML/out=JSON 时这些参数永不生效
+    protocolParams: protocolParamsForPayload(form.protocolOut, {
+      type: form.xmlType,
       version: form.xmlVersion, encoding: form.xmlEncoding, root: form.xmlRoot,
       nsPrefix: form.xmlNsPrefix, nsUri: form.xmlNsUri,
+      action: form.xmlAction, envelopePrefix: form.xmlEnvelopePrefix, unwrapResponse: form.xmlUnwrap,
     }),
     fieldDefs: form.fieldDefs, bindings,
     // 前置步骤（编排）：仅出站中转提交；seq 按当前顺序归一

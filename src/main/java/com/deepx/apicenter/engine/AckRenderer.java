@@ -86,6 +86,8 @@ public class AckRenderer {
             // 协议参数（B1）：ack 与出站【同源】但只限声明 version / encoding ——
             //   根元素保持约定 response（D-XD-6），故不取 cfg.root()/namespace；也不 SOAP 化（D-SOAP-6）
             ctx.attrs().put(XmlProtoConfig.ATTR, XmlProtoConfig.of(iface.protocolParams(), objectMapper));
+            // ackMode（B2）：显式告诉协议适配器“这是 ack 渲染，不要包 SOAP Envelope”
+            ctx.attrs().put(XmlProtocolAdapter.ATTR_ACK_MODE, Boolean.TRUE);
             xmlProtocolAdapter.process(ctx);
             return ResponseEntity.ok().contentType(MediaType.APPLICATION_XML).body(ctx.outbound().body());
         }

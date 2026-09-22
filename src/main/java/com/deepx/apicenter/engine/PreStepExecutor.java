@@ -2,6 +2,7 @@ package com.deepx.apicenter.engine;
 
 import com.deepx.apicenter.client.OutboundRequestSpec;
 import com.deepx.apicenter.exception.BizException;
+import com.deepx.apicenter.exception.SoapClientFaultException;
 import com.deepx.apicenter.model.AppRow;
 import com.deepx.apicenter.model.InterfaceRow;
 import com.deepx.apicenter.repository.AppRepository;
@@ -167,6 +168,13 @@ public class PreStepExecutor {
             long ms = System.currentTimeMillis() - start;
             throw fail(step, traceId, attempt, PreStepFailure.Kind.HTTP_5XX, 50201,
                     "短重试耗尽（" + e.getClass().getSimpleName() + "，" + ms + "ms）", ms, 0);
+        } catch (SoapClientFaultException e) {
+            // B2：SOAP 客户端类 Fault —— **必须显式捕获**（且放在 catch(Exception) 之前）：
+            //   否则会落进最后一条泛捕获，被归成 CONFIG_ERROR/40001「调用异常」（语义完全错）。
+            //   复用既有 HTTP_5XX 出口（不新增 PreStepFailure 出口），只把错误码换成 50203。
+            long ms = System.currentTimeMillis() - start;
+            throw fail(step, traceId, attempt, PreStepFailure.Kind.HTTP_5XX, 50203,
+                    "SOAP Fault（客户端 " + e.faultCode() + "）：" + e.faultMessage(), ms, 0);
         } catch (Exception e) {
             // 非传输类异常（配置 / 编码等）：按链失败处理，避免在 COMPENSATING 里无限循环
             long ms = System.currentTimeMillis() - start;

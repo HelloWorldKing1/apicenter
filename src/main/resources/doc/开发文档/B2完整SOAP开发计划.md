@@ -20,7 +20,7 @@
 
 | # | 条件 | 现状 |
 |---|---|---|
-| **G1** | **真实 SOAP 供应商的 WSDL / 请求响应报文样例** | ❌ **未取得**（这是 Q19 延后的直接原因） |
+| **G1** | **真实 SOAP 供应商的 WSDL / 请求响应报文样例** | ⚠️ **部分满足（2026-09-21）**：已采集 **6 个真实可调用服务**的 WSDL + 成功/Fault **原始报文** → `src/test/resources/soap-samples/`（含 4 条对设计的修正 **C-1~C-4**，见《soap-samples/README.md》）；**企业级 `Header`/WS-Security 样本仍缺**（这才是决定 `D-SOAP-8` 的关键） |
 | G2 | B1 已上线且稳定 | ✅ 已落地（325 测试全绿） |
 | G3 | 该供应商可联调（测试环境可达、可开关） | ❌ 待确认 |
 
@@ -35,6 +35,9 @@
 | **SOAP `Header` 自定义内容** | 无真实样本；需"Header 模板"能力（模板语法/变量注入/安全边界）→ backlog §13-1 |
 | **SOAP 1.2 的 HTTP 200 + Fault** | 罕见；补它要改 `ResponseJudger`（**被前置编排共用**）→ backlog §13-2 |
 | **平台对外暴露 SOAP 端点**（服务端 SOAP） | `protocol_in` 是平台自家契约；Q17 已定**入站不解包** → backlog §13.1 #11 |
+| **WSDL 2.0** | 样本 **0/6**（且业界几乎无人用）；只需能读 **WSDL 1.1** 的 `soap:` / `soap12:` binding |
+| **`rpc/encoded` 绑定风格**（SOAP 编码风格） | 需 `Body` 带 `encodingStyle` + 参数带 `xsi:type`，与平台“元素/字段”模型不匹配；样本 **6/6 均为 `document/literal`** → 本条为**明确不支持**（非目标） |
+| **XML-RPC** | 另一套协议（`<methodCall>` / `<methodResponse>`，无 Envelope）→ **完全不在范围** |
 | **`ack` 的 SOAP 化** | ack 是平台回给回调方的回执，供应商回调普遍是普通 POST（D-SOAP-6） |
 | **原生目标编码字节** | Woodstox 实测做不到（探针 #9/#10）→ backlog §13-4 |
 | 自定义静态请求头（除 `SOAPAction`） | 独立课题（与"接口级静态头"一起做） |
@@ -64,32 +67,47 @@
 </soap:Envelope>
 ```
 
-### 2.2 配置形态（B1 同一列，增量加 `soap` 段）
+### 2.2 配置形态（B1 同一列；**增量加 `type` 与 `soap`**）
 
 ```jsonc
 { "xml": {
-    "version": "1.0", "encoding": "UTF-8",
-    "root": "Add",                                  // SOAP 下 = <Body> 内业务元素
+    "type":    "SOAP_1_1",                           // ← B2 新增，**唯一真相**：POX（默认）/ SOAP_1_1 / SOAP_1_2
+    "version": "1.0", "encoding": "UTF-8",        // XML 声明版本，与 SOAP 版本**无关**
+    "root":    "Add",                               // SOAP 下 = <Body> 内业务元素
     "namespace": { "prefix": "", "uri": "http://tempuri.org/" },
-    "soap": {                                       // ← B2 新增；出现即启用 SOAP 包裹
-      "version": "1.1",                             // 1.1 | 1.2
-      "action":  "http://tempuri.org/Add",
+    "soap": {                                       // ← B2 新增；**仅 type=SOAP_* 允许**（POX 带它就是 40001）
+      "action":  "http://tempuri.org/Add",          // 可选（实测 6/6 服务不强制）；1.1 → SOAPAction 头，1.2 → Content-Type 的 action=
       "envelopePrefix": "soap",                     // 默认 soap（1.2 常用 env）；前缀本身无语义
       "unwrapResponse": true                        // 响应解包，默认 true
     }
 } }
 ```
 
-> **B1 遗留的过渡**：B1 把 `soap` 段列为**未知键 → 40001**（提示"B2 延后"）。B2 开工第一件事就是
-> 把它从 `KNOWN` 之外移入白名单（`XmlProtoConfig.KNOWN_XML_KEYS` + 新增 `KNOWN_SOAP_KEYS`），并去掉那句提示。
+> **`soap` 段不再带 `version`**（方案 A 的连带结论）：版本已由 `type` 携带，两处写同一件事会造成双真相。
 
-### 2.3 Fault 分类（**B2 的核心价值**，实测 S3）
+> **B1 遗留的过渡**：B1 把 `soap` 段列为**未知键 → 40001**（提示"B2 延后"）。B2 开工第一件事就是
+> 把它从 `KNOWN` 之外移入白名单（`XmlProtoConfig.KNOWN_XML_KEYS` + 新增 `KNOWN_SOAP_KEYS` + `KNOWN_XML_KEYS` 加 `type`），
+> 并去掉那句提示；同时把“soap 段被拒”的单测**反向改写**（§7.3 衔接清单）。
+
+### 2.3 Fault 分类（**B2 的核心价值**，实测 S3 + 样本集 C-2）
+
+> **1.1 规范的 faultcode 是有限枚举**：`VersionMismatch` / `MustUnderstand` / `Client` / `Server`（1.2 对应 `Sender` / `Receiver`）
+> ——分类表必须**穷举**，不能留“其他”分支（否则确定性错误会被当服务端故障无限补偿）。
 
 | faultcode | 语义 | 终态 | 错误码 | 短重试 | 补偿 | 熔断计数 |
 |---|---|---|---|---|---|---|
 | `Client` / `Sender` | **我们请求错了**（参数/格式/权限） | **DEAD_LETTER** | **`50203`（新增）** | ❌ | ❌ | ❌ **不计失败** |
+| **`VersionMismatch`** / **`MustUnderstand`** | **版本/命名空间不匹配、Header 无法理解**（**确定性配置错误**） | **DEAD_LETTER** | **`50203`** | ❌ | ❌ | ❌ **不计失败** |
 | `Server` / `Receiver` | 供应商服务端故障 | COMPENSATING | `50201` | ✅ | ✅ | ✅ 计失败 |
 | 非 Fault 的纯 5xx | 保持现状 | COMPENSATING | `50201` | ✅ | ✅ | ✅ 计失败 |
+
+> **C-2 来源**：样本 `fault/hello-versionmismatch-11only.*`——向 **1.1-only** 服务发 1.2 报文，实测得到
+> **HTTP 500** + `<faultcode>soap:VersionMismatch</faultcode>`（报文是 **1.1 结构**）。
+> 它看上去像 5xx，但**重试/补偿毫无意义**（我们发错了版本）→ 必须归客户端类。
+
+> **Fault 方言由 `type` 决定**：`type=SOAP_1_1` 时按 `faultcode`（`Client`/`Server`/`VersionMismatch`/`MustUnderstand`）解析；
+> `type=SOAP_1_2` 时按 `Code/Value`（`Sender`/`Receiver`）解析并归入同一张表。注意：1.1-only 服务对 1.2 报文
+> 会**用 1.1 结构回 Fault**（实测），所以解析要看**报文自身的 envelope 命名空间**，不能只看配置的 `type`。
 
 ### 2.4 ⚠️ 四条必须照抄的实现约束（设计方案 §5.4，不照抄必出错）
 
@@ -104,7 +122,77 @@
    `dead_letter.reason` 保留 `faultcode` + **前 500 字符** + `…[截断，原长 N]`；`payload` = **供应商原始响应体全量**（取证）；
    `alert_event.message` 只放首行。
 
-### 2.5 开工前复核的 3 个技术事实（已实测，实现时对齐）
+### 2.5 XML 类型选择器（**已定稿：方案 A**，2026-09-21 拍板）
+
+**位置**：接口弹窗 →「高级」→ 协议参数区的**首行**，**显示条件 = `protocol_out = XML`**
+（与 `protocol_params` 的生效面一致；入站 XML / 出站 JSON 时整块不显示）。
+
+**形态：一个“XML 类型”下拉（单选）**，而不是“SOAP 开关 + 版本”两个控件：
+单选天然互斥（不会出现“开关关了但版本还留着”的组合态），且与 `protocol_in/out` 的“协议选择”心智一致。
+
+| 下拉值 | UI 标签（**已拍板**） | 现阶段 | 选后行为 |
+|---|---|---|---|
+| `POX`（默认） | **普通 XML（POX）** | ✅ **可选** | = 现有 B1 行为：出站 `<root>…` + 字段；响应原样解包（不剥任何壳） |
+| `SOAP_1_1` | **SOAP 1.1** | ⏸ **B2 后可选** | 包裹 `Envelope/Body`；`Content-Type: text/xml` + `SOAPAction` 头；响应解包 + Fault 分类 |
+| `SOAP_1_2` | **SOAP 1.2** | ⏸ B2 后可选 | 包裹；`Content-Type: application/soap+xml; action=`（**无** `SOAPAction` 头）；Fault 用 `Code/Reason` |
+| —— | Atom / RSS / QuakeML 等**文档格式** | ❌ **不列**（已接受） | 它们是**上游返回的文档格式**（我们只解不包），**不需要单独选项** → 由 `POX` 覆盖 |
+| —— | SOAP `rpc/encoded`、**XML-RPC** | ❌ 不列（已接受） | 非目标（样本 6/6 均 `document/literal`；XML-RPC 另一套协议） |
+
+> **为何不做 `auto`（自动探测）**：请求侧**必须显式选**——发错版本会得到 `VersionMismatch`（已实测）；
+> 响应侧**不做探测**（D-SOAP-9）。hint 建议：“不确定时先用 **SOAP 1.1**（样本 6/6 都支持 1.1，仅 5/6 支持 1.2）”。
+
+**唯一真相（**已拍板：方案 A**）**：
+
+| 方案 | 规则 | 结论 |
+|---|---|---|
+| **A** ✅ **采用** | **`xml.type` 为权威**（POX / SOAP_1_1 / SOAP_1_2）；`soap` 段降为**该类型的配置载体**（仅 `SOAP_*` 下允许，且**不再含 version**） | 单一事实来源、UI 单选、**审计/日志/快照 diff 能直接读出“这个接口是什么类型”**；**B1 旧数据无 `type` → 视为 `POX`，零迁移** |
+| B ❌ 被否 | 不加 `type`，仍靠“`soap` 段是否存在”推断（= 原 D-SOAP-1） | 改动小，但 UI 仍需“开关+版本”两控件，且诊断时要人脑从参数反推类型；快照 diff 不够直白 |
+
+**落地要点**：
+- 后端 `XmlProtoConfig`：`type` 缺省 = `POX`；**`type=POX` 但带 `soap` 键 → `40001`（互斥）**；
+  `type=SOAP_*` 但 `soap` 段缺省 → 用默认值（`action` 可空、`envelopePrefix` 默认 `soap`、`unwrapResponse` 默认 true）；
+- **UI 按类型切换子项**：选 `POX` → 只显示本期四个参数；选 `SOAP_*` → 额外显示 action / envelopePrefix / unwrapResponse，
+  并把 `root` 标签从「根元素」改为「**Body 内业务元素**」（**彻底消掉双语义歧义**——原设计方案靠动态标签缓解，此处变为类型驱动）；
+- 选择器**在 B2 之前不提前露出** `SOAP_*` 选项（不给出“选了必然 40001”的入口）。
+
+#### 2.5.1 逐控件验收清单（UI 开工直接照此实现与验收）
+
+**显隐矩阵**（列 = XML 类型；✅ 显示 / ❌ 不显示 / — 值不提交）
+
+| 控件（顺序自上而下） | 控件类型 | 默认值 | POX | SOAP 1.1 | SOAP 1.2 |
+|---|---|---|---|---|---|
+| **XML 类型** | select（单选） | `普通 XML（POX）` | ✅ | ✅ | ✅ |
+| XML 声明 version | select（1.0 / 1.1） | `1.0` | ✅ | ✅ | ✅ |
+| XML 声明 encoding | select（ASCII 兼容白名单） | `UTF-8` | ✅ | ✅ | ✅ |
+| 根元素 root | input（标签**随类型变**） | 空（= 平台默认 `request`） | ✅ 标签「根元素」 | ✅ 标签「**Body 内业务元素**」 | ✅ 同左 |
+| 命名空间前缀 | input | 空（= 默认命名空间） | ✅ | ✅ | ✅ |
+| 命名空间 URI | input | 空（= 不写命名空间） | ✅ | ✅ | ✅ |
+| SOAPAction / action | input | 空（**可选**） | ❌ | ✅（提示：从 `Content-Type` 取） | ✅（提示：写进 `Content-Type`） |
+| envelope 前缀 | input | `soap` | ❌ | ✅ | ✅ |
+| 响应解包 Envelope | switch | 开 | ❌ | ✅ | ✅ |
+| 灰色 hint | 静态文案 | —— | ✅（默认可不显） | ✅ | ✅ |
+
+**逐控件验收判据**：
+
+| # | 控件 | 验收判据（“怎么算做对”） |
+|---|---|---|
+| 1 | XML 类型 | 切 `POX` → SOAP 三个子项**立即隐藏**且**不提交**；切 `SOAP_*` → 三个子项出现；**切类型不丢已有值**（切换回去能恢复） |
+| 2 | 声明 version / encoding | 只影响 `<?xml version=… encoding=…?>`；**encoding 的 hint 必须写明“只改声明、非 ASCII 转字符引用、产不出原生 GBK 字节”** |
+| 3 | 根元素 root | label 随类型切换（「根元素」↔「Body 内业务元素」）；非法值（含 `:` / 空格 / `1abc`）**保存时被拒**（提示具体原因） |
+| 4 | 命名空间前缀 / URI | 只填前缀不填 URI → **不提交 namespace**（不报错）；URI 非法 → 保存被拒；**前缀留空 = 默认命名空间**（提示要写清） |
+| 5 | action | **可留空**（三种类型下均不得因空而报错）；填入后在 1.1 走 `SOAPAction` 头、在 1.2 走 `Content-Type` 的 `action=`——与 T2 的验收点对应 |
+| 6 | envelope 前缀 | 非法前缀 → 保存被拒；默认 `soap` 时**不写进 JSON**（只下发非空且非默认的键） |
+| 7 | 响应解包 switch | 关掉后，SOAP 响应**保留 `Envelope` 层级**（`data.Envelope.Body.…`）；开启则业务字段在 `data` 根 —— 与 T3 验收点对应 |
+| 8 | 提交体形态 | `protocolParams` 必须形如 `{"xml":{"type":"SOAP_1_1",…}}`；**POX 下不得出现 `soap` 键**（否则后端 40001）；非 XML 出站 → 整个字段为 `null` |
+| 9 | 回读一致性 | 保存 → 重新打开 → 控件值与提交一致；**只填过的项才回显**（未填项显示为空/默认，而不是被写成默认值） |
+| 10 | 历史兼容（**关键**） | 打开一个 **B1 时期创建**的接口（其 `protocol_params` **没有 `type`**）→ 类型应显示为「普通 XML（POX）」而不是空/报错 |
+
+> **验收方式**：①~⑩ 均为页面操作；对应后端行为（互斥 40001 / 只下发非空键 / POX 零迁移）已有单测覆盖（T1），
+> UI 侧建议同步加 `utils/protocolParams` 单测（含“POX 不带 soap 键”“缺 type 视为 POX”）+ 1 例 SSR 冒烟。
+
+---
+
+### 2.6 开工前复核的 3 个技术事实（已实测，实现时对齐）
 
 | # | 事实 | 证据 |
 |---|---|---|
@@ -118,7 +206,7 @@
 
 | # | 任务 | 人日 | 工作项 | 验收点（完成的可验证标志） |
 |---|---|---|---|---|
-| **T1** | SOAP 配置解析与校验 | 0.3 | `XmlProtoConfig` 加 `soap` 段：`version ∈ {1.1,1.2}`；**1.2 时 `action` 必填**；`envelopePrefix` 合法前缀；`unwrapResponse` 布尔；未知键仍 40001 | 单测：1.1/1.2 解析、1.2 缺 action→40001、`soap` 内拼错键→40001、B1 的"soap 段拒绝"用例**改为正向** |
+| **T1** | SOAP 配置解析与校验 | 0.3 | `XmlProtoConfig` 加 `type`（§2.5 方案 A：`POX`/`SOAP_1_1`/`SOAP_1_2`，缺省 `POX`）与 `soap` 段：**SOAP 版本由 `type` 携带（`soap` 段不含 `version`）**；`action` 可选；`envelopePrefix` 合法前缀；`unwrapResponse` 布尔；**`type=POX` 带 `soap` 键 → 40001（互斥）**；未知键仍 40001 | 单测：1.1/1.2 解析、**`action` 缺省可保存**、`type=POX`+`soap`→40001、`type` 缺省视为 POX（零迁移）、`soap` 内拼错键→40001、B1 的“soap 段拒绝”用例**改为正向** |
 | **T2** | 请求包裹（Envelope/Body + 命名空间） | 0.8 | `XmlProtocolAdapter.encode` 在 `soap` 存在时先写 `Envelope`→`Body`，业务元素按 `root`/`namespace` 写在 Body 内；`Content-Type` 按 1.1/1.2 分派；1.1 加 `SOAPAction` 头 | 集成：1.1 报文含 Envelope/Body + `SOAPAction` 头；1.2 报文 env ns 为 2003/05 + `Content-Type` 带 `action=` 且**无** `SOAPAction` 头 |
 | **T3** | 响应解包（**仅响应方向**，Q17） | 0.5 | `decode` 判据：根 localName==`Envelope` **且**有 `Body` → 取 Body 内第一个元素为业务根；否则原样 + `log.warn`；**入站请求方向不解包**（B1 已注 | 集成：供应商返回 Envelope → `data` **不含 Envelope 层级**（用例 8）；用例 12 回归（入站解码不受影响） |
 | **T4** | `UpstreamInvoker` 5xx 带 body 抛 + Fault 探测 | 1.0 | `OutboundRequestSpec` 加 `soapVersion`（ENCODE 时置位）；5xx 分支改 `HttpServerErrorException.create(…, body …)`；**结构匹配** `Body/Fault`（非字符串嗅探）且 `soapVersion` 非空时：Client/Sender → `throw SoapClientFaultException`（**直接继承 RuntimeException**） | 单测/集成：5xx 的 faultstring 可见（用例 16）；**反证**：非 SOAP 5xx 行为不变（用例 15） |
@@ -126,7 +214,7 @@
 | **T6** | `PreStepExecutor` 分支（易漏点） | 0.3 | 新增 `catch (SoapClientFaultException)` → `50203`（复用 `Kind.HTTP_5XX`，**不新增出口**） | 集成：前置目标返回 Client Fault → 分类为 SOAP 客户端错误 + `50203`，**不得**是 `40001 CONFIG_ERROR`（用例 23） |
 | **T7** | 指标口径 | 0.2 | `CallLogAspect.outcomeOfOut` 把该异常归 **`upstream_fail`**（与 4xx 一致，**不是** `transport_fail`） | 集成：`apicenter.gateway.requests{outcome=upstream_fail}`（用例 25） |
 | **T8** | 错误码登记 | 0.1 | 《API中心设计方案.md》§6.2 502xx 段加 `50203`（语义：SOAP Fault（客户端错误，不重试）） | 错误码表与 `BizException` 常量一致、与 50201/50202 语义不重叠 |
-| **T9** | 前端 SOAP 子表单 | 0.6 | 接口「高级 → 协议参数」在 XML 下增加 SOAP 开关 + `version`/`action`/`envelopePrefix`/`unwrapResponse`；`utils/protocolParams.mjs` 扩展（含单测） | 前端 `npm run lint` 0 error + `npm test` 全绿 + `npm run build` 通过；界面勾 SOAP 后才显示子项 |
+| **T9** | 前端 **XML 类型选择器** + SOAP 子表单 | 0.6 | 接口「高级 → 协议参数」首行加**“XML 类型”单选**（§2.5：`POX` / `SOAP_1_1` / `SOAP_1_2`）；按类型切换子项与 `root` 标签；`utils/protocolParams.mjs` 扩展（含单测） | 前端 `npm run lint` 0 error + `npm test` 全绿 + `npm run build` 通过；选 `SOAP_*` 后子项才出现；`POX` 下带 `soap` 段被 40001 |
 | **T10** | 测试 | 1.5 | §4 全部用例（含 4 条反证/契约断言）；**SOAP 用例必须隔离 worker**（四属性置 1h） | 新增用例全绿；**全量**（325+新增）全绿 |
 | **T11** | 文档同步 | 0.3 | 设计方案 §14 回填 B2 落地；`使用教程`（SOAP 小节 + curl）；`整体测试方案`（X-S 用例组）；`CLAUDE.md` Gotchas（继承陷阱 / 热路径改动纪律） | 四处同步完成 |
 
@@ -146,6 +234,9 @@
 | §10.1-8 | 响应解包 | 集成 | `data` 直接是业务字段（无 Envelope 层级） |
 | §10.1-9 | **Client Fault → 死信不重试** | 集成 | `DEAD_LETTER` + `50203` + **上游请求计数=1** + **熔断 CLOSED** |
 | §10.1-10 | Server Fault → 补偿 | 集成 | `COMPENSATING` + `50201` + 熔断计失败 |
+| **样本 C-2** | **`VersionMismatch` → 死信不重试** | 集成 | 夹具 `fault/hello-versionmismatch-11only.*` → `DEAD_LETTER` + `50203` + **不重试、不计熔断**（与 Client 类同组） |
+| **样本 C-3** | 业务错误走 200 不误判 | 集成 | 夹具 `success/w3schools-bizerror-200.*` → **不是 Fault**；不得走 `50203` 分支（由 RESP/信封判定负责） |
+| **样本 C-4** | 响应 ns ≠ 请求 ns 仍能解包 | 集成 | 夹具 `success/mnb-rates-11.*` → 解包成功（不要求命名空间匹配） |
 | §10.1-15 | **非 SOAP 5xx 回归** | 集成 | 行为**与改造前一致**（COMPENSATING + 短重试）—— 防"改热路径改坏" |
 | §10.1-16 | faultstring 可见 | 集成 | 死信 `reason` 含供应商原文（修 C1） |
 | §10.1-19 | **继承关系契约** | 单测 | `SoapClientFaultException` **不是** `HttpServerErrorException` 子类；且状态链"短重试次数"=0 |
@@ -185,7 +276,7 @@ SOAP 用例涉及**重试 + 熔断**，隔离尤其重要（否则与 worker `sc
 |---|---|---|
 | 1 | 建应用 `DNESOAP`（base_url `http://www.dneonline.com`）+ 分组 + 出站接口：`POST /calculator.asmx`，`root=Add`，`namespace={prefix:"",uri:"http://tempuri.org/"}`，`soap={version:"1.1",action:"http://tempuri.org/Add"}`，入站参数 `intA`/`intB`(number)，RESP `AddResult`(number) | 保存成功（无 40001） |
 | 2 | 调用（JSON 进 → SOAP 出） | 200 + `data.AddResult=3`；调用日志 OUT 条含完整 SOAP 报文 |
-| 3 | 改 `soap.version=1.2` 再调 | 200；OUT 条 env ns 为 `2003/05`、`Content-Type` 带 `action=`、**无 SOAPAction** |
+| 3 | 把「XML 类型」改为 **SOAP 1.2** 再调 | 200；OUT 条 env ns 为 `2003/05`、`Content-Type` 带 `action=`、**无 SOAPAction** |
 | 4 | **Fault 路径**：`intA` 传非数字 | `50203`；**运行记录仅 1 条**、**无短重试**；死信 `reason` 含 `faultcode=Client` + 供应商原文（截断后）；**熔断面板仍 CLOSED** |
 | 5 | 对照直连 curl（§10.2 已给） | 直连也 500 + `soap:Client` → 证明是供应商行为而非平台问题（**二分基线**） |
 
@@ -239,10 +330,11 @@ SOAP 用例涉及**重试 + 熔断**，隔离尤其重要（否则与 worker `sc
 |---|---|---|---|
 | **R1** | 改 `UpstreamInvoker` 热路径引发重试/熔断回归 | **中高** | ① 改造**不改变**非 SOAP 5xx 行为；② **先做用例 15** 再动 T5；③ 灰度 **S0b 单独成步** |
 | **R2/R9** | `SoapClientFaultException` 误继承 → ①继续重试 ②计熔断失败（**双重错**） | **中高** | §2.4-1 契约 + 用例 19 钉住类型层次 + 用例 9 断言熔断 CLOSED |
+| **R11**（样本新增） | **Fault 分类漏 `VersionMismatch`/`MustUnderstand`** → 确定性配置错误被当服务端故障**无限补偿** | 中高 | §2.3 穷举 4 个 faultcode + 新增样本用例（C-2） |
 | **R10** | `PreStepExecutor` 漏处理 → 被归 `40001 CONFIG_ERROR` | 中高 | §2.4-3 + 用例 23 |
 | **R3** | 真实样本与保守取舍不符（`D-SOAP-8`/`envelopePrefix`/`action`） | **中** | G1 拿到后**先按真实报文核对 4 项**再开 T2；差异按 backlog 排序 |
 | R4 | Fault 探测误判（非 SOAP 报文的 5xx 里含 `<Fault`） | 低 | 判据 = `soapVersion` 非空 **且 结构匹配** `Body/Fault`（不做字符串嗅探） |
-| R5 | 1.2 的 `action` 为空 | 低 | T1 保存期 40001 |
+| R5 | 1.2 的 `action` 为空 | 低 | ~~T1 保存期 40001~~ → **已撤销（C-1）**：实测 6/6 服务不强制 action，改为**可选** |
 | R6 | 解包导致"成功 + 空 data"（F-3 同类失效） | 低 | 与 backlog §13-8（warnings 暴露到信封）**同批评估** |
 | — | **回退** | — | 清空/回滚 `protocol_params` → 回落内置默认（非 SOAP），**无重启、无开关** |
 
@@ -252,3 +344,60 @@ SOAP 用例涉及**重试 + 熔断**，隔离尤其重要（否则与 worker `sc
 2. 对应单测 `XmlProtoConfigTest#soap段_明确拒绝并给出延后提示` → **改为** `soap段_解析成功`（§4.2-4，否则"没接线也能全绿"）；
 3. `OutboundRequestSpec` 加 `soapVersion`（B1 未加）；
 4. 设计文档 §2 非目标 ④/§3.2 D-SOAP-6~9 的状态从"延后"改为"实施中"。
+
+
+---
+
+## 8. 落地记录（v1.0 · 2026-09-21：**与样本无关部分已实施**）
+
+> 本次按用户拍板的 **①+③** 执行：**① 出 §2.5.1 界面逐控件验收清单**；
+> **③ 先做与样本无关的 B2 主体（T1–T9）并用真实 SOAP 服务验证**。G1（企业级 Header 样本）仍未取得，
+> 但 **§1.2 已把 Header 列为非目标** ⇒ **不阻塞 T1–T9**。
+
+### 8.1 实际改动（逐任务）
+
+| 任务 | 状态 | 实际改动 |
+|---|---|---|
+| **T1 配置解析** | ✅ | `XmlProtoConfig` 重构：新增 `Type` 枚举（`POX`/`SOAP_1_1`/`SOAP_1_2`，携带 soapVersion 与 envelopeNs）与 `SoapConfig`（action/envelopePrefix/unwrapResponse，**不含 version**）；`of()` 校验：`type` 白名单、**`POX`+`soap` → 40001 互斥**、`soap` 内未知键（含旧写法 `version`）→ 40001；便捷工厂 `pox(...)`/`soap(...)` |
+| **T2 请求包裹** | ✅ | `XmlProtocolAdapter.encode`：`Envelope→Body→业务元素`（三参 API 写命名空间）；`applyXmlHeaders` 按类型分派（1.1: `text/xml`+`SOAPAction`；1.2: `application/soap+xml; action=`）；**给 `spec` 置 `soapVersion`**；**`ackMode` 属性**保证 ack 不被包裹（D-SOAP-6） |
+| **T3 响应解包** | ✅ | `unwrapSoapIfConfigured`：取 `Body` 内第一个元素为业务根（宽容失败 + warn）；**只在响应方向生效**（入站不注入配置，Q17 自然成立）；`unwrapResponse=false` 时保留层级 |
+| **T4 5xx 带 body + Fault 探测** | ✅ | `SoapFaultParser`（**新**，JDK DOM + XXE 加固）：按**报文自身 envelope 命名空间**判 1.1/1.2 → `faultcode/faultstring` 或 `Code/Value`+`Reason/Text`；4 个客户端码（Client/Sender/VersionMismatch/MustUnderstand）→ `SoapClientFaultException`；`UpstreamInvoker.invoke` 5xx 改为 `create(status, …)` **带 body**（修 C1） |
+| **T5 引擎分类** | ✅ | `SoapClientFaultException extends RuntimeException`（**新**，带类型层次契约测试）；`OutboundEngine` instanceof 链**最前**分支 → `classifySoapClientFault`（死信 + `50203` + payload=原始响应体 + reason 截断前 500）+ **不计熔断失败** |
+| **T6 前置编排** | ✅ | `PreStepExecutor` 新增 `catch (SoapClientFaultException)` → `HTTP_5XX` 出口 + `50203`（不新增出口） |
+| **T7 指标口径** | ✅ | `CallLogAspect.outcomeOfOut`：该异常归 **`upstream_fail`**（非 transport_fail） |
+| **T8 错误码** | ✅ | `BizException.SOAP_CLIENT_FAULT = 50203` |
+| **T9 前端** | ✅ | `XML_TYPES`（**普通 XML（POX）/ SOAP 1.1 / SOAP 1.2**）+ 类型下拉 + 按类型切换 SOAP 子项 + `rootFieldLabel()` 动态标签（「根元素」↔「Body 内业务元素」）+ `buildProtocolParams` 支持 type/soap（POX 绝不输出 `soap`） |
+| T10 测试 | ✅ 部分 | 新增/改写单测：`XmlProtoConfigTest`（+8）、`SoapFaultParserTest`（**新 9**，全部用仓库真实夹具）、`SoapClientFaultExceptionTest`（**新 2**）、`XmlProtocolAdapterTest`（+7）；前端 `protocolParams.test.mjs`（+4）；**全量 351 全绿** |
+| T11 文档 | 🟡 部分 | 本节 + §2.5.1；**待办**：`使用教程` SOAP 小节、`整体测试方案` X-S 组、`CLAUDE.md`、设计总纲 §6.2 错误码表 |
+
+### 8.2 真机验证（真实 SOAP 服务，非桩）
+
+| 用例 | 期望 | **实测** |
+|---|---|---|
+| SOAP **1.1** 成功（NumberConversion，HTTPS） | 200 + 业务字段 | ✅ `data.NumberToWordsResult="one thousand two hundred and thirty four"`；头 `text/xml; charset=UTF-8` + `SOAPAction: "…"`；envelope ns `schemas.xmlsoap.org` |
+| SOAP **1.2** 成功（同端点） | 200 | ✅ `"four thousand three hundred and twenty one"`；头 `application/soap+xml; charset=UTF-8; action="…"`、**无 SOAPAction**；envelope ns `2003/05` |
+| 响应**解包** + 前缀剥离 | 业务字段直接在 `data` 根 | ✅ 上游用 `m:` 前缀（`<m:NumberToWordsResponse>`）仍正确解出 |
+| **VersionMismatch**（1.2 → 1.1-only 服务） | 死信 + 不重试 + 不熔断 | ✅ `502` + `code=50203` + 死信；**OUT 调用日志条数 = 1（零重试）**；链 `MAPPING→DEAD_LETTER`；**熔断 = 0.0（CLOSED）**；指标 `outcome=upstream_fail`；死信 reason 含 `soap:VersionMismatch` + 供应商原文 |
+| **POX 回归**（type 缺省） | 出站无 Envelope | ✅ `<?xml …?><NumberToWords xmlns="…"><ubiNum>7</ubiNum></NumberToWords>` |
+
+### 8.3 实现期发现（新，已处置）
+
+| # | 发现 | 说明 / 处置 |
+|---|---|---|
+| **F-B2-1** | **部分主机/WAF 按 User-Agent 拒给 Java 客户端**（实测 `dneonline.com`：`User-Agent: Java/…` 或 `Java-http-client/…` → **连接重置**；`Apache-HttpClient` / `Mozilla` / curl → 200） | JVM 默认 UA 就是 `Java-http-client/…` ⇒ **平台默认会被这类主机重置**（表现为 `ResourceAccessException` → UNKNOWN，极易误判为“超时”）。影响：用 dneonline 做验证时改用其它真实端点（NumberConversion / CountryInfo / LearnWebServices 均不限制 Java UA）。**建议（backlog）**：新增可配默认 `User-Agent`（或接口级静态头，属既有 backlog） |
+| **F-B2-2** | **传输异常日志只打异常类名**，`ResourceAccessException` 下无法区分「连接超时 / 读超时 / **连接重置** / 协议错」 | 已修：`OutboundEngine` 补 `rootCauseOf(e)`（class: message）→ 本次正是靠它一步定位到 `SocketException: Connection reset` |
+| **F-B2-3** | “既有调用点零改动”再次不成立（同 I-2）：B1 测试的 `new XmlProtoConfig(5 参)` 因重构而编译失败 | 已改为 `XmlProtoConfig.pox(...)` 便捷工厂；**全仓扫过方法名里不能有全角标点**（踩了两次） |
+
+### 8.4 仍未做（保持 B2 未完成）
+
+- **G1 真实企业级样本**（含 `soap:Header` / WS-Security）→ 决定 §1.2 的非目标是否需推翻；
+- T11 的 4 处文档同步（见上）；
+- `dneonline` 因 F-B2-1 不作为验证锚点（保留其**样本**作 WireMock 夹具仍有效）。
+
+---
+
+## 附：变更记录
+
+- v1.0（2026-09-21）初稿；同日修订：`action` 改为可选（样本 C-1）、Fault 分类**穷举** `VersionMismatch`/`MustUnderstand`（C-2）、新增 §2.5 类型选择器（方案 A）+ §2.5.1 逐控件验收清单、新增 §8 落地记录（与样本无关部分已实施并真机验证）。
+
+

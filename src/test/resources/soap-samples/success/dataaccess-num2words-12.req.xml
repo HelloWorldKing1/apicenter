@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope"><env:Body><NumberToWords xmlns="http://www.dataaccess.com/webservicesserver/"><ubiNum>1234</ubiNum></NumberToWords></env:Body></env:Envelope>
