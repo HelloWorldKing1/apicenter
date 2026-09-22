@@ -397,8 +397,12 @@ public class MonitorService {
     public OutboundDetail outboundDetail(long id) {
         OutboundRequestRow row = outboundRequestRepository.findById(id)
                 .orElseThrow(() -> BizException.fieldInvalid("出站记录不存在：" + id));
+        // 接口方法：GET / DELETE 时 out_payload 恒为空（不携带请求体，见 OutboundEngine#outboundBodyText）——
+        // 带上它，前端才能把“空”解释清楚，而不是显示一个空白框
+        String interfaceMethod = interfaceRepository.findById(row.interfaceId())
+                .map(InterfaceRow::method).orElse(null);
         return new OutboundDetail(row.id(), row.interfaceId(), row.appId(), row.bizId(), row.status(),
-                row.attemptCount(), row.maxAttempts(), row.errorCode(), row.traceId(),
+                row.attemptCount(), row.maxAttempts(), row.errorCode(), row.traceId(), interfaceMethod,
                 preview(row.inPayload()), preview(row.outPayload()), preview(row.respPayload()),
                 str(row.nextRetryAt()), str(row.createdAt()), str(row.updatedAt()),
                 stateChain(id), audits(id));
@@ -436,6 +440,7 @@ public class MonitorService {
 
     public record OutboundDetail(long id, long interfaceId, String appId, String bizId, String status,
                                  int attemptCount, int maxAttempts, String errorCode, String traceId,
+                                 String interfaceMethod,
                                  String inPayloadPreview, String outPayloadPreview, String respPayloadPreview,
                                  String nextRetryAt, String createdAt, String updatedAt,
                                  List<OutboundRequestStateLogRow> stateChain,

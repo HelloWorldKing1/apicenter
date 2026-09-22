@@ -305,7 +305,14 @@
         <h4 class="side-title">入站报文 in_payload（预览，最长 4000 字）</h4>
         <PayloadViewer :text="detail.row.inPayloadPreview" :context="outboundContext(detail.row)" />
         <h4 class="side-title">出站报文 out_payload（预览）</h4>
-        <PayloadViewer :text="detail.row.outPayloadPreview" :context="outboundContext(detail.row)" />
+        <!-- GET / DELETE 不携带请求体 ⇒ 后端**有意**不落 out_payload（口径 = “实际发送的报文”）；
+             此时给说明，而不是一个空白框（编码产物看「调用日志」该次 OUT 条的请求体） -->
+        <div v-if="isBodylessMethod(detail.row.interfaceMethod) && !detail.row.outPayloadPreview" class="side-note">
+          {{ detail.row.interfaceMethod }} 请求<strong>不携带请求体</strong>，所以 <code>out_payload</code> 为空 —— <strong>不是缺陷</strong>：
+          该字段记录的是<strong>实际发送</strong>的报文。本次的<strong>编码产物</strong>（平台编出的 XML / JSON）请看
+          「调用日志 → 该次 OUT 条 → 明细」里的<strong>请求体</strong>。
+        </div>
+        <PayloadViewer v-else :text="detail.row.outPayloadPreview" :context="outboundContext(detail.row)" />
         <h4 class="side-title">响应 resp_payload（预览）</h4>
         <PayloadViewer :text="detail.row.respPayloadPreview" :context="outboundContext(detail.row)" />
         <h4 class="side-title">对账审计时间线（MANUAL / TTL）</h4>
@@ -429,6 +436,11 @@ const overview = ref(null)
 const tab = ref('overview')
 
 const goDashboard = () => router.push('/dashboard')
+
+/** GET / DELETE 无请求体 ⇒ 后端不落 `out_payload`（口径 = “实际发送的报文”，见 OutboundEngine#outboundBodyText） */
+function isBodylessMethod(m) {
+  return m === 'GET' || m === 'DELETE'
+}
 
 // ---------- 公共数据 ----------
 const appOptions = ref([])
@@ -726,6 +738,15 @@ onBeforeUnmount(() => {
 .pager { margin-top: 8px; display: flex; justify-content: center; }
 .rules-title { color: #909399; font-size: 13px; margin: 12px 0 4px; }
 .side-title { margin: 12px 0 6px; color: #606266; font-size: 13px; }
+.side-note {
+  background: #f4f6f9;
+  border-left: 3px solid #c6cbd4;
+  border-radius: 3px;
+  padding: 8px 10px;
+  color: #606266;
+  font-size: 12px;
+  line-height: 1.7;
+}
 .chain-main { display: flex; align-items: baseline; gap: 6px; }
 .chain-meta { color: #a8abb2; font-size: 12px; margin-left: auto; padding-right: 6px; }
 .chain-sub { color: #909399; font-size: 12px; line-height: 1.5; word-break: break-all; }
