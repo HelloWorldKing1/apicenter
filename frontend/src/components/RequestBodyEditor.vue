@@ -1,12 +1,12 @@
 <template>
   <div class="rb-editor">
-    <!-- 两行布局：上排 = 格式标签 + 操作；提示**独占一行** —— 同行会把标签/按钮挤成竖排窄条（实测） -->
-    <div class="rb-top">
+    <textarea v-model="text" class="rb-body" spellcheck="false" :placeholder="ph"></textarea>
+    <!-- 工具栏放**框下方**：若放上方，会把编辑框顶低 ~3 行，与右侧响应框**顶端对不齐**（实测反馈 2026-09-22） -->
+    <div class="rb-bar">
       <span class="rb-fmt">{{ formatLabel }}</span>
       <el-button size="small" class="rb-btn" @click="doBeautify">美化结构</el-button>
     </div>
     <div class="rb-hint">{{ hint }}</div>
-    <textarea v-model="text" class="rb-body" spellcheck="false" :placeholder="ph"></textarea>
     <div v-if="message" class="rb-msg" :class="{ 'rb-msg-err': !ok }">{{ message }}</div>
   </div>
 </template>
@@ -67,12 +67,12 @@ defineExpose({ reset, doBeautify })
 
 <style scoped>
 .rb-editor { width: 100%; }
-.rb-top {
+.rb-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 4px;
+  margin-top: 6px;
 }
 .rb-fmt {
   flex: none;
@@ -89,7 +89,7 @@ defineExpose({ reset, doBeautify })
   color: #909399;
   font-size: 12px;
   line-height: 1.6;
-  margin-bottom: 6px;
+  margin-top: 4px;
 }
 .rb-body {
   width: 100%;

@@ -402,19 +402,20 @@
     <!-- ============ 测试接口弹窗（管理面调试：真实走一遍出站链路，仅 OUTBOUND） ============ -->
     <el-dialog v-model="test.visible" :title="`测试接口 · ${detail.row.code || ''}`" width="760px" top="5vh">
       <div class="test-layout">
+        <!-- 两个 desc 作为**共享的第一行**（grid 行高取二者最大）⇒ 下面两个框顶端必然对齐 -->
+        <div class="test-desc">请求体（预填接口入站 Body 模板，可编辑）</div>
+        <div class="test-desc">响应（统一信封 { code, msg, data }）</div>
         <div class="test-side">
-          <div class="side-desc" style="margin-bottom: 8px">请求体（预填接口入站 Body 模板，可编辑）</div>
           <RequestBodyEditor ref="testEditorRef" v-model="test.body" :protocol-in="test.protocolIn" />
           <el-button type="primary" :loading="test.sending" style="margin-top: 10px" @click="sendTest">
             发送请求
           </el-button>
         </div>
         <div class="test-side">
-          <div class="side-desc" style="margin-bottom: 8px">响应（统一信封 { code, msg, data }）</div>
           <pre class="test-resp" :class="{ 'resp-error': test.isError }">{{ test.resp }}</pre>
           <!-- 前置步骤运行留痕（编排 PS-6：chainTrace.steps）：每一步的 HTTP / 耗时 / 结局 -->
           <template v-if="test.steps.length">
-            <div class="side-desc" style="margin: 10px 0 6px">前置步骤（本次真实执行）</div>
+            <div class="test-desc" style="margin: 10px 0 6px">前置步骤（本次真实执行）</div>
             <el-table :data="test.steps" size="small">
               <el-table-column prop="stepCode" label="步骤" width="90" />
               <el-table-column prop="targetCode" label="前置接口" width="130" />
@@ -430,17 +431,18 @@
     <!-- ============ 模拟回调弹窗（M3 手动验收：INBOUND 调试，真实网关路径 + HMAC 自签名） ============ -->
     <el-dialog v-model="cbTest.visible" :title="`模拟回调 · ${detail.row.code || ''}`" width="760px" top="5vh">
       <div class="test-layout">
+        <!-- desc 提升为共享行：左右描述行数不同也不会把下面的框顶偏（见 .test-layout 注释） -->
+        <div class="test-desc">
+          回调报文（预填入站 Body 模板，可编辑；平台按 HMAC 回调验签约定自动签名后自调网关）
+        </div>
+        <div class="test-desc">供应商视角 ack + 送达状态</div>
         <div class="test-side">
-          <div class="side-desc" style="margin-bottom: 8px">
-            回调报文（预填入站 Body 模板，可编辑；平台按 HMAC 回调验签约定自动签名后自调网关）
-          </div>
           <RequestBodyEditor ref="cbEditorRef" v-model="cbTest.body" :protocol-in="cbTest.protocolIn" callback />
           <el-button type="primary" :loading="cbTest.sending" style="margin-top: 10px" @click="sendCallbackTest">
             发送回调
           </el-button>
         </div>
         <div class="test-side">
-          <div class="side-desc" style="margin-bottom: 8px">供应商视角 ack + 送达状态</div>
           <pre class="test-resp" :class="{ 'resp-error': cbTest.isError }">{{ cbTest.resp }}</pre>
         </div>
       </div>
@@ -1391,7 +1393,15 @@ h4 { margin: 20px 0 10px; color: #303133; }
 .test-layout {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  /* 行间距小、列间距大：第一行是两个 desc（共享行，行高取二者最大），第二行是两个框 */
+  gap: 8px 16px;
+}
+/* 描述文字：原 `.side-desc` 样式定义在 InterfaceParamsTab.vue 的 scoped 块里 ⇒ 此处从未生效，统一改用本类 */
+.test-desc {
+  margin: 0;
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.6;
 }
 .test-body { min-height: 260px; }
 .test-resp {
