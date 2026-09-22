@@ -404,7 +404,7 @@
       <div class="test-layout">
         <div class="test-side">
           <div class="side-desc" style="margin-bottom: 8px">请求体（预填接口入站 Body 模板，可编辑）</div>
-          <textarea v-model="test.body" class="raw-editor test-body"></textarea>
+          <RequestBodyEditor ref="testEditorRef" v-model="test.body" :protocol-in="test.protocolIn" />
           <el-button type="primary" :loading="test.sending" style="margin-top: 10px" @click="sendTest">
             发送请求
           </el-button>
@@ -434,7 +434,7 @@
           <div class="side-desc" style="margin-bottom: 8px">
             回调报文（预填入站 Body 模板，可编辑；平台按 HMAC 回调验签约定自动签名后自调网关）
           </div>
-          <textarea v-model="cbTest.body" class="raw-editor test-body"></textarea>
+          <RequestBodyEditor ref="cbEditorRef" v-model="cbTest.body" :protocol-in="cbTest.protocolIn" callback />
           <el-button type="primary" :loading="cbTest.sending" style="margin-top: 10px" @click="sendCallbackTest">
             发送回调
           </el-button>
@@ -608,6 +608,9 @@ import { useRoute } from 'vue-router'
 import http, { LONG_RUNNING_TIMEOUT } from '@/api/http'
 import InterfaceParamsTab from '@/components/InterfaceParamsTab.vue'
 import InterfaceStepsTab from '@/components/InterfaceStepsTab.vue'
+// 请求体输入框（测试接口 / 模拟回调共用）：按「入站协议」提示 + 无损结构美化 + 自带样式
+import RequestBodyEditor from '@/components/RequestBodyEditor.vue'
+import { beautifyBody, bodySkeleton } from '@/utils/requestBody.mjs'
 import { buildStepFieldGroups } from '@/utils/stepFields.mjs'
 import {
   XML_VERSIONS, XML_ENCODINGS, XML_TYPES, protocolParamsForPayload, needsProtocolParams,
@@ -1060,15 +1063,22 @@ async function copyPath() {
 }
 
 // ---------- 测试接口（管理面调试：POST /api/admin/interfaces/{id}/test，仅 OUTBOUND） ----------
-const test = reactive({ visible: false, body: '{}', sending: false, resp: '', isError: false, steps: [] })
+const test = reactive({ visible: false, body: '{}', protocolIn: 'JSON', sending: false, resp: '', isError: false, steps: [] })
+const testEditorRef = ref(null)
 
 function openTest(row) {
   const inBody = row.bodies?.find((b) => b.side === 'IN')
-  test.body = inBody && inBody.raw ? inBody.raw : '{}'
+  test.protocolIn = row.protocolIn || 'JSON'
+  // 预填：入站模板优先；没有则按入站协议给骨架（XML 接口不再预填 `{}`）
+  const raw = inBody && inBody.raw ? inBody.raw : bodySkeleton(test.protocolIn)
+  // 预填内容先**无损美化**一次，打开就是可读结构（美化失败则用原文）
+  const beautified = beautifyBody(raw, test.protocolIn)
+  test.body = beautified.ok ? beautified.text : raw
   test.resp = ''
   test.steps = []
   test.isError = false
   test.visible = true
+  testEditorRef.value?.reset()
 }
 
 async function sendTest() {
@@ -1079,7 +1089,7 @@ async function sendTest() {
     // 报文格式由**入站协议**决定（后端 /test 收 byte[]，再按 protocol_in 解码）：
     // XML 入站 → 原样发 application/xml；JSON 入站 → 解析成对象。
     // 修正前的写法是无条件 JSON.parse ⇒ 入站 XML 的接口填 XML 就报 V8 原文“Unexpected token '<'”
-    const { data, contentType } = buildTestPayload(detail.row.protocolIn, test.body)
+    const { data, contentType } = buildTestPayload(test.protocolIn, test.body)
     const result = await http.post(`/interfaces/${detail.row.id}/test`, data, {
       timeout: LONG_RUNNING_TIMEOUT, headers: { 'Content-Type': contentType },
     })
@@ -1207,14 +1217,19 @@ async function submitCopy() {
 }
 
 // ---------- 模拟回调（M3：POST /api/admin/interfaces/{id}/test-callback，仅 INBOUND；接口需已发布） ----------
-const cbTest = reactive({ visible: false, body: '{}', sending: false, resp: '', isError: false })
+const cbTest = reactive({ visible: false, body: '{}', protocolIn: 'JSON', sending: false, resp: '', isError: false })
+const cbEditorRef = ref(null)
 
 function openCallbackTest(row) {
   const inBody = row.bodies?.find((b) => b.side === 'IN')
-  cbTest.body = inBody && inBody.raw ? inBody.raw : '{}'
+  cbTest.protocolIn = row.protocolIn || 'JSON'
+  const raw = inBody && inBody.raw ? inBody.raw : bodySkeleton(cbTest.protocolIn)
+  const beautified = beautifyBody(raw, cbTest.protocolIn)
+  cbTest.body = beautified.ok ? beautified.text : raw
   cbTest.resp = ''
   cbTest.isError = false
   cbTest.visible = true
+  cbEditorRef.value?.reset()
 }
 
 async function sendCallbackTest() {
@@ -1222,7 +1237,7 @@ async function sendCallbackTest() {
   cbTest.resp = ''
   try {
     // 同上：回调报文格式同样由接口的**入站协议**决定（回调也是“入站报文”）
-    const { data, contentType } = buildTestPayload(detail.row.protocolIn, cbTest.body)
+    const { data, contentType } = buildTestPayload(cbTest.protocolIn, cbTest.body)
     const result = await http.post(`/interfaces/${detail.row.id}/test-callback`, data, {
       timeout: LONG_RUNNING_TIMEOUT, headers: { 'Content-Type': contentType },
     })

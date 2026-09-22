@@ -14,6 +14,8 @@ import PayloadViewer from '../src/components/PayloadViewer.vue'
 import ParamImportDialog from '../src/components/ParamImportDialog.vue'
 import InterfaceParamsTab from '../src/components/InterfaceParamsTab.vue'
 import InterfaceStepsTab from '../src/components/InterfaceStepsTab.vue'
+// 请求体输入框（测试接口 / 模拟回调共用，2026-09-22）：按「入站协议」提示 + 美化按钮 + 自带样式
+import RequestBodyEditor from '../src/components/RequestBodyEditor.vue'
 import Login from '../src/views/Login.vue'
 import Users from '../src/views/Users.vue'
 
@@ -91,6 +93,13 @@ const CASES = [
   // 前置步骤 Tab（编排，PS-7）：空态 + 上限口径 + 入口按钮（含 <script setup> 里 .value/绑定回归防线）
   ['前置步骤 Tab（空态）', { __component: 'InterfaceStepsTab', form: stepsForm, ifaces: [] },
     { text: ['前置步骤', '暂无前置步骤', '添加前置步骤', '最多 5 步', '不配 = 与现在行为完全一致'] }],
+  // 请求体输入框（2026-09-22）：格式随「入站协议」——提示语 + 格式标签 + 美化按钮都要渲染出来
+  ['请求体输入框（入站 XML）',
+    { __component: 'RequestBodyEditor', modelValue: '<request><event_id>evt-1</event_id></request>', protocolIn: 'XML' },
+    { text: ['XML · 按「入站协议」', '必须填 XML', '40002', '美化结构'] }],
+  ['请求体输入框（入站 JSON）',
+    { __component: 'RequestBodyEditor', modelValue: '{"event_id":"evt-1"}', protocolIn: 'JSON' },
+    { text: ['JSON · 按「入站协议」', '必须填合法 JSON', '美化结构'] }],
   // 注：ElStub 给 el-table-column 作用域插槽传的是空 row，行内文案（步骤名 / 目标 code）无法在此断言——
   // 那一层由 PreStepIntegrationTest（后端）与界面手测覆盖；此处只验证「有步骤分支 + 操作入口 + 弹窗渲染」
   ['前置步骤 Tab（有步骤）',
@@ -119,7 +128,7 @@ const CASES = [
 async function main() {
   let failed = 0
   for (const [label, props, expect] of CASES) {
-    const COMPONENTS = { ParamImportDialog, InterfaceParamsTab, InterfaceStepsTab, Login, Users }
+    const COMPONENTS = { ParamImportDialog, InterfaceParamsTab, InterfaceStepsTab, RequestBodyEditor, Login, Users }
     const component = COMPONENTS[props.__component] || PayloadViewer
     const app = createSSRApp({ render: () => h(component, props) })
     EL_COMPONENTS.forEach((name) => app.component(name, ElStub))
