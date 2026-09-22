@@ -613,6 +613,8 @@ import {
   XML_VERSIONS, XML_ENCODINGS, XML_TYPES, protocolParamsForPayload, needsProtocolParams,
   parseProtocolParams, isSoapType, rootFieldLabel,
 } from '@/utils/protocolParams.mjs'
+// 报文格式由**入站协议**决定（XML 入站原样发、JSON 入站解析成对象）—— 见该模块注释
+import { buildTestPayload } from '@/utils/testPayload.mjs'
 
 const route = useRoute()
 
@@ -1074,9 +1076,13 @@ async function sendTest() {
   test.resp = ''
   test.steps = []
   try {
-    // 发 JSON 对象（axios 序列化为 application/json，后端 byte[] 原样收）——避免字符串被表单编码
-    const obj = JSON.parse(test.body)
-    const result = await http.post(`/interfaces/${detail.row.id}/test`, obj, { timeout: LONG_RUNNING_TIMEOUT })
+    // 报文格式由**入站协议**决定（后端 /test 收 byte[]，再按 protocol_in 解码）：
+    // XML 入站 → 原样发 application/xml；JSON 入站 → 解析成对象。
+    // 修正前的写法是无条件 JSON.parse ⇒ 入站 XML 的接口填 XML 就报 V8 原文“Unexpected token '<'”
+    const { data, contentType } = buildTestPayload(detail.row.protocolIn, test.body)
+    const result = await http.post(`/interfaces/${detail.row.id}/test`, data, {
+      timeout: LONG_RUNNING_TIMEOUT, headers: { 'Content-Type': contentType },
+    })
     test.isError = false
     // data = { chainTrace, steps, result }；步骤留痕（编排）单独列表展示
     test.steps = result?.steps || []
@@ -1215,8 +1221,11 @@ async function sendCallbackTest() {
   cbTest.sending = true
   cbTest.resp = ''
   try {
-    const obj = JSON.parse(cbTest.body)
-    const result = await http.post(`/interfaces/${detail.row.id}/test-callback`, obj, { timeout: LONG_RUNNING_TIMEOUT })
+    // 同上：回调报文格式同样由接口的**入站协议**决定（回调也是“入站报文”）
+    const { data, contentType } = buildTestPayload(detail.row.protocolIn, cbTest.body)
+    const result = await http.post(`/interfaces/${detail.row.id}/test-callback`, data, {
+      timeout: LONG_RUNNING_TIMEOUT, headers: { 'Content-Type': contentType },
+    })
     cbTest.isError = false
     cbTest.resp = JSON.stringify(result, null, 2)
   } catch (e) {

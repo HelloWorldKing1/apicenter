@@ -484,6 +484,10 @@ curl -i -X POST http://localhost:8080/qd/callback \
 
 「接口管理」详情 →「测试接口」，以给定请求体**真实走一遍出站链路**（含状态机），但不要求接口已发布、不做方法校验，草稿态也可测。
 
+> **请求体的格式 = 该接口的「入站协议」**（这个工具扮演的是**调用方**）：入站 JSON 就填 JSON（`Content-Type: application/json`），
+> **入站 XML 就填 XML**（`Content-Type: application/xml`）。格式不符时前端会直接给出可读提示
+> （例如"请求体不是合法 JSON（该接口「入站协议」是 JSON）"），不会抛 `Unexpected token '<'…` 这类原文。
+
 ```bash
 curl -X POST http://localhost:8080/api/admin/interfaces/<id>/test \
   -H 'Content-Type: application/json' \
@@ -501,7 +505,8 @@ curl -X POST http://localhost:8080/api/admin/interfaces/<id>/test \
 
 ### 6.2 模拟回调（入站调试）
 
-「接口管理」详情 →「模拟回调」（仅 INBOUND，且接口必须已发布）：按应用 `CALLBACK` 凭证自动签名，自调平台真实网关路径，返回：
+「接口管理」详情 →「模拟回调」（仅 INBOUND，且接口必须已发布）：按应用 `CALLBACK` 凭证自动签名，自调平台真实网关路径
+（**回调报文格式同样 = 该接口的「入站协议」**：入站 XML 就填 XML）。返回：
 
 - `traceId`
 - `ackStatus` / `ackContentType` / `ackBody`（供应商视角 ack）
