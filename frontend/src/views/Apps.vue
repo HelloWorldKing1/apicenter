@@ -227,6 +227,8 @@ import CredentialEntry from '@/components/CredentialEntry.vue'
 // 鉴权适配器“用途”判定：两个下拉按角色过滤，防止把“HMAC 回调验签”选进“供应商签名”
 // （真实踩坑：选错后凭证静默存成 OUTBOUND，直到点「模拟回调」才报错）
 import { adapterMatchesRole, adapterRoleHint } from '@/utils/adapterUsage.mjs'
+// 凭证卡片提示语（含「已解绑但凭证仍在」的解释与清理路径）
+import { credentialHint } from '@/utils/credentialHint.mjs'
 
 // ---------- 列表 ----------
 const apps = ref([])
@@ -374,13 +376,20 @@ function resetCredState() {
 }
 
 /** 凭证缺失提示（D5 软提示；仅编辑态提示，新建态由卡片「待创建」表达） */
+/**
+ * 凭证卡片提示语：判定逻辑抽到 `utils/credentialHint.mjs`（纯函数 + 单测）。
+ * 本次新增的关键分支：**已解绑适配器但凭证仍在** —— 说明“为什么保留 + 怎么清理”
+ *（此前该情形**没有任何提示**，用户会以为删不掉；见该模块注释）。
+ */
 function credWarning(kind) {
-  if (!dialog.isEdit || !credentialNeeded(adapterIdOf(kind))) return ''
-  if (credState[kind]?.status === 'ACTIVE') return ''
-  if (kind === 'OUTBOUND') return '未配置出站签名凭证：运行期请求将不带签名头，供应商侧会返回 401。'
-  return hasPublishedInbound.value
-    ? '未配置回调验签凭证，且该应用下已有已发布入站接口：供应商回调将被 40100 拒绝。'
-    : '未配置回调验签凭证：入站回调验签将直接 40100。'
+  return credentialHint({
+    isEdit: dialog.isEdit,
+    credentialNeeded: credentialNeeded(adapterIdOf(kind)),
+    hasCredential: !!credState[kind],
+    status: credState[kind]?.status,
+    kind,
+    hasPublishedInbound: hasPublishedInbound.value,
+  })
 }
 
 /** 组装提交载荷：留空 = 不改动（null）；部分填写 = 拦截；单字段 → 字符串；多字段 → JSON */
