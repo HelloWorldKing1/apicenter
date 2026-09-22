@@ -93,7 +93,8 @@ defineExpose({ reset, doBeautify })
 }
 .rb-body {
   width: 100%;
-  min-height: 260px;
+  /* 上下两个框叠放（2026-09-22 改单列）⇒ 编辑框不再占满半屏；resize: vertical 随时拉大 */
+  min-height: 180px;
   box-sizing: border-box;
   background: #282c34;
   color: #abb2bf;

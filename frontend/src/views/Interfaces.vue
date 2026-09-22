@@ -402,49 +402,43 @@
     <!-- ============ 测试接口弹窗（管理面调试：真实走一遍出站链路，仅 OUTBOUND） ============ -->
     <el-dialog v-model="test.visible" :title="`测试接口 · ${detail.row.code || ''}`" width="760px" top="5vh">
       <div class="test-layout">
-        <!-- 两个 desc 作为**共享的第一行**（grid 行高取二者最大）⇒ 下面两个框顶端必然对齐 -->
+        <!-- 单列上下排列（2026-09-22）：并排时“左边内容多/描述行数不同”会反复产生对齐问题；
+             上下排列**根本没有对齐问题**，且报文横向空间更大（长行少折行） -->
         <div class="test-desc">请求体（预填接口入站 Body 模板，可编辑）</div>
-        <div class="test-desc">响应（统一信封 { code, msg, data }）</div>
-        <div class="test-side">
-          <RequestBodyEditor ref="testEditorRef" v-model="test.body" :protocol-in="test.protocolIn" />
-          <el-button type="primary" :loading="test.sending" style="margin-top: 10px" @click="sendTest">
-            发送请求
-          </el-button>
-        </div>
-        <div class="test-side">
-          <pre class="test-resp" :class="{ 'resp-error': test.isError }">{{ test.resp }}</pre>
-          <!-- 前置步骤运行留痕（编排 PS-6：chainTrace.steps）：每一步的 HTTP / 耗时 / 结局 -->
-          <template v-if="test.steps.length">
-            <div class="test-desc" style="margin: 10px 0 6px">前置步骤（本次真实执行）</div>
-            <el-table :data="test.steps" size="small">
-              <el-table-column prop="stepCode" label="步骤" width="90" />
-              <el-table-column prop="targetCode" label="前置接口" width="130" />
-              <el-table-column prop="httpStatus" label="HTTP" width="64" />
-              <el-table-column prop="latencyMs" label="耗时(ms)" width="80" />
-              <el-table-column prop="outcome" label="结局" />
-            </el-table>
-          </template>
-        </div>
+        <RequestBodyEditor ref="testEditorRef" v-model="test.body" :protocol-in="test.protocolIn" />
+        <el-button type="primary" :loading="test.sending" style="margin-top: 10px" @click="sendTest">
+          发送请求
+        </el-button>
+
+        <div class="test-desc" style="margin-top: 12px">响应（统一信封 { code, msg, data }）</div>
+        <pre class="test-resp" :class="{ 'resp-error': test.isError }">{{ test.resp }}</pre>
+        <!-- 前置步骤运行留痕（编排 PS-6：chainTrace.steps）：每一步的 HTTP / 耗时 / 结局 -->
+        <template v-if="test.steps.length">
+          <div class="test-desc" style="margin: 10px 0 6px">前置步骤（本次真实执行）</div>
+          <el-table :data="test.steps" size="small">
+            <el-table-column prop="stepCode" label="步骤" width="90" />
+            <el-table-column prop="targetCode" label="前置接口" width="130" />
+            <el-table-column prop="httpStatus" label="HTTP" width="64" />
+            <el-table-column prop="latencyMs" label="耗时(ms)" width="80" />
+            <el-table-column prop="outcome" label="结局" />
+          </el-table>
+        </template>
       </div>
     </el-dialog>
 
     <!-- ============ 模拟回调弹窗（M3 手动验收：INBOUND 调试，真实网关路径 + HMAC 自签名） ============ -->
     <el-dialog v-model="cbTest.visible" :title="`模拟回调 · ${detail.row.code || ''}`" width="760px" top="5vh">
       <div class="test-layout">
-        <!-- desc 提升为共享行：左右描述行数不同也不会把下面的框顶偏（见 .test-layout 注释） -->
         <div class="test-desc">
           回调报文（预填入站 Body 模板，可编辑；平台按 HMAC 回调验签约定自动签名后自调网关）
         </div>
-        <div class="test-desc">供应商视角 ack + 送达状态</div>
-        <div class="test-side">
-          <RequestBodyEditor ref="cbEditorRef" v-model="cbTest.body" :protocol-in="cbTest.protocolIn" callback />
-          <el-button type="primary" :loading="cbTest.sending" style="margin-top: 10px" @click="sendCallbackTest">
-            发送回调
-          </el-button>
-        </div>
-        <div class="test-side">
-          <pre class="test-resp" :class="{ 'resp-error': cbTest.isError }">{{ cbTest.resp }}</pre>
-        </div>
+        <RequestBodyEditor ref="cbEditorRef" v-model="cbTest.body" :protocol-in="cbTest.protocolIn" callback />
+        <el-button type="primary" :loading="cbTest.sending" style="margin-top: 10px" @click="sendCallbackTest">
+          发送回调
+        </el-button>
+
+        <div class="test-desc" style="margin-top: 12px">供应商视角 ack + 送达状态</div>
+        <pre class="test-resp" :class="{ 'resp-error': cbTest.isError }">{{ cbTest.resp }}</pre>
       </div>
     </el-dialog>
 
@@ -1390,22 +1384,20 @@ h4 { margin: 20px 0 10px; color: #303133; }
 }
 
 /* ---------- 测试接口弹窗 ---------- */
-.test-layout {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  /* 行间距小、列间距大：第一行是两个 desc（共享行，行高取二者最大），第二行是两个框 */
-  gap: 8px 16px;
-}
+/* 单列上下排列（2026-09-22）：并排易产生对齐误差，且报文横向空间被压缩 */
+.test-layout { display: block; }
 /* 描述文字：原 `.side-desc` 样式定义在 InterfaceParamsTab.vue 的 scoped 块里 ⇒ 此处从未生效，统一改用本类 */
 .test-desc {
-  margin: 0;
+  margin: 0 0 6px;
   font-size: 12px;
   color: #909399;
   line-height: 1.6;
 }
-.test-body { min-height: 260px; }
 .test-resp {
-  min-height: 260px;
+  /* 两个框上下叠：给响应框限制高度并允许滚动，避免弹窗超出视口 */
+  min-height: 160px;
+  max-height: 280px;
+  overflow: auto;
   margin: 0;
   background: #282C34;
   color: #98c379;
