@@ -64,7 +64,8 @@
         <el-form-item label="供应商签名适配器">
           <div class="adapter-pick">
             <el-select v-model="form.authAdapterId" clearable placeholder="出站鉴权(应用级默认,接口可覆盖)">
-              <el-option v-for="a in authAdapters" :key="a.id" :label="`${a.name}（${a.impl}）`" :value="a.id" />
+              <el-option v-for="a in authAdaptersFor('OUTBOUND', form.authAdapterId)" :key="a.id"
+                         :label="`${a.name}（${adapterRoleHint(a.impl)}）`" :value="a.id" />
             </el-select>
             <el-button size="small" @click="openInlineAdapter('auth', 'authAdapterId')">＋ 自定义</el-button>
           </div>
@@ -82,9 +83,14 @@
         <el-form-item label="回调验签适配器">
           <div class="adapter-pick">
             <el-select v-model="form.callbackAuthAdapterId" clearable placeholder="仅入站回调接口生效">
-              <el-option v-for="a in authAdapters" :key="a.id" :label="`${a.name}（${a.impl}）`" :value="a.id" />
+              <el-option v-for="a in authAdaptersFor('CALLBACK', form.callbackAuthAdapterId)" :key="a.id"
+                         :label="`${a.name}（${adapterRoleHint(a.impl)}）`" :value="a.id" />
             </el-select>
             <el-button size="small" @click="openInlineAdapter('auth', 'callbackAuthAdapterId')">＋ 自定义</el-button>
+          </div>
+          <div class="pick-hint">
+            只能选「回调验签」类适配器（如 <b>HMAC 回调验签</b>）。⚠️ 别把回调验签适配器选进「供应商签名」——
+            那会把凭证存成<b>出站签名</b>、回调验签仍为空，直到点「模拟回调」才报「应用未配置回调验签凭证」。
           </div>
         </el-form-item>
         <!-- 回调验签凭证卡片（kind=CALLBACK；显示条件见《应用凭证配置改造方案》§4.4） -->
@@ -218,6 +224,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '@/api/http'
 import AdapterParamsEditor from '@/components/AdapterParamsEditor.vue'
 import CredentialEntry from '@/components/CredentialEntry.vue'
+// 鉴权适配器“用途”判定：两个下拉按角色过滤，防止把“HMAC 回调验签”选进“供应商签名”
+// （真实踩坑：选错后凭证静默存成 OUTBOUND，直到点「模拟回调」才报错）
+import { adapterMatchesRole, adapterRoleHint } from '@/utils/adapterUsage.mjs'
 
 // ---------- 列表 ----------
 const apps = ref([])
@@ -228,6 +237,19 @@ const authAdapters = ref([])
 const messageAdapters = ref([])
 const impls = ref([])
 const allAdapters = ref([])   // 未过滤（含停用）：仅用于解析所选适配器的 impl / secret 字段
+
+/**
+ * 两个下拉的选项：按角色过滤（见 utils/adapterUsage.mjs）。
+ * 已绑定的值**即使不符合口径也保留**——否则历史/误选数据会显示成空白，反而看不出问题。
+ */
+function authAdaptersFor(role, currentId) {
+  const list = authAdapters.value.filter((a) => adapterMatchesRole(a.impl, role))
+  if (currentId && !list.some((a) => a.id === currentId)) {
+    const cur = allAdapters.value.find((a) => a.id === currentId)
+    if (cur) list.unshift(cur)
+  }
+  return list
+}
 
 // 搜索防抖（评审中危 #10）
 let keywordTimer
@@ -545,4 +567,5 @@ h4 { margin: 20px 0 10px; color: #303133; }
 .cred-hint { font-size: 12px; color: #909399; margin: -4px 0 10px; }
 .adapter-pick { display: flex; width: 100%; }
 .adapter-pick .el-select { flex: 1; margin-right: 8px; }
+.pick-hint { font-size: 12px; color: #909399; line-height: 1.7; margin-top: 4px; }
 </style>
