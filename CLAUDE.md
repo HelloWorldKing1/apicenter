@@ -107,6 +107,21 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 
 运行后可访问：管理面 `http://localhost:5173`（dev）/ `http://localhost:8080`（build 产物）；`/actuator/health` 健康检查。fastmoss 种子默认不自动导入（`app.api-center.seed.enabled=false`）：需要演示基线时执行 `POST /api/admin/seed/import` 手动导入。
 
+> 🚫 **测试执行纪律（2026-09-22 用户定，必须遵守）**
+>
+> **默认禁止：`mvn -o clean test`（全量 + clean）。**
+>
+> | 场景 | 该怎么做 |
+> |---|---|
+> | 改了后端代码，要验证 | **只跑相关测试类**：`mvn -o test -Dtest=XxxTest,YyyTest`（**不 clean**；必要时加 `-DfailIfNoSpecifiedTests=false`） |
+> | 只确认能否编译 | `mvn -o test-compile`（**不加 clean**） |
+> | 改了前端 | `cd frontend` → `npm test` / `npm run lint` / `npm run build`（这三条**允许直接跑**） |
+> | **需要全量测试、或需要 clean** | ⛔ **不要自己跑** —— **停下来告知用户，由用户手动执行** |
+> | **结构变更**（新增 / 删除 / 重命名源文件、改包名或注解） | 增量编译会**假通过**（旧 class 残留在 `target/classes`）⇒ 必须 clean ⇒ **告知用户手动跑 `mvn -o clean test`** |
+>
+> **理由**：全量 `clean test` 成本高（数百例集成测试连远程 PolarDB，数分钟起），日常改动用"小而准"的相关测试类足够。
+> 另外：**手动验收 / 起实例期间不要跑任何 `mvn test`**（WireMock 占 `18080`，与集成测试同端口）。
+
 ## 架构与源码结构
 
 根包 `com.deepx.apicenter`（`src/main/java/com/deepx/apicenter/`），按技术架构分层规划（M1 起逐步落地）：
@@ -163,7 +178,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 - **Spring 7 声明式客户端 URI 模板坑**：`@HttpExchange` 的动态完整 URL 模板变量会被路径编码（scheme 丢失）——**动态 URL 一律 RestClient 直调**（`uri(URI)`），且需 `defaultStatusHandler` 禁用默认 4xx/5xx 抛异常（引擎分类）。详见《技术踩坑记录.md》§3。
 - **Jackson 3**：包名 `tools.jackson.*`；`JsonNode.fields()` 已更名为 `properties()`。
 - **WireMock 3**：verify 用 `postRequestedFor(urlEqualTo(...))` + `equalTo(...)`；请求计数跨测试累积，`@BeforeEach` 需 `resetAll()`。
-- **`mvn test` 不清旧产物**：删源文件后旧 class 残留在 target/classes 会被 Spring 扫描装配——结构变更务必 `mvn clean test`。
+- **`mvn test` 不清旧产物**：删源文件后旧 class 残留在 target/classes 会被 Spring 扫描装配 ⇒ **结构变更必须 clean**；但按「**测试执行纪律**」（见《常用命令》）**clean 与全量测试一律由用户手动执行**，我只需**明确告知**（不要自己跑）。
 - **列表接口不带子表**：断言/校验接口子表（params/mappings 等）必须走 `detail()`，`list()` 的子表恒空。
 - **熔断 / 限流 / 日配额为单实例内存口径**：多实例部署各实例独立（v1.1 分布式，日配额重启清零）；QPS 为固定秒级窗口（交界突刺最坏 2×limit）；WireMock 占 18080 与集成测试同端口，手动验收期间勿同时跑 `mvn test`。语义详见《M4开发计划.md》。
 - **M5 链缓存烘焙与事件失效**：绑定解析 / 映射规则 / 入站参数声明在链装配时一次解析烘焙进缓存链（凭证仍每请求实时读）——**配置变更后绑定/协议即时生效依赖 `ConfigChangedEvent` 事件失效**：InterfaceService（update/rollback/publish/offline/delete）→ INTERFACE 精准移除；AdapterService（增改/启停/删）、AppService（默认绑定/启停）→ ADAPTER/APP 全清；**新增配置入口必须补发事件**（漏一处最长 5 分钟不生效，TTL 兜底）。凭证轮换不进清单（每请求实时读，天然即时）。
@@ -191,7 +206,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 - **CORS 白名单不要写死单个 Origin（2026-09-18 真实缺陷）**：Spring **只跳过同源**请求的 CORS 校验，而 `127.0.0.1` 与 `localhost` 是**不同 Origin** ⇒ 白名单若只写 `http://localhost:5173`，用 `http://127.0.0.1:5173` 打开前端（或 Vite 端口被占自动 +1 到 5174）时，所有**写操作**（POST/PUT/DELETE 会带 Origin；GET 不带）被 CORS 层回 **403 `Invalid CORS request`** —— 请求**进不了引擎**、无 call_log/运行记录，极易误判为业务故障。现用 `allowedOriginPatterns` + 配置项 `app.api-center.cors.allowed-origin-patterns`（默认 `http://localhost:[*],http://127.0.0.1:[*]`；置空 = 不注册）。回归：`HttpErrorSemanticsTest#本机回环任意端口的Origin_不被CORS拒绝`。
 - **XML 协议参数（`interface.protocol_params`）的四条纪律（2026-09-21 B1 落地）**：① **“键存在但为空白 → 40001；键缺失 → 内置默认”**——想用默认就**删掉那个键**（`namespace.prefix` 例外：空串 = 默认命名空间）；前端 `utils/protocolParams.mjs` 必须**只输出非空键**、全默认返回 `null`。② **声明与字节同源**：`XmlProtocolAdapter` 的 `createXMLStreamWriter(out, enc)` 才是编码权威，`writeStartDocument(enc, ver)` 的 encoding **仅在 writer 未指定时才生效**——将来做 encoding 时必须同源。③ **`encoding` 只是“改声明”**：Woodstox 对非 UTF-8 会把非 ASCII 写成 `&#x4e2d;`（字节保持 ASCII 安全）→ **产不出原生 GBK 字节**（已实测，属 backlog）；`UTF-16/UTF-32` **显式拒绝**（会产原生非 ASCII 字节、并让 call_log 失真）。④ **入站不解包**（Q17）：`soap` 配置只作用于【出站构造 + 响应解包】，DECODE 处“不读配置”是**有意的**（已在代码注释标明）。
 - **`SnapshotChangeDiff` 的 `text()` 不能用 `asText()` 处理对象节点（2026-09-21 实现期发现的真 bug）**：Jackson 的 `asText()` 对 Object/Array 节点返回**空串** ⇒ 存入快照 `main` 的对象型字段（如 `protocolParams`）**变了却显示“无变化”**（变更摘要/change_note 静默失真）。现改为对象/数组走 `toString()`（标量键行为不变）。新增对象型 main 字段时必须过这条。
-- **位置构造 + compat 重载：加字段不等于“零改动”（2026-09-21 教训）**：`InterfaceRow`/`InterfaceRequest` 靠 compat 构造器保证兼容，但**隐式 canonical 的 arity 一变，同参数量的调用会“改嫁”到 compat**（`long groupId`↔`Long groupId`、`BigDecimal version`↔`int version`）→ 报 `int→Long` / `BigDecimal→int`。**两条应对**：① 改动后用 `mvn -o clean test-compile`（**增量编译会假通过**——旧 class 残留；`-q` 下曾报 exit=0 但根本没重编）；② 别用 `-q` 吞掉编译错误，也不要用 macOS 不存在的 `timeout` 包 mvn（会静默不执行）。
+- **位置构造 + compat 重载：加字段不等于“零改动”（2026-09-21 教训）**：`InterfaceRow`/`InterfaceRequest` 靠 compat 构造器保证兼容，但**隐式 canonical 的 arity 一变，同参数量的调用会“改嫁”到 compat**（`long groupId`↔`Long groupId`、`BigDecimal version`↔`int version`）→ 报 `int→Long` / `BigDecimal→int`。**两条应对**：① 改动后用 `mvn -o test-compile`（**不加 clean**）核对；**结构变更**（新增 / 重命名 / 删除文件）会因旧 class 残留而**假通过** ⇒ **告知用户手动执行 `mvn -o clean test-compile`**；② 别用 `-q` 吞掉编译错误，也不要用 macOS 不存在的 `timeout` 包 mvn（会静默不执行）。
 
 - **部分主机/WAF 按 `User-Agent` 拒绝 Java 客户端（2026-09-21 B2 验证期实测）**：`dneonline.com` 对 `User-Agent: Java/…` / `Java-http-client/…` **直接重置连接**（`SocketException: Connection reset`），而 `Apache-HttpClient` / `Mozilla` / curl 均 200。JVM 默认 UA 就是 `Java-http-client/…` ⇒ 平台默认会被这类主机拒，**表现为 `ResourceAccessException` → UNKNOWN/50401，极易误判为「超时」**。取证办法：`curl -A 'Java-http-client/21' …` 与默认 UA 对比。**待办（backlog）**：新增可配默认 `User-Agent`（或接口级静态头）。
 - **传输异常必须打根因，不能只打异常类名（2026-09-21 修复）**：原先 `OutboundEngine` 只记 `e.getClass().getSimpleName()`，`ResourceAccessException` 下**连接超时 / 读超时 / 连接重置 / 协议错无法区分**——本次正是靠补上的 `rootCauseOf(e)`（`SocketException: Connection reset`）一步定位。新增传输分类日志时照此。
