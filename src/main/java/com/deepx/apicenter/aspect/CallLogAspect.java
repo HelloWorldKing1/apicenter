@@ -34,8 +34,13 @@ import java.util.UUID;
  *
  * <p>关键定稿：
  * <ul>
- *   <li>切面顺序（评审定稿）：@Order(HIGHEST_PRECEDENCE) 使本切面位于 @Retryable advisor <b>之外</b>——
- *       每业务请求恰一条 OUT 记录（短重试不逐次落日志）、Timer 时长含全部重试；</li>
+ *   <li>切面顺序（**2026-09-22 实测更正**）：原注释称"@Order(HIGHEST_PRECEDENCE) 使本切面位于 @Retryable
+ *       advisor 之外、每业务请求恰一条 OUT 记录"—— **该结论错误**。Spring 的
+ *       {@code RetryAnnotationBeanPostProcessor} 构造器调用 {@code setBeforeExistingAdvisors(true)}，
+ *       把重试 advisor **强制置于所有既有 advisor 之前（外层）** ⇒ 切面实际在重试**内层** ⇒
+ *       **每次 HTTP 尝试各落一条 OUT 记录**（实测：退避 0/200/600/1400/3000ms 对应同一 traceId 的 5 条），
+ *       且 Timer 只计**单次尝试**时长。⇒ **与 D-M4-4「每业务请求恰一条」定稿不一致，待拍板**
+ *       （要么把 OUT 日志/指标移到非重试边界，要么修订 D-M4-4 口径；见《技术踩坑记录》§14）。</li>
  *   <li>元数据来源：OUT 条读 OutboundRequestSpec 扩展字段；IN 条读 CallLogContext（引擎入口填充、
  *       本切面 finally 清理；管理面调试端点 /test、/mock-callback 直调引擎不经网关——有意不落 IN 条，
  *       避免调试流量污染成功率口径，OUT 条照常经 Invoker 切面落库，IN/OUT 条数不配对属预期）；</li>

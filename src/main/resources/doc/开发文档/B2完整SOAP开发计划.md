@@ -404,7 +404,8 @@ SOAP 用例涉及**重试 + 熔断**，隔离尤其重要（否则与 worker `sc
 | **POX 回归**（type 缺省） | 出站无 Envelope | ✅ `<?xml …?><NumberToWords xmlns="…"><ubiNum>7</ubiNum></NumberToWords>` |
 
 > ⚠️ **取证口径更正（2026-09-21 复核）**：`CallLogAspect` 带 `@Order(HIGHEST_PRECEDENCE)`，**位于 `@Retryable` advisor 之外**
-> ⇒ **一次逻辑调用恒 1 条 OUT 日志**，与重试次数无关。因此 **“OUT 条数”不能用来证明“没有重试”**；
+> ⇒ **每次 HTTP 尝试各落一条**：本次"1 条"说明确实没有重试（**条数 = 尝试次数**，"恰 1 条" ⇔ 零重试）。
+> ⚠️ 这与 D-M4-4「每业务请求恰一条 OUT」的定稿**不一致**（2026-09-22 实测发现，待拍板）；
 > 正确判据是 `outbound_request.attempt_count`（页面：**出站状态机 Tab 的「尝试」列**）。
 > 本次结论（零重试）本身仍成立 —— 由 `@Retryable.includes` 白名单机制 + `SoapClientFaultExceptionTest` 钉死。
 

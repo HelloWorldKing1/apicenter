@@ -254,7 +254,14 @@
         <PayloadViewer :text="detail.row.reqBody" :content-type="contentTypeOf(detail.row.reqHeaders)"
                        :context="callLogContext(detail.row)" />
         <h4 class="side-title">响应体</h4>
-        <PayloadViewer :text="detail.row.respBody" :context="callLogContext(detail.row)" />
+        <!-- 失败时对端根本没回报文（连接失败/超时/5xx），响应体必为空——不解释一句极易被当成缺陷（2026-09-22 实测反馈） -->
+        <div v-if="!detail.row.respBody && detail.row.direction === 'OUT' && (detail.row.statusCode == null || detail.row.statusCode >= 400)"
+             class="side-note">
+          无响应体：这次调用<strong>没有成功</strong>（对端未回报文）—— 常见于连接失败（对方端口无服务）/ 读超时 / 5xx。
+          失败归因看「状态机」或「死信」；<strong>调用日志每行 = 一次 HTTP 尝试</strong>（重试会各落一行），
+          逻辑调用的重试次数看状态机明细的「<strong>尝试</strong>」列。
+        </div>
+        <PayloadViewer v-else :text="detail.row.respBody" :context="callLogContext(detail.row)" />
       </template>
 
       <template v-else-if="detail.kind === 'dead' && detail.row">
