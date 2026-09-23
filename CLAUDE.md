@@ -218,7 +218,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 - **调试工具输入框：格式随「入站协议」+ 无损美化 + 自带样式（2026-09-22）**：`components/RequestBodyEditor.vue`（测试接口 / 模拟回调共用）
   按 `protocol_in` 显示格式标签与提示（含"填错会看到的报错码"），「美化结构」走 `utils/requestBody.mjs#beautifyBody`
   → 复用 `payload.mjs` 的**无损**缩进（失败**不吞输入**，只提示原因）；预填按协议给骨架（XML `<request></request>` / JSON `{}`）
-  并自动美化。**顺手修的既有 bug**：两个弹窗原用 `class="raw-editor"`，但该样式定义在 `InterfaceParamsTab.vue` 的
+  并自动美化；内容与协议的**格式不符会实时预告**（`bodyMismatchHint`，2026-09-22——避免靠试错发现 40002）。**顺手修的既有 bug**：两个弹窗原用 `class="raw-editor"`，但该样式定义在 `InterfaceParamsTab.vue` 的
   `<style scoped>` 里 ⇒ **实际不生效**（浏览器默认 textarea）；现由该组件自带深色等宽样式。
 - **调试工具的报文格式随「入站协议」（2026-09-22 修）**：`POST /interfaces/{id}/test` 与 `/test-callback` 后端都收 **`byte[]` 原样字节**，再按 `protocol_in` 解码 ⇒ **前端必须按入站协议准备报文**（`utils/testPayload.mjs#buildTestPayload`：XML 入站原样发 `application/xml`；JSON 入站解析成对象）。原实现两处都**无条件 `JSON.parse`** ⇒ **入站 XML 的接口填 XML 必报** `Unexpected token '<', "<request><"... is not valid JSON`（且报文预填在 XML 接口下恰好是 XML）——**踩坑时先查入站协议，不要怀疑引擎**。另：接口弹窗的「**同入站**」开关**默认开**，此时「出站协议」下拉是**禁用**的（跟随入站）⇒ 要配「入站 JSON / 出站 XML」必须**先关掉它**；**验收方案已统一为「入站 XML / 出站 XML」以免踩此坑**（2026-09-22 用户按旧版方案配出 XML/XML，却按新版 §2.1 填了 JSON ⇒ 前后两轮都踩到）。填错格式两个方向**都有明确报错**：入站 XML 填 JSON → 后端 `40002 报文格式非法：… expected '<'`；入站 JSON 填 XML → 前端可读提示。
 - **`call_log` 加列要同步三处（2026-09-18）**：`insertBatch` 的列清单与**位置绑定序号**、`LIST_COLUMNS`（列表投影）、`CallLogView` + `toView`——位置绑定错位会**静默写错列**，不报错。`step_code` 即此模式（前置调用的 OUT 条带步骤名，Monitor 可按步骤筛选）。

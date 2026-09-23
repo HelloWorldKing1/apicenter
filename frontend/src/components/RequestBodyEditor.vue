@@ -7,7 +7,9 @@
       <el-button size="small" class="rb-btn" @click="doBeautify">美化结构</el-button>
     </div>
     <div class="rb-hint">{{ hint }}</div>
-    <div v-if="message" class="rb-msg" :class="{ 'rb-msg-err': !ok }">{{ message }}</div>
+    <!-- 实时格式校验（2026-09-22）：与「入站协议」不符时输入即提示，不必靠试错发现 40002 -->
+    <div v-if="mismatch" class="rb-msg rb-msg-err">⚠️ {{ mismatch }}</div>
+    <div v-else-if="message" class="rb-msg" :class="{ 'rb-msg-err': !ok }">{{ message }}</div>
   </div>
 </template>
 
@@ -22,7 +24,7 @@
  *    实际**不生效**，textarea 是浏览器默认外观）。
  */
 import { computed, ref } from 'vue'
-import { beautifyBody, bodyFormatLabel, bodyHintFor, bodyPlaceholderFor } from '@/utils/requestBody.mjs'
+import { beautifyBody, bodyFormatLabel, bodyHintFor, bodyMismatchHint, bodyPlaceholderFor } from '@/utils/requestBody.mjs'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -42,6 +44,8 @@ const text = computed({
 const formatLabel = computed(() => bodyFormatLabel(props.protocolIn))
 const hint = computed(() => bodyHintFor(props.protocolIn, { callback: props.callback }))
 const ph = computed(() => props.placeholder || bodyPlaceholderFor(props.protocolIn, { callback: props.callback }))
+/** 实时格式校验：与「入站协议」不符时就提示（不必先点「美化结构」） */
+const mismatch = computed(() => bodyMismatchHint(text.value, props.protocolIn))
 
 const message = ref('')
 const ok = ref(true)

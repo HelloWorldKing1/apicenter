@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  beautifyBody, bodyFormatOf, bodyFormatLabel, bodyHintFor, bodyPlaceholderFor, bodySkeleton,
+  beautifyBody, bodyFormatOf, bodyFormatLabel, bodyHintFor, bodyMismatchHint, bodyPlaceholderFor, bodySkeleton,
 } from './requestBody.mjs'
 
 test('格式随「入站协议」：XML → XML；其余（含缺省）→ JSON', () => {
@@ -76,4 +76,23 @@ test('示例放 placeholder（不占提示行），且随协议与场景变化',
   assert.equal(bodyPlaceholderFor('XML', { callback: true }), '<request><event_id>evt-1</event_id></request>')
   assert.equal(bodyPlaceholderFor('JSON'), '{"requestId":"REQ-1"}')
   assert.equal(bodyPlaceholderFor('JSON', { callback: true }), '{"event_id":"evt-1"}')
+})
+
+test('实时格式校验：内容与「入站协议」不符才提示（本次反馈的场景）', () => {
+  // XML 入站：XML ✓ / JSON ✗（后端会回 40002）
+  assert.equal(bodyMismatchHint('<request><requestId>REQ-1</requestId></request>', 'XML'), null)
+  const xmlHint = bodyMismatchHint('{}', 'XML')
+  assert.ok(xmlHint.includes('不是 XML'), xmlHint)
+  assert.ok(xmlHint.includes('40002'), xmlHint)
+  // JSON 入站：JSON ✓ / XML ✗（前端直接拦下）
+  assert.equal(bodyMismatchHint('{"requestId":"REQ-1"}', 'JSON'), null)
+  const jsonHint = bodyMismatchHint('<request/>', 'JSON')
+  assert.ok(jsonHint.includes('不是合法 JSON'), jsonHint)
+})
+
+test('实时格式校验：空内容不提示（交给后端的"缺根元素/必填"类报错）', () => {
+  for (const empty of ['', '   ', null, undefined]) {
+    assert.equal(bodyMismatchHint(empty, 'XML'), null)
+    assert.equal(bodyMismatchHint(empty, 'JSON'), null)
+  }
 })

@@ -38,6 +38,25 @@ export function bodyHintFor(protocolIn, { callback = false } = {}) {
   return `入站协议为 JSON ⇒ ${what}必须填合法 JSON；填 XML 会被前端拦下`
 }
 
+/**
+ * 输入框内容的**实时格式校验**（2026-09-22）：内容与「入站协议」不符时给提示。
+ *
+ * <p>与 `beautifyBody` 的区别：后者是“点了美化才检查”；本函数供**输入即提示**，
+ * 避免用户靠“点了才知道”去发现 `40002 报文格式非法`（实测反馈：入站 XML 接口填了 `{}`，一点就报错）。
+ *
+ * @returns {string|null} null = 格式匹配（或内容为空，无需提示）
+ */
+export function bodyMismatchHint(text, protocolIn) {
+  const raw = typeof text === 'string' ? text : ''
+  if (!raw.trim()) return null          // 空内容：交给后端“缺少根元素 / 必填”类报错，不在这里吓人
+  if (bodyFormatOf(protocolIn) === 'XML') {
+    if (isXmlLike(raw)) return null
+    return '当前内容不是 XML —— 该接口「入站协议」为 XML，直接发送会被后端拒：40002 报文格式非法。'
+  }
+  if (isJsonLike(raw)) return null
+  return '当前内容不是合法 JSON —— 该接口「入站协议」为 JSON，前端会直接拦下（请改格式或改「入站协议」）。'
+}
+
 /** 输入框为空时的示例（placeholder）—— 具体例子放这里，不占提示行 */
 export function bodyPlaceholderFor(protocolIn, { callback = false } = {}) {
   if (bodyFormatOf(protocolIn) === 'XML') {

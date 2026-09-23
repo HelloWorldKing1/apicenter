@@ -98,6 +98,10 @@ const CASES = [
     { __component: 'RequestBodyEditor', modelValue: '<request><event_id>evt-1</event_id></request>', protocolIn: 'XML' },
     { text: ['XML · 按「入站协议」', '必须填 XML', '40002', '美化结构'],
       html: ['placeholder="<request><requestId>'] }],   // placeholder（示例）是属性；decode() 已还原实体 ⇒ 按解码后的字串断言
+  // 实时格式校验（2026-09-22）：内容与入站协议不符时，输入即给出黄条提示（不必先点美化）
+  ['请求体输入框（XML 入站 + 填了 JSON：实时提示）',
+    { __component: 'RequestBodyEditor', modelValue: '{}', protocolIn: 'XML' },
+    { text: ['不是 XML', '40002'] }],
   ['请求体输入框（入站 JSON）',
     { __component: 'RequestBodyEditor', modelValue: '{"event_id":"evt-1"}', protocolIn: 'JSON' },
     { text: ['JSON · 按「入站协议」', '必须填合法 JSON', '美化结构'] }],
