@@ -1,6 +1,7 @@
 -- ============================================================
 -- API 中心（现行设计）· 建表脚本
--- 依据《表结构设计.html》生成，共 22 张表：配置类 11 + 运行类 8（M4 新增 reconcile_audit / alert_event；M5 后新增 outbound_request_state_log 状态链）
+-- 依据《表结构设计.html》生成，共 25 张表：配置类 11 + 运行类 8
+--   + 平台入站鉴权 3（client_app / client_credential / access_auth_log，2026-09-23 落地 B1）（M4 新增 reconcile_audit / alert_event；M5 后新增 outbound_request_state_log 状态链）
 --   + 管理面账号类 2（admin_user / admin_session，2026-09-18 账号登录）；另 interface_step 为编排配置子表（第 20 张）
 -- 目标库：MySQL 5.7 / 8.0 InnoDB（双兼容），字符集 utf8mb4
 -- 注意：与 doc_old/schema.sql（旧版 ERP demo 9 表）不是同一套，勿混用
@@ -442,3 +443,78 @@ CREATE TABLE admin_session (
 -- 按 (app_id, created_at) 组合过滤 / 分组聚合；已应用到开发库（PolarDB 8.0 兼容）。
 -- ALTER TABLE call_log ADD KEY idx_call_app_time (app_id, created_at);
 -- ============================================================
+
+-- ============================================================
+-- 2026-09-23 平台入站鉴权（调用方鉴权 · 回调验签 · 接入审计）—— B1「数据与目录」
+--   依据《开发文档/入站鉴权设计方案.md》v1.1 §4.1/§4.2
+--   方向说明：`app.auth_adapter_id` 管「平台作为调用方 → 供应商」的出站签名；
+--             `client_app.auth_adapter_id` 管「调用方 → 平台」的入站鉴权（主体相反）。
+--   ⚠ 三表已应用到开发库（2026-09-23）；《表结构设计.html》已同步。
+-- ============================================================
+
+-- 23 调用方（平台客户 / 接入方）：与「应用（供应商）」对称的入站主体
+CREATE TABLE client_app (
+    id              BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    client_id       VARCHAR(32)  NOT NULL COMMENT '调用方标识（全局唯一，如 ERP-PROD；对外展示与审计引用）',
+    name            VARCHAR(64)  NOT NULL COMMENT '调用方名称（审计留痕的主体名称来源）',
+    contact         VARCHAR(64)  COMMENT '联系人',
+    auth_adapter_id VARCHAR(16)  COMMENT '入站鉴权适配器（adapter.type=auth；NULL = 未配置 → 启用后 fail-closed 拒绝 40108）',
+    ip_whitelist    VARCHAR(500) COMMENT '调用方来源 IP 白名单（英文逗号分隔，空 = 不限；精确匹配，CIDR v1.1）',
+    ip_blacklist    VARCHAR(500) COMMENT '调用方来源 IP 黑名单（优先于白名单；命中 → 40103）',
+    qps_limit       INT          COMMENT '调用方 QPS 上限（空/0 = 不限；P2 生效）',
+    daily_quota     BIGINT       COMMENT '调用方日调用量上限（空/0 = 不限；P2 生效）',
+    status          VARCHAR(16)  NOT NULL DEFAULT 'ENABLED' COMMENT 'ENABLED 启用 / DISABLED 停用（停用即拒 40107）',
+    `desc`          VARCHAR(500) COMMENT '描述',
+    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_client_id (client_id),
+    KEY idx_client_auth_adapter (auth_adapter_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='调用方（平台客户 / 接入方）';
+
+-- 24 调用方凭证（与 app_credential 同构）：AES-256-GCM 密文 + ACTIVE/ROTATING/RETIRED 轮换并存
+CREATE TABLE client_credential (
+    id             BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    client_id      VARCHAR(32)  NOT NULL COMMENT '所属调用方',
+    kind           VARCHAR(16)  NOT NULL COMMENT '凭证类型（须与 adapter.credentialKind() 一致）：API_KEY / HMAC_SECRET / BEARER_TOKEN / BASIC',
+    credential     TEXT         NOT NULL COMMENT '凭证内容（AES-256-GCM 可逆加密；复合凭证 JSON 化）',
+    status         VARCHAR(16)  NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE 当前使用 / ROTATING 轮换并存 / RETIRED 已失效',
+    activated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '生效时间',
+    retired_at     DATETIME     COMMENT '失效时间',
+    rotating_until DATETIME     COMMENT 'ROTATING 并存窗口截止（默认 +24h；过期后读取路径惰性视为 RETIRED）',
+    created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_client_credential (client_id, kind, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='调用方凭证（支持轮换并存）';
+
+-- 25 接入鉴权审计（本设计核心交付物之一）：谁（主体+名称）· 从哪（IP）· 什么方式 · 结果如何
+--   写入点统一（网关切面 finally flush），数据来自 AccessAuthContext（ThreadLocal，与 CallLogContext 同构）；
+--   PASS / REJECT 均记（可配只记失败）；异步批量写
+CREATE TABLE access_auth_log (
+    id              BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    trace_id        VARCHAR(32)  COMMENT 'traceId（与 call_log / 运行表同源，可三方串联）',
+    direction       VARCHAR(16)  NOT NULL COMMENT 'INBOUND_CALL 调用方→平台（Flow A）/ CALLBACK 供应商回调→平台（Flow B）',
+    principal_type  VARCHAR(16)  NOT NULL COMMENT '主体类型：CLIENT 调用方 / SUPPLIER 供应商',
+    principal_id    VARCHAR(32)  COMMENT '主体标识：client_id 或 app_id（主体未识别时为空）',
+    principal_name  VARCHAR(64)  COMMENT '主体名称快照（主体改名 / 删除后历史仍可读——审计的硬要求）',
+    interface_id    BIGINT       COMMENT '关联接口（多态引用不设外键；接口删除后仍保留）',
+    interface_code  VARCHAR(16)  COMMENT '接口标识快照',
+    auth_method     VARCHAR(24)  NOT NULL COMMENT '鉴权方式：API_KEY / HMAC-SHA256 / BEARER / BASIC / IP_WHITELIST / PLATFORM_SELF / NONE',
+    auth_adapter_id VARCHAR(16)  COMMENT '命中的鉴权适配器实例（adapter.id；平台内置或主体未知时为空）',
+    result          VARCHAR(8)   NOT NULL COMMENT 'PASS 通过 / REJECT 拒绝',
+    error_code      VARCHAR(16)  COMMENT '拒绝错误码（40100/40101/40103/40107/40108…）',
+    reason          VARCHAR(255) COMMENT '结论说明（拒绝原因 / 通过补充）',
+    client_ip       VARCHAR(45)  COMMENT '调用方来源 IP（IPv4/IPv6；解析口径见设计方案 §11）',
+    xff_chain       VARCHAR(255) COMMENT '原始 X-Forwarded-For 头（取证用；未携带为空）',
+    user_agent      VARCHAR(200) COMMENT 'User-Agent（截断 200，取证用）',
+    latency_ms      BIGINT       COMMENT '鉴权耗时（毫秒，闸门判定区间；回调验签记链内验签区间）',
+    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_auth_time (created_at),
+    KEY idx_auth_principal (principal_id, created_at),
+    KEY idx_auth_ip (client_ip, created_at),
+    KEY idx_auth_result (result, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='接入鉴权审计';
+
+-- 删除策略（与设计方案 §4.2 一致）：
+--   · 删调用方     → 级联删其凭证（client_credential）；**审计表不删**（靠保留期清理 + 名称快照回溯）
+--   · 删鉴权适配器 → client_app.auth_adapter_id 置 NULL（回退「未配置」→ 启用后 fail-closed 40108）
+--   · 删接口       → 不删 access_auth_log（interface_id/interface_code 快照保留）
+--   · 审计表清理   → 保留期（默认 90 天）或手工 SQL（P1 不引调度）

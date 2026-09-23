@@ -15,7 +15,7 @@
 
 | 项 | 状态 |
 |---|---|
-| 设计文档 | 已定稿：`src/main/resources/doc/` 6 份 + schema.sql（**22 张表**，M4 新增 reconcile_audit / alert_event，M5 后新增 outbound_request_state_log 状态链，前置编排新增 interface_step，账号登录新增 admin_user / admin_session） |
+| 设计文档 | 已定稿：`src/main/resources/doc/` 6 份 + schema.sql（**25 张表**，M4 新增 reconcile_audit / alert_event，M5 后新增 outbound_request_state_log 状态链，前置编排新增 interface_step，账号登录新增 admin_user / admin_session，**入站鉴权新增 client_app / client_credential / access_auth_log**） |
 | M0 契约设计 | **已评审通过 v1.0（2026-09-02）**：`doc/开发文档/` M0-01/02/03/04（确认点全部通过） |
 | 旧 demo 代码 | 已删除（commit `ad55cea`），git 历史可查 |
 | 数据库 | MySQL PolarDB 已按新 schema 建库（连接信息见 application.yaml）；M4 DDL（两表 + idx_outreq_updated 索引）已于 2026-09-04 应用到开发库 |
@@ -29,6 +29,7 @@
 | 评审遗留 P2/P3 批次修复 + 编排可观测二期（2026-09-18） | 与编排同批落地（详见《前置接口编排设计方案.md》§0 末段）。**真 bug 2 个**：`AlertService.evictRule` 冷却键不匹配（`endsWith("#"+id)` vs 实际 `rule:<id>` → 删规则永不清理；已修 + `AlertServiceTest` 回归）；「死信编号」原为 `outbound_request.id`（照它 replay 会打错记录）→ `insertDeadLetter` 改回填真实 `dead_letter.id`（`M4IntegrationTest` 断言编号可查）。**健壮性**：`DeadLetterRepository` 全文参数化（原拼串可被反斜杠打乱字面量）；`MonitorService.reconcile/replayDeadLetter` 补 `@Transactional`；`GlobalExceptionHandler` 补 400（畸形 JSON/参数类型）·404（未匹配路径）·405（方法不支持）——原先三类全回 500；`AppService.base_url` 走 `CallbackUrlValidator`（格式 + SSRF 开关，与回调地址同一规则）；`path` 必须 `/` 开头、`upstreamPath` 拒空白等 URI 非法字符（否则运行期 `URI.create` 抛异常 → 500 + 熔断探针漏计数）；`CredentialRepository.findActive` 补 `ORDER BY id DESC LIMIT 1`；apps/interfaces 列表命中 2000 上限时 `log.warn`（不再静默截断）；`MonitorService.statsCache` 有界（appId 用户可控）；`CallLogWriter` 丢弃日志口径；`XmlProtocolAdapter` reader 显式 close；移除未使用的 MapStruct 依赖与处理器。**可观测二期**：`call_log.step_code`（前置调用的 OUT 条带步骤名 → Monitor「步骤」列 + 按步骤筛选）+ 前置响应体上限 `pre-step.max-response-bytes`（默认 256KB，超限按链失败拒绝、不截断）+ `/test` 弹窗「前置步骤」留痕表。**P3 收尾**：`MonitorService.downgradeExpiredUnknown` 改**逐行** `TransactionTemplate`（状态+审计同成败，不用方法级事务以免单行失败回滚整批）；深度超限（`DEPTH_EXCEEDED`）补 `PRE_STEP` 留痕节点（原先抛在任何留痕之前，监控页看不到原因）；`insertDeadLetter` 未回填主键（-1）时不给误导性「死信编号」。新增测试：`HttpErrorSemanticsTest`（4）。全库 **290 @Test**（针对性批次验证全绿：编排 15 / 错误语义 4 / M1 19 / 告警 10 / M2-M5+StateChain+MonitorStats+单测 60 + 账号登录 19） |
 | 前置接口编排（2026-09-18） | **PS-1..PS-9 已落地**（《开发文档/前置接口编排设计方案.md》v0.1.3 + §0 落地记录表）：`interface_step`（**第 20 张表**，开发库已建）+ `PreStepExecutor`（绕开 OutboundEngine 状态机，只复用链/传输/熔断/短重试）+ `ResponseJudger`（信封+RESP 判定从 OutboundEngine 抽出共用）+ `ReservedKeys`（保留键 steps 两道剥离）+ `StateChainBuffer`（从 OutboundEngine 抽出批量通道）+ `ChainEngine` 三处小改（DECODE 可跳过 / MAPPING 前插前置 / ENCODE 前剥离）+ OutboundEngine 捕获边界 + **D-PS-11 补偿预算下限**（前置宿主 `max(2, maxRetries+1)`）+ 前端「前置步骤」Tab + `/test` chainTrace.steps 与步骤留痕表 + `offline` warnings + `call_log.step_code`（按步骤筛日志）+ 前置响应体上限；全库 **290 @Test**（编排相关 16：`PreStepIntegrationTest` 15 + 快照往返 1）。未做（按 §13/§14 边界）：CONTINUE/FALLBACK、overlay、条件执行、并行组、每跳超时覆盖、前端拖拽排序、`out_payload` 敏感值脱敏（与 P0 安全批次同做） |
 | **XML 协议参数 B2（2026-09-21）** | **“与样本无关部分”已落地并真机验证**（《开发文档/B2完整SOAP开发计划.md》§8）：`xml.type` 为**唯一真相**（`POX`/`SOAP_1_1`/`SOAP_1_2`，缺省 POX ⇒ B1 旧数据零迁移），`soap` 段降为配置载体（action 可空 / envelopePrefix / unwrapResponse，**不含 version**）；`XmlProtocolAdapter` 支持 **SOAP 1.1/1.2 包裹与响应解包**（`ackMode` 保证 ack 不被包裹）；`SoapFaultParser`（新）+ `SoapClientFaultException`（**直接继承 `RuntimeException`**）+ `UpstreamInvoker` 5xx **带 body 抛** → `OutboundEngine`/`PreStepExecutor` 分类为 **`50203` 死信（不重试、不计熔断）**；前端「XML 类型」单选 + 按类型切子项。**真机实测**（真实 SOAP：NumberConversion/LearnWebServices）：1.1/1.2 成功 + 解包 + `VersionMismatch` → `50203`/零重试/熔断 CLOSED/P命中 `outcome=upstream_fail`；**全量 351 测试全绿**。**未完成**：企业级 `Header`/WS-Security 样本（G1）、`使用教程`/`整体测试方案`/`CLAUDE.md` 文档同步 |
+| **入站鉴权 B1（2026-09-23）** | **《入站鉴权设计方案》v1.1 第一批「数据与目录」已落地**：DDL 3 表（`client_app` / `client_credential` / `access_auth_log`，**第 23/24/25 张**，开发库已建）+ `CredentialOwner` 枚举 + `CredentialRepository` 按属主列参数化（应用侧入口全保留为委托，**零回归**）+ **抽 `CredentialStore`**（机制）+ 两个语义入口（`CredentialService`（应用）/ `ClientCredentialService`（调用方））+ `ClientAppRepository`/`ClientService` + `ClientApi`（`/api/admin/clients/**` CRUD + 启停用 + 凭证子资源，与 `/apps/{appId}/credentials` 同形）+ 删适配器时同步清 `client_app.auth_adapter_id`。**出口标志全达**：调用方 CRUD ✓、凭证建/轮换（`prepare` 明文仅回显一次 + 遮显尾 4 + 库中密文）✓、停用生效 ✓。测试：`ClientAuthIntegrationTest` **9 例** + 回归 `M1IntegrationTest(19)` / `HmacCallbackVerifyAdapterTest(10)` 全绿（M1 表数断言 22 → 25 同步）。**未做（后续批次）**：B2 鉴权内核（`InboundAuthAdapter` + 4 impl + `ClientAuthVerifier`）/ B3 闸门与审计 / B4 管理面页面与可观测 / B5 文档验收 |
 | 里程碑计划 | **M4 手动验收（方案已细化，2026-09-05）待完成；M5.3 压测执行（方案与脚本已就绪，见《M5压测报告.md》，执行后回填数据）+ M5 手动验收待排期**——M5 开发计划已评审定稿（2026-09-04 一轮 + 09-07 二轮），D-M5-1~3 即编码依据，总盘 9 人日 |
 | **XML 协议参数 B1（2026-09-21）** | **已落地并验证**（《开发文档/XML声明配置设计方案.md》v4.4 §14）：`interface.protocol_params`（**JSON 列，无新表**）→ 可配 XML 声明 `version`/`encoding`、根元素 `root`、命名空间 `namespace{prefix,uri}`；`XmlProtoConfig`（解析+白名单+NCName/URI 校验）、`ChainEngine` 装配期烘焙进缓存链 + `decodeResponse` 补传、`XmlProtocolAdapter.writeRoot`（三参 API 写命名空间）、`AckRenderer` 只取 version/encoding、前端 Interfaces「高级 → 协议参数」区 + `utils/protocolParams.mjs`。**协议参数区只看 `protocol_out`**（入站不解包 ⇒ in=XML/out=JSON 时不给入口，避免“配了不生效”）。**零回归**：未配置 = 内置默认（`1.0`/`UTF-8`/`request`/无 ns）= 改造前逐字节一致。**全量 325 测试全绿** + 前端 lint/test/build + 真实 USGS XML 端到端实录。**`encoding` 语义 = 声明可配**（非 ASCII 转字符引用，字节恒 ASCII 安全；**产不出原生 GBK 字节**，Woodstox 实测做不到）。`soap` 段属 **B2（完整 SOAP）—— 延后**（待真实 SOAP 供应商样本）；B2 已定：**`xml.type` 显式声明 `POX`（默认）/ `SOAP_1_1` / `SOAP_1_2`**（UI 标签：普通 XML（POX）/ SOAP 1.1 / SOAP 1.2），`soap` 段降为其配置载体且不含 version。 |
 | 未拍板决策 | 无（M0 全部评审通过；M4/M5 计划均已评审定稿） |
@@ -42,7 +43,7 @@
 | `API中心设计方案.md` | 设计总纲：应用（供应商）/ 分组 / 接口 / 监控 / 适配器 5 模块；接口定义模型（出站中转 / 入站回调）；三类适配器（鉴权 / 协议 / 报文）+ 接口级字段映射；状态机 / 错误码 / 容错附录 |
 | `技术架构和实现方案.md` | 实现路径：分层架构、技术选型、适配器链引擎、出 / 入站执行引擎、M1–M5 路线图、ADR |
 | `可行性报告.md` | 技术可行性评估、工作量估算（约 81 人日）、风险与应对 |
-| `表结构设计.html` | 22 张表（配置 12 + 运行 8 + 管理面账号 2，M4 增 reconcile_audit / alert_event，M5 后增 outbound_request_state_log，前置编排增 interface_step，账号登录增 admin_user / admin_session）+ 枚举汇总 + 原型数据模型映射对照 |
+| `表结构设计.html` | **25 张表**（配置 12 + 运行 8 + 管理面账号 2 + **入站鉴权 3**；M4 增 reconcile_audit / alert_event，M5 后增 outbound_request_state_log，前置编排增 interface_step，账号登录增 admin_user / admin_session，入站鉴权增 client_app / client_credential / access_auth_log）+ 枚举汇总 + 原型数据模型映射对照 |
 | `API中心时序图与流程图.md` | 配置流程、Flow A / B 时序、请求处理 + 容错流程图 |
 | `API中心原型.html` | 可交互管理面原型（数据模型与交互即事实来源） |
 | `API中心项目说明.md` | **面向使用者的项目总览**（非设计文档）：定位 / 核心概念 / 架构 / 两条链路 / 数据模型 / 状态机容错 / 错误码；对外介绍、新人入门的首选入口 |
@@ -131,7 +132,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 |---|---|---|
 | `controller/` | 管理面 REST（应用 / 分组 / 接口 / 监控 / 适配器 5 模块 + **账号 `auth`**）+ 接入层路由 | M1 / M2 / M4（监控 + 死信重放 + 对账端点）/ 账号登录（2026-09-18） |
 | `service/` | 业务编排：配置校验、状态机流转、接入层防护（GatewayGuard）、账号认证（AuthService + PasswordHasher） | M1 / M4 / 账号登录（2026-09-18） |
-| `repository/` | JdbcTemplate 数据访问（22 张表） | M1 / M4（reconcile_audit / alert_event）/ M5 后（state_log）/ 前置编排（interface_step）/ 账号登录（admin_user · admin_session） |
+| `repository/` | JdbcTemplate 数据访问（25 张表） | M1 / M4（reconcile_audit / alert_event）/ M5 后（state_log）/ 前置编排（interface_step）/ 账号登录（admin_user · admin_session）/ **入站鉴权（client_app · client_credential · access_auth_log）** |
 | `engine/` | 适配器链引擎 + 出站 / 入站执行引擎 + 熔断器（CircuitBreakerRegistry） | M2 / M3 / M4 |
 | `adapter/` | 鉴权 / 协议 / 报文三类适配器实现 | M2 |
 | `mapping/` | 动态字段映射引擎（M0-02 规范，6 操作运行时解释器） | M2 |
@@ -160,7 +161,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 ## 配置与数据模型
 
 - 配置集中在 `src/main/resources/application.yaml`：仅基础设施参数（datasource、`retry-worker-fixed-delay-ms: 3000`、`unknown-ttl-minutes: 10`、`auth.*` 认证参数）；业务配置（应用 / 接口 / 适配器 / 字段映射）全部落库。认证配置：`auth.enabled/allow-register/session-ttl-hours/renew-interval-minutes/max-failed-attempts/lock-minutes`（账号与会话本身落库：`admin_user` / `admin_session`）。
-- `src/main/resources/doc/schema.sql`：22 张表（配置 12 + 运行 8 + 管理面账号 2，M4 新增 reconcile_audit / alert_event + idx_outreq_updated，M5 后新增 outbound_request_state_log + adapter.name 唯一，前置编排新增 interface_step，账号登录新增 admin_user / admin_session），无数据库外键（引用完整性应用层保证，引用列建索引），与《表结构设计.html》逐表一致。
+- `src/main/resources/doc/schema.sql`：**25 张表**（配置 12 + 运行 8 + 管理面账号 2 + **入站鉴权 3**；M4 新增 reconcile_audit / alert_event + idx_outreq_updated，M5 后新增 outbound_request_state_log + adapter.name 唯一，前置编排新增 interface_step，账号登录新增 admin_user / admin_session，**入站鉴权新增 client_app / client_credential / access_auth_log**），无数据库外键（引用完整性应用层保证，引用列建索引），与《表结构设计.html》逐表一致。
 
 ## 约定与注意事项（Gotchas）
 

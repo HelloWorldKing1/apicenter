@@ -46,7 +46,7 @@ node -v              # 期望 v22.x
 
 ### 1.2 数据库准备
 
-数据库已按 `src/main/resources/doc/schema.sql` 建好（22 张表）。首次在全新库上部署时：
+数据库已按 `src/main/resources/doc/schema.sql` 建好（**25 张表**）。首次在全新库上部署时：
 
 ```bash
 mysql -h <host> -u <user> -p <db> < src/main/resources/doc/schema.sql

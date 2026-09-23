@@ -9,6 +9,7 @@ import com.deepx.apicenter.exception.BizException;
 import com.deepx.apicenter.model.AdapterRow;
 import com.deepx.apicenter.repository.AdapterRepository;
 import com.deepx.apicenter.repository.AppRepository;
+import com.deepx.apicenter.repository.ClientAppRepository;
 import com.deepx.apicenter.repository.InterfaceRepository;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -33,6 +34,7 @@ public class AdapterService {
 
     private final AdapterRepository adapterRepository;
     private final AppRepository appRepository;
+    private final ClientAppRepository clientAppRepository;
     private final InterfaceRepository interfaceRepository;
     private final AdapterImplCatalog catalog;
     private final ObjectMapper objectMapper;
@@ -40,12 +42,14 @@ public class AdapterService {
 
     public AdapterService(AdapterRepository adapterRepository,
                           AppRepository appRepository,
+                               ClientAppRepository clientAppRepository,
                           InterfaceRepository interfaceRepository,
                           AdapterImplCatalog catalog,
                           ObjectMapper objectMapper,
                           ApplicationEventPublisher eventPublisher) {
         this.adapterRepository = adapterRepository;
         this.appRepository = appRepository;
+        this.clientAppRepository = clientAppRepository;
         this.interfaceRepository = interfaceRepository;
         this.catalog = catalog;
         this.objectMapper = objectMapper;
@@ -95,6 +99,8 @@ public class AdapterService {
         adapterRepository.findById(id).orElseThrow(() -> BizException.fieldInvalid("适配器不存在：" + id));
         // 引用置 NULL：回退「无鉴权 / 平台默认」（schema.sql 删除策略）
         appRepository.clearAdapterRefs(id);
+        // 调用方鉴权适配器同样置 NULL（回退「未配置」→ 启用后 fail-closed 40108，入站鉴权设计方案 §4.2）
+        clientAppRepository.clearAdapterRefs(id);
         interfaceRepository.clearBindingRefs(id);
         adapterRepository.delete(id);
         eventPublisher.publishEvent(ConfigChangedEvent.adapterChanged());

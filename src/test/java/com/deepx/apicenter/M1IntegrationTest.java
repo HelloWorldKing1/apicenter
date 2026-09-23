@@ -96,18 +96,20 @@ class M1IntegrationTest {
     // ---------- DDL 落库 ----------
 
     @Test
-    void 二十二张表已落库_含前置步骤与账号表() {
+    void 二十五张表已落库_含前置步骤_账号表与入站鉴权表() {
         // 16 张（设计 §表结构）+ M4 新增 alert_rule / reconcile_audit / alert_event
         // + M5 后新增 outbound_request_state_log（19）+ 前置编排新增 interface_step（20）
         // + 账号登录新增 admin_user / admin_session（21/22，2026-09-18）
+        // + 平台入站鉴权新增 client_app / client_credential / access_auth_log（23/24/25，2026-09-23 B1）
         Integer n = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'apicenter'", Integer.class);
-        assertThat(n).isEqualTo(22);
-        // 前置步骤表（编排 PS-1）与账号/会话表（账号登录）均存在
+        assertThat(n).isEqualTo(25);
+        // 前置步骤表（编排 PS-1）+ 账号/会话表（账号登录）+ 入站鉴权三表（调用方/凭证/审计）均存在
         Integer tables = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'apicenter' "
-                        + "AND table_name IN ('interface_step', 'admin_user', 'admin_session')", Integer.class);
-        assertThat(tables).isEqualTo(3);
+                        + "AND table_name IN ('interface_step', 'admin_user', 'admin_session', "
+                        + "'client_app', 'client_credential', 'access_auth_log')", Integer.class);
+        assertThat(tables).isEqualTo(6);
         // 账号表唯一键（用户名）——防止「同名账号」这类静默数据问题
         Integer uk = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = 'apicenter' "

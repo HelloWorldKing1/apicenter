@@ -44,7 +44,7 @@
 <body>
 <div class="topbar">
   <h1>API 中心 · 表结构设计</h1>
-  <p>依据《API中心设计方案.md》《API中心原型.html》整理 · 共 22 张表：配置类 12 张 + 运行类 8 张 + 管理面账号 2 张（M4 新增 17/18 对账审计与告警事件；M5 后新增 19 状态流转历史；前置编排新增 20 前置步骤；账号登录新增 21/22 账号与会话，只增表不动既有）· 生产 MySQL 8.0 InnoDB</p>
+  <p>依据《API中心设计方案.md》《API中心原型.html》整理 · 共 25 张表：配置类 12 张 + 运行类 8 张 + 管理面账号 2 张 + 平台入站鉴权 3 张（M4 新增 17/18 对账审计与告警事件；M5 后新增 19 状态流转历史；前置编排新增 20 前置步骤；账号登录新增 21/22 账号与会话；<b>入站鉴权新增 23/24/25 调用方 · 调用方凭证 · 接入鉴权审计，2026-09-23</b>，只增表不动既有）· 生产 MySQL 8.0 InnoDB</p>
 </div>
 <div class="wrap">
 
@@ -78,6 +78,9 @@
     <li><a href="#t-step">interface_step 接口前置步骤（编排）</a></li>
     <li><a href="#t-admin-user">admin_user 管理面账号</a></li>
     <li><a href="#t-admin-session">admin_session 管理面会话令牌</a></li>
+    <li><a href="#t-client-app">client_app 调用方（平台客户 / 接入方）</a></li>
+    <li><a href="#t-client-credential">client_credential 调用方凭证</a></li>
+    <li><a href="#t-access-auth-log">access_auth_log 接入鉴权审计</a></li>
   </ol>
 </div>
 
@@ -513,6 +516,79 @@
   <div class="t-desc" style="padding-bottom:14px"><b>错误码</b>：40104 未登录/令牌失效、40105 用户名或密码错误、40106 账号已锁定、40301 注册已关闭、40901 用户名已存在（<span class="mono">40100/40101</span> 已被入站回调验签占用，故从 40104 起）。</div>
 </section>
 
+<!-- ============ 23. client_app ============ -->
+<section class="table" id="t-client-app">
+  <div class="t-head"><span class="no">23</span><h2>调用方（平台客户 / 接入方）</h2><span class="en">client_app</span></div>
+  <div class="t-desc">与「应用（供应商）」<b>对称的入站主体</b>（2026-09-23，平台入站鉴权 B1，见《开发文档/入站鉴权设计方案.md》v1.1）。方向相反：<span class="mono">app.auth_adapter_id</span> 管「平台作为调用方 → 供应商」的出站签名；本表 <span class="mono">auth_adapter_id</span> 管「<b>调用方 → 平台</b>」的入站鉴权。凭证在 <span class="mono">client_credential</span>（与 <span class="mono">app_credential</span> 同构）。</div>
+  <table class="f">
+    <tr><th style="width:22%">字段</th><th style="width:20%">类型</th><th style="width:16%">约束</th><th>说明</th></tr>
+    <tr><td class="c pk">id</td><td class="c">BIGINT</td><td>PK 自增</td><td>主键</td></tr>
+    <tr><td class="c">client_id</td><td class="c">VARCHAR(32)</td><td>NOT NULL，UK</td><td>调用方标识（全局唯一，3~32 位大写字母/数字/<span class="mono">-</span>/<span class="mono">_</span>，如 <span class="mono">ERP-PROD</span>）；对外展示与审计引用</td></tr>
+    <tr><td class="c">name</td><td class="c">VARCHAR(64)</td><td>NOT NULL</td><td>调用方名称（<b>审计留痕的名称来源</b>）</td></tr>
+    <tr><td class="c">contact</td><td class="c">VARCHAR(64)</td><td>—</td><td>联系人（运维/对接人）</td></tr>
+    <tr><td class="c ref">auth_adapter_id</td><td class="c">VARCHAR(16)</td><td>—</td><td>入站鉴权适配器（<span class="mono">adapter.type=auth</span>）；<b>NULL = 未配置</b> ⇒ 启用后 fail-closed 拒绝（40108）。删适配器时置 NULL（同 app 规则）</td></tr>
+    <tr><td class="c">ip_whitelist</td><td class="c">VARCHAR(500)</td><td>—</td><td>调用方维度来源 IP 白名单（英文逗号分隔，空 = 不限；精确匹配，CIDR 待 v1.1）</td></tr>
+    <tr><td class="c">ip_blacklist</td><td class="c">VARCHAR(500)</td><td>—</td><td>调用方维度黑名单（优先于白名单；命中 → 40103）。与应用维度 IP 名单 <b>AND 叠加</b></td></tr>
+    <tr><td class="c">qps_limit</td><td class="c">INT</td><td>—</td><td>调用方 QPS 上限（空/0 = 不限；<b>P2 生效</b>，当前列先占位）</td></tr>
+    <tr><td class="c">daily_quota</td><td class="c">BIGINT</td><td>—</td><td>调用方日调用量上限（空/0 = 不限；<b>P2 生效</b>）</td></tr>
+    <tr><td class="c">status</td><td class="c">VARCHAR(16)</td><td>NOT NULL</td><td><span class="mono">ENABLED</span> 启用 / <span class="mono">DISABLED</span> 停用（<b>停用即拒 40107</b>）</td></tr>
+    <tr><td class="c">desc</td><td class="c">VARCHAR(500)</td><td>—</td><td>描述</td></tr>
+    <tr><td class="c">created_at</td><td class="c">DATETIME</td><td>NOT NULL</td><td>创建时间</td></tr>
+    <tr><td class="c">updated_at</td><td class="c">DATETIME</td><td>NOT NULL</td><td>更新时间（ON UPDATE）</td></tr>
+  </table>
+  <div class="idx"><b>索引</b>：PK(id)，UNIQUE(client_id)，INDEX(auth_adapter_id)</div>
+  <div class="t-desc" style="padding-bottom:14px"><b>删除策略</b>：删调用方 → 级联删其凭证；<b>审计表不删</b>（靠 <span class="mono">principal_id/principal_name</span> 快照回溯）。</div>
+</section>
+
+<!-- ============ 24. client_credential ============ -->
+<section class="table" id="t-client-credential">
+  <div class="t-head"><span class="no">24</span><h2>调用方凭证</h2><span class="en">client_credential</span></div>
+  <div class="t-desc">与 <span class="mono">app_credential</span> <b>逐列同构</b>（2026-09-23 B1）：AES-256-GCM 密文 + <span class="mono">ACTIVE</span>/<span class="mono">ROTATING</span>/<span class="mono">RETIRED</span> 轮换并存。管理与读取由此<b>共用同一套机制</b>（<span class="mono">CredentialStore</span> + <span class="mono">CredentialRepository</span> 按属主列参数化），仅「语义入口」分开（应用凭证 vs 调用方凭证），避免 <span class="mono">appId</span> 语义漂移。</div>
+  <table class="f">
+    <tr><th style="width:22%">字段</th><th style="width:20%">类型</th><th style="width:16%">约束</th><th>说明</th></tr>
+    <tr><td class="c pk">id</td><td class="c">BIGINT</td><td>PK 自增</td><td>主键（<span class="mono">prepare</span> 后回填真实 id 供「生成后立即激活」）</td></tr>
+    <tr><td class="c ref">client_id</td><td class="c">VARCHAR(32)</td><td>NOT NULL</td><td>client_app.client_id（应用层保证，不设外键）</td></tr>
+    <tr><td class="c">kind</td><td class="c">VARCHAR(16)</td><td>NOT NULL</td><td>凭证类型，<b>须与 <span class="mono">adapter.credentialKind()</span> 一致</b>：<span class="mono">API_KEY</span> / <span class="mono">HMAC_SECRET</span> / <span class="mono">BEARER_TOKEN</span> / <span class="mono">BASIC</span></td></tr>
+    <tr><td class="c">credential</td><td class="c">TEXT</td><td>NOT NULL</td><td>凭证内容（AES-256-GCM 可逆加密；复合凭证 JSON 化）；<b>管理面永不回显明文</b>，<span class="mono">prepare</span> 时明文仅回显一次</td></tr>
+    <tr><td class="c">status</td><td class="c">VARCHAR(16)</td><td>NOT NULL</td><td><span class="mono">ACTIVE</span> 当前使用 / <span class="mono">ROTATING</span> 轮换并存 / <span class="mono">RETIRED</span> 已失效</td></tr>
+    <tr><td class="c">activated_at</td><td class="c">DATETIME</td><td>NOT NULL</td><td>生效时间</td></tr>
+    <tr><td class="c">retired_at</td><td class="c">DATETIME</td><td>—</td><td>失效时间（即时失效或轮换窗口结束）</td></tr>
+    <tr><td class="c">rotating_until</td><td class="c">DATETIME</td><td>—</td><td>ROTATING 并存窗口截止（默认 +24h；<b>过期后读取路径惰性视为 RETIRED</b>）</td></tr>
+    <tr><td class="c">created_at</td><td class="c">DATETIME</td><td>NOT NULL</td><td>创建时间</td></tr>
+  </table>
+  <div class="idx"><b>索引</b>：PK(id)，INDEX(client_id, kind, status)（读取与轮换判定）</div>
+  <div class="t-desc" style="padding-bottom:14px"><b>读取规则</b>：入站鉴权用 <span class="mono">ACTIVE + ROTATING</span> 逐个试（未过期者有效，任一命中即通过）；<b>仅 RETIRED 可物理删除</b>（状态机保护）。</div>
+</section>
+
+<!-- ============ 25. access_auth_log ============ -->
+<section class="table" id="t-access-auth-log">
+  <div class="t-head"><span class="no">25</span><h2>接入鉴权审计</h2><span class="en">access_auth_log</span></div>
+  <div class="t-desc">回答「<b>谁 · 从哪 · 用什么方式 · 结果如何</b>」的独立审计表（2026-09-23 B1 建表；写入在 B3 落地）。与 <span class="mono">call_log</span> <b>刻意分开</b>：① 检索维度不同（按主体/IP/结果 vs 按 trace）；② 保留期独立（默认 90 天）；③ 拒绝可能发生在引擎之前（那时 <span class="mono">call_log</span> 的 interface_id/app_id 恒空，承载不了主体）。PASS / REJECT 均记（可配只记失败），异步批量写。</div>
+  <table class="f">
+    <tr><th style="width:22%">字段</th><th style="width:20%">类型</th><th style="width:16%">约束</th><th>说明</th></tr>
+    <tr><td class="c pk">id</td><td class="c">BIGINT</td><td>PK 自增</td><td>主键</td></tr>
+    <tr><td class="c">trace_id</td><td class="c">VARCHAR(32)</td><td>—</td><td>与 call_log / 运行表同源，可三方串联</td></tr>
+    <tr><td class="c">direction</td><td class="c">VARCHAR(16)</td><td>NOT NULL</td><td><span class="mono">INBOUND_CALL</span> 调用方→平台（Flow A）/ <span class="mono">CALLBACK</span> 供应商回调→平台（Flow B）</td></tr>
+    <tr><td class="c">principal_type</td><td class="c">VARCHAR(16)</td><td>NOT NULL</td><td><span class="mono">CLIENT</span> 调用方 / <span class="mono">SUPPLIER</span> 供应商</td></tr>
+    <tr><td class="c">principal_id</td><td class="c">VARCHAR(32)</td><td>—</td><td>主体标识（<span class="mono">client_id</span> 或 <span class="mono">app_id</span>）；主体未识别时为空</td></tr>
+    <tr><td class="c">principal_name</td><td class="c">VARCHAR(64)</td><td>—</td><td><b>主体名称快照</b>（改名 / 删除后历史仍可读 —— 审计硬要求）</td></tr>
+    <tr><td class="c ref">interface_id</td><td class="c">BIGINT</td><td>—</td><td>关联接口（多态引用不设外键；接口删除后保留）</td></tr>
+    <tr><td class="c">interface_code</td><td class="c">VARCHAR(16)</td><td>—</td><td>接口标识快照</td></tr>
+    <tr><td class="c">auth_method</td><td class="c">VARCHAR(24)</td><td>NOT NULL</td><td>鉴权方式：<span class="mono">API_KEY</span> / <span class="mono">HMAC-SHA256</span> / <span class="mono">BEARER</span> / <span class="mono">BASIC</span> / <span class="mono">IP_WHITELIST</span> / <span class="mono">PLATFORM_SELF</span> / <span class="mono">NONE</span></td></tr>
+    <tr><td class="c">auth_adapter_id</td><td class="c">VARCHAR(16)</td><td>—</td><td>命中的鉴权适配器实例（<span class="mono">adapter.id</span>；平台内置或主体未知时为空）</td></tr>
+    <tr><td class="c">result</td><td class="c">VARCHAR(8)</td><td>NOT NULL</td><td><span class="mono">PASS</span> 通过 / <span class="mono">REJECT</span> 拒绝</td></tr>
+    <tr><td class="c">error_code</td><td class="c">VARCHAR(16)</td><td>—</td><td>拒绝错误码（40100/40101/40103/40107/40108…）</td></tr>
+    <tr><td class="c">reason</td><td class="c">VARCHAR(255)</td><td>—</td><td>结论说明（拒绝原因 / 通过补充，如「OPTIONAL 模式未带主体」）</td></tr>
+    <tr><td class="c">client_ip</td><td class="c">VARCHAR(45)</td><td>—</td><td>来源 IP（IPv4/IPv6；可信代理解析口径见设计方案 §11）</td></tr>
+    <tr><td class="c">xff_chain</td><td class="c">VARCHAR(255)</td><td>—</td><td>原始 X-Forwarded-For（取证用；未携带为空）</td></tr>
+    <tr><td class="c">user_agent</td><td class="c">VARCHAR(200)</td><td>—</td><td>User-Agent（截断 200，取证用）</td></tr>
+    <tr><td class="c">latency_ms</td><td class="c">BIGINT</td><td>—</td><td>鉴权耗时（毫秒；回调验签记链内验签区间）</td></tr>
+    <tr><td class="c">created_at</td><td class="c">DATETIME</td><td>NOT NULL</td><td>判定时间</td></tr>
+  </table>
+  <div class="idx"><b>索引</b>：PK(id)，INDEX(created_at)，INDEX(principal_id, created_at)，INDEX(client_ip, created_at)，INDEX(result, created_at)</div>
+  <div class="t-desc" style="padding-bottom:14px"><b>保留期</b>：默认 90 天（<span class="mono">access-auth.audit.retention-days</span>）；P1 手工清理，P2 加调度任务。<b>不设外键、不级联删</b>。</div>
+</section>
+
 <!-- ============ 附录 A ============ -->
 <h3 class="apx">附录 A · 状态与枚举汇总</h3>
 <section class="table">
@@ -525,6 +601,11 @@
     <tr><td class="c">interface.status</td><td class="c">DRAFT / PUBLISHED / OFFLINE</td><td>草稿 → 发布 → 下线（下线停路由）</td></tr>
     <tr><td class="c">interface_param.side</td><td class="c">IN / OUT</td><td>入站侧（来源→平台）/ 出站侧（平台→目标）</td></tr>
     <tr><td class="c">interface_body.body_type</td><td class="c">none / form-data / x-www-form-urlencoded / json / xml</td><td>请求体类型</td></tr>
+    <tr><td class="c">client_app.status</td><td class="c">ENABLED / DISABLED</td><td>调用方启用 / 停用（<b>停用即拒 40107</b>）</td></tr>
+    <tr><td class="c">client_credential.kind</td><td class="c">API_KEY / HMAC_SECRET / BEARER_TOKEN / BASIC</td><td>调用方凭证类型（须与 adapter.credentialKind 一致）</td></tr>
+    <tr><td class="c">access_auth_log.result</td><td class="c">PASS / REJECT</td><td>鉴权结论（PASS/REJECT 均记，可配只记失败）</td></tr>
+    <tr><td class="c">access_auth_log.direction</td><td class="c">INBOUND_CALL / CALLBACK</td><td>调用方→平台 / 供应商回调→平台</td></tr>
+    <tr><td class="c">access_auth_log.auth_method</td><td class="c">API_KEY / HMAC-SHA256 / BEARER / BASIC / IP_WHITELIST / PLATFORM_SELF / NONE</td><td>命中方式（审计的「方式」口径）</td></tr>
     <tr><td class="c">interface_field_mapping.op</td><td class="c">rename / typeCast / enumMap / default / condition / aggregate</td><td>字段映射操作（parameter 化操作需 param）</td></tr>
     <tr><td class="c">interface_field_mapping.null_strategy</td><td class="c">KEEP / NULL / DEFAULT / ERROR</td><td>保留原值 / 置空 / 默认值 / 报错</td></tr>
     <tr><td class="c">interface_field_def.kind</td><td class="c">RESP / ACK</td><td>出站响应字段 / ack 回执字段</td></tr>
