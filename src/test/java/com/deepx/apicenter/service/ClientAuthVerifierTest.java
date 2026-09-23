@@ -351,7 +351,8 @@ class ClientAuthVerifierTest {
         AccessAuthContext.Entry e = AccessAuthContext.get();
         assertThat(e).isNotNull();
         assertThat(e.direction()).isEqualTo("INBOUND_CALL");
-        assertThat(e.principalType()).isEqualTo("CLIENT");
+        // v1.2（代码评审修复）：自报但**未命中档案** ⇒ 审计记「自报未验证」，不能标成 CLIENT（已验证身份）
+        assertThat(e.principalType()).isEqualTo("UNVERIFIED");
         assertThat(e.principalId()).isEqualTo("UNKNOWN");
         assertThat(e.result()).isEqualTo("REJECT");
         assertThat(e.errorCode()).isEqualTo("40107");

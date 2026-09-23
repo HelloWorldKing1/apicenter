@@ -115,6 +115,9 @@ class ClientAuthGateIntegrationTest {
     @Autowired
     private com.deepx.apicenter.service.InboundCredentialService inboundCredentialService;
 
+    /** 本类创建的凭证 id（**测试隔离**：只删自己建的，不整池清空——评审发现会误删人工验收/其他用例的凭证） */
+    private final java.util.List<Long> createdCredentialIds = new java.util.ArrayList<>();
+
     private RestClient http;
     private String outboundPath;
     private String callbackPath;
@@ -161,7 +164,10 @@ class ClientAuthGateIntegrationTest {
         cleanFixtures();
         // v1.2：平台设置与平台池是**全局**状态，用例结束必须复位，避免污染其他用例/手动验收
         inboundAuthSettingService.save(null, true, "b3-cleanup");
-        credentialRepository.deleteByOwner(com.deepx.apicenter.repository.CredentialOwner.PLATFORM, null);
+        for (Long id : createdCredentialIds) {
+            jdbc.update("DELETE FROM client_credential WHERE id = ?", id);
+        }
+        createdCredentialIds.clear();
     }
 
     // ---------- 用例 ----------
@@ -173,6 +179,7 @@ class ClientAuthGateIntegrationTest {
         inboundAuthSettingService.save(createApiKeyAdapter(), false, "b3-test");
         com.deepx.apicenter.dto.CredentialDtos.CredentialIssuedView issued =
                 inboundCredentialService.prepare("PLATFORM", null, "API_KEY", "B3 开放集用例");
+        createdCredentialIds.add(issued.id());
         inboundCredentialService.activate("PLATFORM", null, issued.id());
 
         String trace = nextTrace();
@@ -401,6 +408,7 @@ class ClientAuthGateIntegrationTest {
         inboundAuthSettingService.save(null, false, "b3-test");
         com.deepx.apicenter.dto.CredentialDtos.CredentialIssuedView issued =
                 inboundCredentialService.prepare("PLATFORM", null, "API_KEY", "接口绑定用例");
+        createdCredentialIds.add(issued.id());
         inboundCredentialService.activate("PLATFORM", null, issued.id());
 
         // ⓪ 未绑定 + 无平台默认 ⇒ fail-closed 40108（不是放行；两级都没有）

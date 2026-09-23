@@ -157,27 +157,34 @@ public class ClientAuthVerifier {
 
         // ① 自报主体（v1.2：**不参与放行判定**；只决定审计归属与「档案池凭证是否参与取值」）
         boolean requireClientId = settingService.requireClientId();
+        // client = **启用的**档案（参与「方式回退第三级」与「档案池取值」）；
+        // known  = **命中档案**（含停用，仅用于审计归属：命中档案 = 已验证身份）
         ClientAppRow client = null;
+        ClientAppRow known = null;
         if (rawClientId != null) {
             Optional<ClientAppRow> found = clientAppRepository.findById(rawClientId);
             if (found.isEmpty()) {
                 meterRegistry.counter("apicenter.auth.unknown_principal", "ip",
                         clientIp == null ? "-" : clientIp).increment();
                 if (requireClientId) {
+                    // 自报但**未命中档案** ⇒ 审计记为「自报未验证」（绝不能标成 CLIENT = 已验证身份）
                     return reject(iface, traceId, 40107, "鉴权失败：调用方不存在：" + rawClientId,
-                            rawClientId, null, null, "NONE", null, clientIp, xffChain, userAgent, start);
+                            rawClientId, null, PRINCIPAL_UNVERIFIED, "NONE", null,
+                            clientIp, xffChain, userAgent, start);
                 }
                 log.debug("自报主体未知（开放集，不拦截）：{}", rawClientId);
             } else if (!"ENABLED".equals(found.get().status())) {
+                known = found.get();   // 命中档案（停用）：审计仍算「已验证身份」，但不参与方式回退/档案池取值
                 if (requireClientId) {
                     return reject(iface, traceId, 40107, "鉴权失败：调用方已停用：" + rawClientId,
-                            rawClientId, found.get().name(), PRINCIPAL_CLIENT, "NONE", null,
+                            known.clientId(), known.name(), PRINCIPAL_CLIENT, "NONE", null,
                             clientIp, xffChain, userAgent, start);
                 }
                 // 开放集：不拦主体，但**其档案池凭证不参与取值**（「停用 = 吊销凭证」语义，§6.5）
                 log.debug("自报主体已停用（开放集：仅不取其档案池凭证）：{}", rawClientId);
             } else {
                 client = found.get();
+                known = client;
             }
         } else if (requireClientId && !"OFF".equals(mode)) {
             // 兼容档（v1.1 行为）：OPTIONAL 下"无主体但有凭证" ⇒ 40107；无凭证 ⇒ 放行观察
@@ -206,9 +213,10 @@ public class ClientAuthVerifier {
                             "NONE", null, null, null));
         }
 
-        String principalId = client != null ? client.clientId() : rawClientId;
-        String principalName = client != null ? client.name() : null;
-        String principalType = client != null ? PRINCIPAL_CLIENT : PRINCIPAL_UNVERIFIED;
+        // 审计归属以 known（是否命中档案）为准：命中 ⇒ CLIENT（已验证身份）；仅自报 ⇒ UNVERIFIED
+        String principalId = known != null ? known.clientId() : rawClientId;
+        String principalName = known != null ? known.name() : null;
+        String principalType = known != null ? PRINCIPAL_CLIENT : PRINCIPAL_UNVERIFIED;
 
         // ② 方式解析（三级回退；fail-closed）
         AdapterRow adapterRow = resolveAdapter(iface, client);
@@ -521,8 +529,8 @@ public class ClientAuthVerifier {
         if (props.auditEnabled() && ("REJECT".equals(result) || props.recordPass())) {
             AccessAuthContext.set(new AccessAuthContext.Entry(
                     traceId, "INBOUND_CALL",
-                    decision.principalType() == null
-                            ? (clientId == null ? "UNVERIFIED" : "CLIENT") : decision.principalType(),
+                    // 兜底必须是「未验证」：**不允许**用「clientId 非空」推断出「已验证身份」
+                decision.principalType() == null ? "UNVERIFIED" : decision.principalType(),
                     clientId, decision.principalName(),
                     iface == null ? null : iface.id(),
                     iface == null ? null : iface.code(),

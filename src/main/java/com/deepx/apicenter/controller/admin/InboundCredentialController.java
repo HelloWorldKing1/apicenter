@@ -92,10 +92,12 @@ public class InboundCredentialController {
      * 若该类型已无 ACTIVE 凭证，msg 返回告警文案（引导补发）。
      */
     @PostMapping("/{id}/retire")
-    public ApiResult<Void> retire(@PathVariable long id, @RequestParam String ownerType,
-                                  @RequestParam(required = false) String ownerId) {
-        String warning = credentialService.retire(ownerType, ownerId, id);
-        return warning == null ? ApiResult.ok() : ApiResult.error(0, warning);
+    public ApiResult<String> retire(@PathVariable long id, @RequestParam String ownerType,
+                                    @RequestParam(required = false) String ownerId) {
+        // ⚠️ 告警文案走 **data**（`ApiResult.ok(msg)`）而不是 `error(0, msg)`：
+        //    前端 `api/http.js` 在 `code===0` 时只取 `data`，塞进 msg 会被**静默吞掉**
+        //    —— 与既有 `/apps/{id}/credentials/{id}/retire`、`/clients/{id}/credentials/{id}/retire` 同口径。
+        return ApiResult.ok(credentialService.retire(ownerType, ownerId, id));
     }
 
     /** 删除（仅 RETIRED 可删，状态机保护） */

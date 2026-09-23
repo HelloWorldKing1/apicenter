@@ -55,13 +55,29 @@ class InboundCredentialPoolIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    /**
+     * 本类创建的平台/接口池凭证 id（**测试隔离**：清理只删自己建的，不整池清空——
+     * 整池清空会误删人工验收或其他用例/历史遗留的凭证，2026-09-24 代码评审发现）。
+     */
+    private final java.util.List<Long> createdCredentialIds = new java.util.ArrayList<>();
+
+    /** 建平台池凭证并登记 id（供 cleanup 精确删除） */
+    private CredentialIssuedView newPlatformCredential(String kind, String label) {
+        CredentialIssuedView issued = poolService.prepare("PLATFORM", null, kind, label);
+        createdCredentialIds.add(issued.id());
+        return issued;
+    }
+
     /** 清理本类造数：CLIENT 属主走 clientService 级联删；INTERFACE / PLATFORM 池按属主删 */
     @AfterEach
     void cleanup() {
         if (clientAppRepository.existsById(CLIENT)) {
             clientService.delete(CLIENT);
         }
-        credentialRepository.deleteByOwner(CredentialOwner.PLATFORM, null);
+        for (Long id : createdCredentialIds) {
+            jdbcTemplate.update("DELETE FROM client_credential WHERE id = ?", id);
+        }
+        createdCredentialIds.clear();
         jdbcTemplate.update("DELETE FROM client_credential WHERE owner_type = 'INTERFACE' "
                 + "AND owner_id IN (SELECT CAST(id AS CHAR) FROM interface WHERE code = 'TEST-POOL-IF')");
         jdbcTemplate.update("DELETE FROM interface WHERE code = 'TEST-POOL-IF'");
@@ -71,7 +87,7 @@ class InboundCredentialPoolIntegrationTest {
 
     @Test
     void 平台池_新增带备注_列表回显备注与指纹_不回明文() {
-        CredentialIssuedView issued = poolService.prepare("PLATFORM", null, "API_KEY", "某公司 2026-09-24");
+        CredentialIssuedView issued = newPlatformCredential("API_KEY", "某公司 2026-09-24");
         assertThat(issued.plaintext()).isNotBlank();
 
         List<CredentialView> views = poolService.list("PLATFORM", null);
@@ -106,10 +122,10 @@ class InboundCredentialPoolIntegrationTest {
 
     @Test
     void 平台池_单独吊销一把密钥_另一把仍有效() {
-        CredentialIssuedView a = poolService.prepare("PLATFORM", null, "API_KEY", "A 公司");
+        CredentialIssuedView a = newPlatformCredential("API_KEY", "A 公司");
         // prepare 生成 ROTATING 待激活；先激活再发下一把（同 kind 只允许一把待激活 —— M0-04 轮换语义）
         poolService.activate("PLATFORM", null, a.id());
-        CredentialIssuedView b = poolService.prepare("PLATFORM", null, "API_KEY", "B 公司");
+        CredentialIssuedView b = newPlatformCredential("API_KEY", "B 公司");
         poolService.activate("PLATFORM", null, b.id());
 
         poolService.retire("PLATFORM", null, a.id());
@@ -123,7 +139,7 @@ class InboundCredentialPoolIntegrationTest {
 
     @Test
     void 平台池_仅改备注_不改变状态与凭证值() {
-        CredentialIssuedView issued = poolService.prepare("PLATFORM", null, "API_KEY", "旧备注");
+        CredentialIssuedView issued = newPlatformCredential("API_KEY", "旧备注");
         poolService.updateLabel("PLATFORM", null, issued.id(), "补充：某公司生产环境");
 
         CredentialView view = poolService.list("PLATFORM", null).get(0);
@@ -137,7 +153,7 @@ class InboundCredentialPoolIntegrationTest {
     @Test
     void 接口池与平台池互不可见_同kind也不串() {
         long interfaceId = newFixtureInterface();
-        poolService.prepare("PLATFORM", null, "API_KEY", "平台共享");
+        newPlatformCredential("API_KEY", "平台共享");
         poolService.prepare("INTERFACE", String.valueOf(interfaceId), "API_KEY", "仅本接口");
 
         List<CredentialView> platform = poolService.list("PLATFORM", null);
