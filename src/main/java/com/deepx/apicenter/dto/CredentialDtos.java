@@ -27,11 +27,15 @@ public final class CredentialDtos {
                                @NotBlank(message = "凭证内容不能为空") String credential) {
     }
 
-    /** 遮显视图：指纹 = 明文尾 4 位；expired = ROTATING 且并存窗口已过 */
+    /**
+     * 遮显视图：指纹 = 明文尾 4 位；expired = ROTATING 且并存窗口已过；label = 备注（v1.2 凭证池：「发给谁/何时」，
+     * 应用凭证路径恒 null）。
+     */
     public record CredentialView(
             long id, String kind, String status, String fingerprint,
             LocalDateTime activatedAt, LocalDateTime retiredAt,
-            LocalDateTime rotatingUntil, boolean expired
+            LocalDateTime rotatingUntil, boolean expired,
+            String label
     ) {
     }
 

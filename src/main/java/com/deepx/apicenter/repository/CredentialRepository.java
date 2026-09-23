@@ -99,22 +99,20 @@ public class CredentialRepository {
     // ---------- 属主通用实现 ----------
 
     public List<CredentialRow> findByOwner(CredentialOwner owner, String ownerId) {
-        return jdbc.query("SELECT * FROM " + owner.table() + " WHERE " + owner.column()
-                + " = ? ORDER BY kind, created_at DESC", CredentialRow.mapperFor(owner.column()), ownerId);
+        return jdbc.query("SELECT * FROM " + owner.table() + " WHERE " + owner.ownerPredicate() + " ORDER BY kind, created_at DESC", owner.rowMapper(), ownerId);
     }
 
     public Optional<CredentialRow> findById(CredentialOwner owner, long id) {
         return jdbc.query("SELECT * FROM " + owner.table() + " WHERE id = ?",
-                CredentialRow.mapperFor(owner.column()), id).stream().findFirst();
+                owner.rowMapper(), id).stream().findFirst();
     }
 
     /** 出站签名 / 入站鉴权（调用方）用：仅 ACTIVE（M0-04 §3.2 读取规则）。
      *  ORDER BY id DESC LIMIT 1（2026-09-18 补，代码评审 P2）：应用层约定「每 (属主,kind) 至多 1 条 ACTIVE」，
      *  但库级无唯一约束（PolarDB 5.7 不支持函数索引）——数据异常时取哪条至少要是确定的。 */
     public Optional<CredentialRow> findActive(CredentialOwner owner, String ownerId, String kind) {
-        return jdbc.query("SELECT * FROM " + owner.table() + " WHERE " + owner.column()
-                        + " = ? AND kind = ? AND status = 'ACTIVE' ORDER BY id DESC LIMIT 1",
-                CredentialRow.mapperFor(owner.column()), ownerId, kind).stream().findFirst();
+        return jdbc.query("SELECT * FROM " + owner.table() + " WHERE " + owner.ownerPredicate() + " AND kind = ? AND status = 'ACTIVE' ORDER BY id DESC LIMIT 1",
+                owner.rowMapper(), ownerId, kind).stream().findFirst();
     }
 
     /**
@@ -122,12 +120,11 @@ public class CredentialRepository {
      * 过期惰性视为 RETIRED；逐个试、任一命中即通过，M0-04 §3.2）。
      */
     public List<CredentialRow> findVerifiable(CredentialOwner owner, String ownerId, String kind) {
-        return jdbc.query("SELECT * FROM " + owner.table() + " WHERE " + owner.column()
-                        + " = ? AND kind = ?"
+        return jdbc.query("SELECT * FROM " + owner.table() + " WHERE " + owner.ownerPredicate() + " AND kind = ?"
                         + " AND (status = 'ACTIVE'"
                         + "      OR (status = 'ROTATING' AND (rotating_until IS NULL OR rotating_until > NOW())))"
                         + " ORDER BY status = 'ACTIVE' DESC, created_at DESC",
-                CredentialRow.mapperFor(owner.column()), ownerId, kind);
+                owner.rowMapper(), ownerId, kind);
     }
 
     /**
@@ -135,8 +132,7 @@ public class CredentialRepository {
      * 需要「未过期 ROTATING 条数」请用 {@link #countLiveRotating(CredentialOwner, String, String)}。
      */
     public int countActive(CredentialOwner owner, String ownerId, String kind) {
-        Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM " + owner.table() + " WHERE " + owner.column()
-                + " = ? AND kind = ? AND status = 'ACTIVE'", Integer.class, ownerId, kind);
+        Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM " + owner.table() + " WHERE " + owner.ownerPredicate() + " AND kind = ? AND status = 'ACTIVE'", Integer.class, ownerId, kind);
         return n == null ? 0 : n;
     }
 
@@ -145,8 +141,7 @@ public class CredentialRepository {
      * 不应再阻塞新轮换——原用 countByStatus 会把过期行也算进去，使 prepare 永久报「已有待激活的轮换凭证」。
      */
     public int countLiveRotating(CredentialOwner owner, String ownerId, String kind) {
-        Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM " + owner.table() + " WHERE " + owner.column()
-                + " = ? AND kind = ? AND status = 'ROTATING'"
+        Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM " + owner.table() + " WHERE " + owner.ownerPredicate() + " AND kind = ? AND status = 'ROTATING'"
                 + " AND (rotating_until IS NULL OR rotating_until > NOW())", Integer.class, ownerId, kind);
         return n == null ? 0 : n;
     }
@@ -161,8 +156,12 @@ public class CredentialRepository {
         String col = owner.column();
         String placeholders = String.join(",", Collections.nCopies(ownerIds.size(), "?"));
         Map<String, Set<String>> result = new HashMap<>();
+        // v1.2：池形态需额外限定 owner_type（否则 CLIENT/INTERFACE 同值会串），且"属主列"为 owner_id
+        String ownerFilter = owner.pooled()
+                ? "owner_type = '" + owner.ownerType() + "' AND " + col + " IN (" + placeholders + ")"
+                : col + " IN (" + placeholders + ")";
         jdbc.query("SELECT " + col + ", kind FROM " + owner.table() + " WHERE status = 'ACTIVE' AND "
-                        + col + " IN (" + placeholders + ")",
+                        + ownerFilter,
                 // 显式声明为 RowCallbackHandler：否则与 ResultSetExtractor 重载二义
                 (org.springframework.jdbc.core.RowCallbackHandler) rs ->
                         result.computeIfAbsent(rs.getString(col), k -> new HashSet<>())
@@ -173,12 +172,19 @@ public class CredentialRepository {
 
     /** 是否存在明文未加密的凭证（单测断言用：库中不得出现明文） */
     public int countByCredentialText(CredentialOwner owner, String ownerId, String plaintext) {
-        Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM " + owner.table() + " WHERE " + owner.column()
-                + " = ? AND credential = ?", Integer.class, ownerId, plaintext);
+        Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM " + owner.table() + " WHERE " + owner.ownerPredicate() + " AND credential = ?", Integer.class, ownerId, plaintext);
         return n == null ? 0 : n;
     }
 
     public int insert(CredentialOwner owner, CredentialRow row) {
+        if (owner.pooled()) {
+            // v1.2 凭证池形态：属主 = (owner_type, owner_id)，并带 label（发给谁/何时）
+            return jdbc.update("INSERT INTO " + owner.table()
+                            + " (owner_type, owner_id, label, kind, credential, status, rotating_until)"
+                            + " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    owner.ownerType(), row.ownerId(), row.label(), row.kind(), row.credential(),
+                    row.status(), row.rotatingUntil());
+        }
         return jdbc.update("INSERT INTO " + owner.table() + " (" + owner.column()
                         + ", kind, credential, status, rotating_until) VALUES (?, ?, ?, ?, ?)",
                 row.ownerId(), row.kind(), row.credential(), row.status(), row.rotatingUntil());
@@ -190,15 +196,27 @@ public class CredentialRepository {
      */
     public long insertAndReturnId(CredentialOwner owner, CredentialRow row) {
         KeyHolder keyHolder = new GeneratedKeyHolder();
+        boolean pooled = owner.pooled();
         jdbc.update(con -> {
-            PreparedStatement ps = con.prepareStatement("INSERT INTO " + owner.table() + " ("
-                            + owner.column() + ", kind, credential, status, rotating_until) VALUES (?, ?, ?, ?, ?)",
+            String columns = pooled
+                    ? "owner_type, owner_id, label, kind, credential, status, rotating_until"
+                    : owner.column() + ", kind, credential, status, rotating_until";
+            String values = pooled ? "(?, ?, ?, ?, ?, ?, ?)" : "(?, ?, ?, ?, ?)";
+            PreparedStatement ps = con.prepareStatement(
+                    "INSERT INTO " + owner.table() + " (" + columns + ") VALUES " + values,
                     Statement.RETURN_GENERATED_KEYS);
-            ps.setString(1, row.ownerId());
-            ps.setString(2, row.kind());
-            ps.setString(3, row.credential());
-            ps.setString(4, row.status());
-            ps.setTimestamp(5, SqlTimes.ts(row.rotatingUntil()));
+            int i = 1;
+            if (pooled) {
+                ps.setString(i++, owner.ownerType());
+            }
+            ps.setString(i++, row.ownerId());
+            if (pooled) {
+                ps.setString(i++, row.label());
+            }
+            ps.setString(i++, row.kind());
+            ps.setString(i++, row.credential());
+            ps.setString(i++, row.status());
+            ps.setTimestamp(i, SqlTimes.ts(row.rotatingUntil()));
             return ps;
         }, keyHolder);
         Number key = keyHolder.getKey();
@@ -236,12 +254,21 @@ public class CredentialRepository {
     public int retireAll(CredentialOwner owner, String ownerId, String kind) {
         return jdbc.update("UPDATE " + owner.table()
                         + " SET status = 'RETIRED', retired_at = NOW(), rotating_until = NULL WHERE "
-                        + owner.column() + " = ? AND kind = ? AND status <> 'RETIRED'",
+                        + owner.ownerPredicate() + " AND kind = ? AND status <> 'RETIRED'",
                 ownerId, kind);
+    }
+
+    /** 仅改备注（v1.2 凭证池）：限定池形态与 `owner_type`，避免误改应用凭证/跨池行 */
+    public int updateLabel(CredentialOwner owner, long id, String label) {
+        if (!owner.pooled()) {
+            throw new IllegalStateException("仅入站凭证池支持备注：" + owner);
+        }
+        return jdbc.update("UPDATE " + owner.table() + " SET label = ? WHERE id = ? AND owner_type = '"
+                + owner.ownerType() + "'", label, id);
     }
 
     /** 删属主时级联删其全部凭证（删调用方/删应用；审计表不删，见设计方案 §4.2） */
     public int deleteByOwner(CredentialOwner owner, String ownerId) {
-        return jdbc.update("DELETE FROM " + owner.table() + " WHERE " + owner.column() + " = ?", ownerId);
+        return jdbc.update("DELETE FROM " + owner.table() + " WHERE " + owner.ownerPredicate(), ownerId);
     }
 }

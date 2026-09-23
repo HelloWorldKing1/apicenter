@@ -39,13 +39,14 @@ public class CredentialStore {
         this.cryptoService = cryptoService;
     }
 
-    /** 凭证遮显列表：指纹 = 明文尾 4 位；expired = ROTATING 且并存窗口已过（惰性失效） */
+    /** 凭证遮显列表：指纹 = 明文尾 4 位；expired = ROTATING 且并存窗口已过（惰性失效）；label = 池形态备注（v1.2） */
     public List<CredentialView> listViews(CredentialOwner owner, String ownerId) {
         LocalDateTime now = LocalDateTime.now();
         return credentialRepository.findByOwner(owner, ownerId).stream()
                 .map(r -> new CredentialView(r.id(), r.kind(), r.status(), fingerprintOf(r.credential()),
                         r.activatedAt(), r.retiredAt(), r.rotatingUntil(),
-                        "ROTATING".equals(r.status()) && r.rotatingUntil() != null && r.rotatingUntil().isBefore(now)))
+                        "ROTATING".equals(r.status()) && r.rotatingUntil() != null && r.rotatingUntil().isBefore(now),
+                        r.label()))
                 .toList();
     }
 
@@ -58,6 +59,16 @@ public class CredentialStore {
      */
     @Transactional
     public synchronized CredentialIssuedView prepare(CredentialOwner owner, String ownerId, PrepareRequest req) {
+        return prepare(owner, ownerId, req, null);
+    }
+
+    /**
+     * 带备注版本（v1.2 凭证池：「发给谁 / 何时」）—— 与无备注版**同一套机制**，
+     * 只是多写一列 `label`（共享凭证模型下唯一可归因、可吊销的抓手）。
+     */
+    @Transactional
+    public synchronized CredentialIssuedView prepare(CredentialOwner owner, String ownerId, PrepareRequest req,
+                                                    String label) {
         validateKind(owner, req.kind());
         // E2（2026-09-11）：只统计未过期的 ROTATING——过期行读取路径已惰性视为 RETIRED，不应再阻塞新轮换
         if (credentialRepository.countLiveRotating(owner, ownerId, req.kind()) > 0) {
@@ -65,7 +76,7 @@ public class CredentialStore {
         }
         String plaintext = randomSecret();
         long id = credentialRepository.insertAndReturnId(owner, new CredentialRow(0, ownerId, req.kind(),
-                cryptoService.encrypt(plaintext), "ROTATING", null, null, null, null));
+                cryptoService.encrypt(plaintext), "ROTATING", null, null, null, null, validateLabel(label)));
         return new CredentialIssuedView(id, req.kind(), plaintext);
     }
 
@@ -92,6 +103,12 @@ public class CredentialStore {
     /** 一步更新（M0-04 流程②，对端主动轮换场景）：录入新凭证 → ACTIVE；旧 ACTIVE → ROTATING（并存 24h） */
     @Transactional
     public void update(CredentialOwner owner, String ownerId, UpdateRequest req) {
+        update(owner, ownerId, req, null);
+    }
+
+    /** 带备注版本（v1.2 凭证池） */
+    @Transactional
+    public void update(CredentialOwner owner, String ownerId, UpdateRequest req, String label) {
         validateKind(owner, req.kind());
         credentialRepository.findActive(owner, ownerId, req.kind()).ifPresent(old -> {
             int n = credentialRepository.transitionStatus(owner, old.id(), "ACTIVE", "ROTATING", null,
@@ -101,7 +118,7 @@ public class CredentialStore {
             }
         });
         credentialRepository.insert(owner, new CredentialRow(0, ownerId, req.kind(),
-                cryptoService.encrypt(req.credential()), "ACTIVE", null, null, null, null));
+                cryptoService.encrypt(req.credential()), "ACTIVE", null, null, null, null, validateLabel(label)));
     }
 
     /** 重置（M0-04 流程③，应急语义）：新凭证 → ACTIVE；旧凭证全部立即 RETIRED，不做并存 */
@@ -110,7 +127,7 @@ public class CredentialStore {
         validateKind(owner, req.kind());
         credentialRepository.retireAll(owner, ownerId, req.kind());
         credentialRepository.insert(owner, new CredentialRow(0, ownerId, req.kind(),
-                cryptoService.encrypt(req.credential()), "ACTIVE", null, null, null, null));
+                cryptoService.encrypt(req.credential()), "ACTIVE", null, null, null, null, null));
     }
 
     /**
@@ -147,16 +164,41 @@ public class CredentialStore {
         credentialRepository.updateStatus(owner, id, "RETIRED", LocalDateTime.now(), null);
     }
 
+    /**
+     * 仅改备注（v1.2 凭证池）：**不改凭证值、不流转状态**。
+     * 用于给已发出的密钥补上「发给谁 / 何时」——事故时靠它叫得上人（设计方案 v1.2 §10.4）。
+     */
+    @Transactional
+    public void updateLabel(CredentialOwner owner, String ownerId, long id, String label) {
+        if (!owner.pooled()) {
+            throw BizException.fieldInvalid("仅入站凭证池支持备注：" + owner.displayName());
+        }
+        requireOwned(owner, ownerId, id);
+        credentialRepository.updateLabel(owner, id, validateLabel(label));
+    }
+
     // ---------- 私有 ----------
 
-    /** 取凭证并校验「属于该属主」（不存在 / 不属于 → 40001，文案带主体名） */
+    /** 取凭证并校验「属于该属主」（不存在 / 不属于 → 40001，文案带主体名）。v1.2：`ownerId` 可为 null（平台共享池）⇒ 用 Objects.equals */
     private CredentialRow requireOwned(CredentialOwner owner, String ownerId, long id) {
         CredentialRow target = credentialRepository.findById(owner, id)
                 .orElseThrow(() -> BizException.fieldInvalid("凭证不存在：" + id));
-        if (!ownerId.equals(target.ownerId())) {
+        if (!java.util.Objects.equals(ownerId, target.ownerId())) {
             throw BizException.fieldInvalid("凭证不属于该" + owner.displayName());
         }
         return target;
+    }
+
+    /** 备注校验（v1.2）：空串归一为 null；长度按列宽 64 限制（超限宁可拒绝，不静默截断） */
+    private String validateLabel(String label) {
+        if (label == null || label.isBlank()) {
+            return null;
+        }
+        String trimmed = label.trim();
+        if (trimmed.length() > 64) {
+            throw BizException.fieldInvalid("备注最长 64 字符（当前 " + trimmed.length() + "）");
+        }
+        return trimmed;
     }
 
     /** 类型白名单按属主区分（应用：OUTBOUND/CALLBACK；调用方：API_KEY/HMAC_SECRET/BEARER_TOKEN/BASIC） */

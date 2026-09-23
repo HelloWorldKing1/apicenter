@@ -93,6 +93,18 @@ public class AlertService {
      * threshold 解析 "&lt;op&gt; &lt;number&gt;"（op ∈ &lt; &lt;= &gt; &gt;=；metric 决定语义与单位），
      * 非法表达式返回 false（规则跳过不崩 worker，log.error 可观测）。
      */
+    /**
+     * **入站鉴权平台设置变更**留痕（2026-09-24 v1.2）：平台默认方式 / 强制自报主体的变更
+     * **影响所有未绑定 `CLIENT_AUTH` 的接口**，因此「放松类」变更（方式变更 / `require_client_id` 1→0）
+     * 落 `alert_event(metric=inbound_auth_setting_changed, level=WARN)` ——
+     * 供运维追溯「谁在什么时候放宽了鉴权」（与鉴权失败告警同一张表，metric 区分）。
+     */
+    public void recordInboundAuthSettingChanged(String change, String operator) {
+        fire(null, "inbound_auth_setting_changed", "WARN",
+                "入站鉴权平台设置变更（操作者 " + operator + "）：" + change,
+                "{\"operator\":\"" + operator + "\",\"change\":\"" + change + "\"}");
+    }
+
     public boolean evaluateAndFire(AlertRuleRow rule, double metricValue) {
         Double threshold = parseThreshold(rule.threshold());
         if (threshold == null) {

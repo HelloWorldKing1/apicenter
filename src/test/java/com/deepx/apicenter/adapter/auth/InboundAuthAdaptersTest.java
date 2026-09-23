@@ -166,7 +166,7 @@ class InboundAuthAdaptersTest {
 
         // ② 供应商回调侧（M3 既有实现：自己查库）
         when(credentialRepository.findVerifiable("APP-1", "CALLBACK"))
-                .thenReturn(List.of(new CredentialRow(1, "APP-1", "CALLBACK", "enc", "ACTIVE", null, null, null, null)));
+                .thenReturn(List.of(new CredentialRow(1, "APP-1", "CALLBACK", "enc", "ACTIVE", null, null, null, null, null)));
         when(cryptoService.decrypt(anyString())).thenReturn("shared-secret");
         HmacCallbackVerifyAdapter callback = new HmacCallbackVerifyAdapter(credentialRepository, cryptoService,
                 alertService);

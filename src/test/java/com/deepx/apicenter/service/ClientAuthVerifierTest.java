@@ -90,7 +90,7 @@ class ClientAuthVerifierTest {
         when(adapterRepo.findById("ADP-K1"))
                 .thenReturn(Optional.of(adapter("ADP-K1", "ClientApiKeyVerifyAdapter", enabled, null)));
         when(credentialRepo.findVerifiable(eq(CredentialOwner.CLIENT), eq(CLIENT), eq("API_KEY")))
-                .thenReturn(List.of(new CredentialRow(1, CLIENT, "API_KEY", "enc", "ACTIVE", null, null, null, null)));
+                .thenReturn(List.of(new CredentialRow(1, CLIENT, "API_KEY", "enc", "ACTIVE", null, null, null, null, null)));
         when(cryptoService.decrypt("enc")).thenReturn("secret-1234");
     }
 

@@ -66,7 +66,7 @@ class HmacCallbackVerifyAdapterTest {
 
     private CredentialRow credentialRow(String plain, String status) {
         LocalDateTime now = LocalDateTime.now();
-        return new CredentialRow(1, "fastmoss", "CALLBACK", plain, status, now, null, null, now);
+        return new CredentialRow(1, "fastmoss", "CALLBACK", plain, status, now, null, null, now, null);
     }
 
     private Map<String, String> signedHeaders(String secret, byte[] raw, String algorithm) {

@@ -20,10 +20,12 @@ import java.time.LocalDateTime;
 public record CredentialRow(
         long id, String ownerId, String kind, String credential, String status,
         LocalDateTime activatedAt, LocalDateTime retiredAt,
-        LocalDateTime rotatingUntil, LocalDateTime createdAt
+        LocalDateTime rotatingUntil, LocalDateTime createdAt,
+        /** v1.2：池形态的人工备注（「发给谁 / 何时」）；应用形态恒 null（`app_credential` 无此列） */
+        String label
 ) {
 
-    /** 按属主列名映射（`app_id` / `client_id`；列名来自 {@code CredentialOwner} 常量，非用户输入） */
+    /** 按属主列名映射（`app_id`；**无 label 列** —— 应用形态）；列名来自 {@code CredentialOwner} 常量，非用户输入 */
     public static RowMapper<CredentialRow> mapperFor(String ownerColumn) {
         return (rs, i) -> new CredentialRow(
                 rs.getLong("id"),
@@ -34,7 +36,32 @@ public record CredentialRow(
                 rs.getTimestamp("activated_at").toLocalDateTime(),
                 rs.getTimestamp("retired_at") == null ? null : rs.getTimestamp("retired_at").toLocalDateTime(),
                 rs.getTimestamp("rotating_until") == null ? null : rs.getTimestamp("rotating_until").toLocalDateTime(),
-                rs.getTimestamp("created_at").toLocalDateTime()
+                rs.getTimestamp("created_at").toLocalDateTime(),
+                null
+        );
+    }
+
+    /** 应用形态映射（`app_credential`：属主列 `app_id`、**无 `label` 列**） */
+    public static CredentialRow ofApp(java.sql.ResultSet rs) throws java.sql.SQLException {
+        return mapperFor("app_id").mapRow(rs, 0);
+    }
+
+    /**
+     * 凭证池形态映射（`client_credential`：属主列 `owner_id` + **`label`**，v1.2）。
+     * `PLATFORM` 属主的 `owner_id` 为 NULL（平台共享池）。
+     */
+    public static CredentialRow ofPooled(java.sql.ResultSet rs) throws java.sql.SQLException {
+        return new CredentialRow(
+                rs.getLong("id"),
+                rs.getString("owner_id"),
+                rs.getString("kind"),
+                rs.getString("credential"),
+                rs.getString("status"),
+                rs.getTimestamp("activated_at").toLocalDateTime(),
+                rs.getTimestamp("retired_at") == null ? null : rs.getTimestamp("retired_at").toLocalDateTime(),
+                rs.getTimestamp("rotating_until") == null ? null : rs.getTimestamp("rotating_until").toLocalDateTime(),
+                rs.getTimestamp("created_at").toLocalDateTime(),
+                rs.getString("label")
         );
     }
 

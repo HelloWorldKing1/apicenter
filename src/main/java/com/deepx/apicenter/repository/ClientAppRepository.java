@@ -99,9 +99,15 @@ public class ClientAppRepository {
         return jdbc.update("UPDATE client_app SET status = ? WHERE client_id = ?", status, clientId);
     }
 
-    /** 级联删除：调用方 + 其凭证（**审计表不删** —— 靠 principal_id/name 快照回溯，设计方案 §4.2） */
+    /**
+     * 级联删除：调用方 + 其凭证（**审计表不删** —— 靠 principal_id/name 快照回溯，设计方案 §4.2）。
+     *
+     * <p>⚠️ v1.2（2026-09-24）：凭证归入**凭证池**后，属主由 `(owner_type='CLIENT', owner_id)` 表达 ——
+     * 原实现按旧列 `client_id` 删，而新写入的池行 `client_id` 为 NULL ⇒ **会静默删不掉**（孤儿凭证行）。
+     * 这条由 `InboundCredentialPoolIntegrationTest` 的清理钩子抓到，故此处改用属主谓词。
+     */
     public void deleteCascade(String clientId) {
-        jdbc.update("DELETE FROM client_credential WHERE client_id = ?", clientId);
+        jdbc.update("DELETE FROM client_credential WHERE owner_type = 'CLIENT' AND owner_id = ?", clientId);
         jdbc.update("DELETE FROM client_app WHERE client_id = ?", clientId);
     }
 
