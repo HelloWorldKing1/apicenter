@@ -3,7 +3,7 @@ package com.deepx.apicenter.aspect;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
-import java.util.LinkedHashMap;
+import java.util.Set;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -20,7 +20,13 @@ public class SensitiveDataMasker {
     /** body 截断阈值（字符） */
     public static final int BODY_TRUNCATE_CHARS = 4096;
 
-    private static final Map<String, Boolean> SENSITIVE_HEADERS = buildSensitiveHeaders();
+    /**
+     * 敏感头名集合（小写）。**可动态注册**（2026-09-23，入站鉴权 B2 / D-CA-13）：
+     * 头名如今可被配置（调用方鉴权的凭证头、签名头都可能改名），写死的清单必然漏 ——
+     * 因此闸门在解析适配器 params 后调用 {@link #registerHeader(String)} 把实际头名登记进来。
+     * 用并发集合：注册可能发生在请求线程（多请求并发），读也并发。
+     */
+    private static final Set<String> SENSITIVE_HEADERS = buildSensitiveHeaders();
 
     /** 大陆手机号（前后非数字边界） */
     private static final Pattern PHONE = Pattern.compile("(?<!\\d)(1[3-9]\\d{9})(?!\\d)");
@@ -29,13 +35,23 @@ public class SensitiveDataMasker {
     private static final Pattern SENSITIVE_JSON_VALUE = Pattern.compile(
             "(\"[^\"]*(?i:secret|token|password|apikey|api_key|credential)[^\"]*\"\\s*:\\s*\")([^\"]{0,200})(\")");
 
-    private static Map<String, Boolean> buildSensitiveHeaders() {
-        Map<String, Boolean> keys = new LinkedHashMap<>();
-        for (String h : new String[]{"authorization", "proxy-authorization", "x-api-key", "x-auth-token",
-                "x-access-token", "cookie", "set-cookie", "x-partner-signature", "x-signature"}) {
-            keys.put(h, true);
-        }
+    private static Set<String> buildSensitiveHeaders() {
+        Set<String> keys = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        keys.addAll(java.util.List.of("authorization", "proxy-authorization", "x-api-key", "x-auth-token",
+                "x-access-token", "cookie", "set-cookie", "x-partner-signature", "x-signature",
+                // 入站鉴权（调用方）默认头名
+                "x-client-id", "x-internal-token"));
         return keys;
+    }
+
+    /**
+     * 动态登记需脱敏的头名（大小写不敏感）。由调用方鉴权闸门在解析适配器 params 后调用
+     * （凭证头 / 签名头 / 时间戳头都可能被配置改名）。空值忽略。
+     */
+    public static void registerHeader(String name) {
+        if (name != null && !name.isBlank()) {
+            SENSITIVE_HEADERS.add(name.trim().toLowerCase());
+        }
     }
 
     /** Header 集合脱敏：返回可落库的字符串形如 "k1: v1 | k2: v2"（保持插入序） */
@@ -93,6 +109,6 @@ public class SensitiveDataMasker {
     }
 
     private boolean isSensitiveHeader(String name) {
-        return name != null && SENSITIVE_HEADERS.containsKey(name.toLowerCase());
+        return name != null && SENSITIVE_HEADERS.contains(name.toLowerCase());
     }
 }

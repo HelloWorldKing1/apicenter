@@ -93,4 +93,22 @@ class SensitiveDataMaskerTest {
         String body = "{\"hello\":\"world\",\"n\":123}";
         assertThat(masker.maskBody(body)).isEqualTo(body);
     }
+
+    @Test
+    void 动态注册的头名参与脱敏_大小写不敏感() {
+        // 入站鉴权的凭证/签名头名可被配置（D-CA-13 硬要求：写死清单必然漏）
+        SensitiveDataMasker.registerHeader("X-Tenant-Key");
+        String masked = masker.maskHeaders(Map.of("x-tenant-key", "abcdefghijklmnop"));
+        assertThat(masked).doesNotContain("abcdefghijklmnop");
+        assertThat(masked).contains("x-tenant-key");
+    }
+
+    @Test
+    void 动态注册忽略空值_默认头名仍脱敏() {
+        SensitiveDataMasker.registerHeader(null);
+        SensitiveDataMasker.registerHeader("   ");
+        assertThat(masker.maskHeaders(Map.of("Authorization", "Bearer 1234567890"))).doesNotContain("1234567890");
+        // 入站鉴权默认头名（X-Client-Id / X-Internal-Token）也在默认清单里
+        assertThat(masker.maskHeaders(Map.of("X-Internal-Token", "0123456789abcdef"))).doesNotContain("0123456789abcdef");
+    }
 }

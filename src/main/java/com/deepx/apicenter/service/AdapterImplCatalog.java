@@ -50,6 +50,23 @@ public class AdapterImplCatalog {
                     f("scheme", "回调验签规范", "select", true, List.of("TENCENT-EVENT", "AWS-SNS", "ALIYUN-CALLBACK"), null),
                     f("token", "回调 Token", "secret", false, null, "凭证值在「应用管理 → 新建/编辑应用 → 凭证卡片」中维护"),
                     f("certificate", "验签证书", "text", false, null, "AWS SNS 的 X509 证书内容，仅 AWS-SNS 需要"))),
+            // ---------- 入站鉴权（调用方 → 平台，2026-09-23 B2；同一批实现也可绑接口 CALLBACK_AUTH 供回调验签，见设计方案 §9.3）----------
+            new ImplMeta("ClientApiKeyVerifyAdapter", "auth", "调用方 API Key 验签", List.of(
+                    f("idHeaderName", "主体标识头名", "text", false, List.of(), "默认 X-Client-Id（调用方标识，如 ERP-PROD）"),
+                    f("credentialHeaderName", "凭证 Header 名", "text", false, List.of(), "默认 X-Api-Key"))),
+            new ImplMeta("ClientHmacVerifyAdapter", "auth", "调用方 HMAC 验签", List.of(
+                    f("idHeaderName", "主体标识头名", "text", false, List.of(), "默认 X-Client-Id"),
+                    f("signatureAlgorithm", "签名算法", "select", true, List.of("HMAC-SHA256", "HMAC-SHA1", "HMAC-SHA512"), null),
+                    f("signatureHeader", "签名 Header 名", "text", false, List.of(), "默认 X-Signature"),
+                    f("timestampHeader", "时间戳 Header 名", "text", false, List.of(), "默认 X-Timestamp"),
+                    f("timestampToleranceSeconds", "时间戳容差(秒)", "number", false, List.of(), "默认 300，超出即拒（40101）"),
+                    f("replayProtection", "防重放", "switch", false, null, "开启后同签名在容差窗口内只接受一次"))),
+            new ImplMeta("ClientBearerVerifyAdapter", "auth", "调用方 Bearer 验签", List.of(
+                    f("idHeaderName", "主体标识头名", "text", false, List.of(), "默认 X-Client-Id"),
+                    f("headerName", "Token Header 名", "select", true, List.of("Authorization", "X-Auth-Token", "X-Access-Token"), null),
+                    f("prefix", "前缀", "select", false, List.of("Bearer", "Token"), "留空 = 裸 token（不拼前缀）"))),
+            new ImplMeta("ClientIpWhitelistVerifyAdapter", "auth", "调用方 IP 名单", List.of(
+                    f("idHeaderName", "主体标识头名", "text", false, List.of(), "默认 X-Client-Id；仅用于审计主体识别"))),
             // ---------- 协议 protocol ----------
             new ImplMeta("JsonProtocolAdapter", "protocol", "JSON 编解码", List.of(
                     f("namingStrategy", "命名策略", "select", true, List.of("CAMEL_CASE", "SNAKE_CASE", "KEBAB_CASE"), null),
