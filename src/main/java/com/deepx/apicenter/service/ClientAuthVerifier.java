@@ -52,6 +52,7 @@ import java.util.Optional;
  * <p>适配器侧遵守 D-CA-6：**适配器不查库**，凭证明文由本类注入 `ctx.attrs("inboundCredentials")`。
  */
 @Service
+@org.springframework.boot.context.properties.EnableConfigurationProperties(ClientAuthProperties.class)
 public class ClientAuthVerifier {
 
     /** 判定结果：网关据 `passed` 放行/拒绝（`errorCode`/`message` 直接用于错误响应） */

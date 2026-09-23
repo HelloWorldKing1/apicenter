@@ -2,12 +2,19 @@ package com.deepx.apicenter.controller;
 
 import com.deepx.apicenter.config.TraceIdFilter;
 import com.deepx.apicenter.dto.ApiResult;
+import com.deepx.apicenter.adapter.auth.InboundAuthAdapter;
+import com.deepx.apicenter.aspect.AccessAuthContext;
+import com.deepx.apicenter.engine.Adapter;
 import com.deepx.apicenter.engine.InboundEngine;
 import com.deepx.apicenter.engine.OutboundEngine;
 import com.deepx.apicenter.exception.BizException;
+import com.deepx.apicenter.model.AdapterRow;
+import com.deepx.apicenter.model.AppRow;
 import com.deepx.apicenter.model.InterfaceRow;
+import com.deepx.apicenter.repository.AdapterRepository;
 import com.deepx.apicenter.repository.AppRepository;
 import com.deepx.apicenter.repository.InterfaceRepository;
+import com.deepx.apicenter.service.ClientAuthVerifier;
 import com.deepx.apicenter.service.GatewayGuard;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -21,6 +28,8 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Enumeration;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * 接入层路由（执行面，Flow A）：平台侧路径（接口配置驱动）→ 出站执行引擎。
@@ -37,6 +46,11 @@ public class GatewayController {
     private final InterfaceRepository interfaceRepository;
     private final AppRepository appRepository;
     private final GatewayGuard gatewayGuard;
+    /** 调用方鉴权闸门内核（2026-09-23 B3；mode=OFF 时内部早退） */
+    private final ClientAuthVerifier clientAuthVerifier;
+    /** 回调方向审计登记要解析绑定的验签适配器 */
+    private final AdapterRepository adapterRepository;
+    private final Map<String, Adapter> adapterBeans;
 
     /** 报文大小上限（M0-03 §1.3 默认 1MB，超限 40002；出站请求与入站回调同网关入口，双向生效） */
     @Value("${app.api-center.max-body-bytes:1048576}")
@@ -46,12 +60,18 @@ public class GatewayController {
                              InboundEngine inboundEngine,
                              InterfaceRepository interfaceRepository,
                              AppRepository appRepository,
-                             GatewayGuard gatewayGuard) {
+                             GatewayGuard gatewayGuard,
+                             ClientAuthVerifier clientAuthVerifier,
+                             AdapterRepository adapterRepository,
+                             Map<String, Adapter> adapterBeans) {
         this.outboundEngine = outboundEngine;
         this.inboundEngine = inboundEngine;
         this.interfaceRepository = interfaceRepository;
         this.appRepository = appRepository;
         this.gatewayGuard = gatewayGuard;
+        this.clientAuthVerifier = clientAuthVerifier;
+        this.adapterRepository = adapterRepository;
+        this.adapterBeans = adapterBeans;
     }
 
     @RequestMapping(value = "/{*path}",
@@ -83,16 +103,82 @@ public class GatewayController {
         // M4 接入层防护（D-M4-6，补 M2 缺口）：QPS 限流 / 日配额 / IP 黑白名单——
         // 路由命中后、引擎执行前（落 outbound_request 之前），拒绝不污染状态机；
         // 应用启用校验仍由引擎承担（40102），此处仅限流配额与来源控制
+        String clientIp = routed == null ? null
+                : gatewayGuard.resolveClientIp(request.getRemoteAddr(), request.getHeader("X-Forwarded-For"));
         if (routed != null) {
-            appRepository.findById(routed.appId()).ifPresent(app ->
-                    gatewayGuard.check(app, gatewayGuard.resolveClientIp(
-                            request.getRemoteAddr(), request.getHeader("X-Forwarded-For"))));
+            String ip = clientIp;
+            appRepository.findById(routed.appId()).ifPresent(app -> gatewayGuard.check(app, ip));
         }
         if (routed != null && "INBOUND".equals(routed.ifType())) {
+            // 供应商回调方向：**登记审计**（主体=供应商 · 方式=绑定的回调验签适配器 · IP/UA），
+            // 结果默认 PASS，链内 401xx 时由 InboundEngine 回填 REJECT（设计方案 §9.2）
+            registerCallbackAudit(routed, request, traceId, clientIp);
             return inboundEngine.handle(request, fullPath, request.getMethod(), body, traceId);
+        }
+        if (routed != null) {
+            // **调用方鉴权闸门**（2026-09-23 B3，设计方案 §6）：路由命中后、引擎之前
+            // ⇒ 拒绝发生在落 outbound_request 之前，**不污染状态机**（与 D-M4-6 同口径）。
+            // `mode=OFF`（默认）时内部早退，零校验开销。
+            ClientAuthVerifier.Decision decision = clientAuthVerifier.verify(routed, request.getMethod(),
+                    requestHeaders(request), body, clientIp, request.getHeader("X-Forwarded-For"),
+                    request.getHeader("User-Agent"), traceId);
+            if (!decision.passed()) {
+                throw new BizException(decision.errorCode(), decision.message());
+            }
         }
         ApiResult<?> result = outboundEngine.dispatch(fullPath, request.getMethod(), body, bizId, traceId);
         return ResponseEntity.ok(result);
+    }
+
+    /** 出站中转（调用方 → 平台）的入站鉴权闸门 */
+    /** 供应商回调（Flow B）的审计登记：主体 + 方式 + IP/UA；结果默认 PASS（链内 401xx 由引擎回填 REJECT） */
+    private void registerCallbackAudit(InterfaceRow iface, HttpServletRequest request, String traceId,
+                                       String clientIp) {
+        String appName = appRepository.findById(iface.appId()).map(AppRow::name).orElse(null);
+        String adapterId = null;
+        String method = "NONE";
+        for (InterfaceRow.BindingRow b : interfaceRepository.findBindings(iface.id())) {
+            if ("CALLBACK_AUTH".equals(b.role()) && b.adapterId() != null) {
+                adapterId = b.adapterId();
+                AdapterRow row = adapterRepository.findById(adapterId).orElse(null);
+                if (row != null) {
+                    method = inboundAuthMethod(adapterBeans.get(row.impl()), row.impl());
+                }
+                break;
+            }
+        }
+        String ua = request.getHeader("User-Agent");
+        AccessAuthContext.set(new AccessAuthContext.Entry(
+                traceId, "CALLBACK", "SUPPLIER", iface.appId(), appName,
+                iface.id(), iface.code(), method, adapterId,
+                "PASS", null, "回调方向：结果由链内验签回填",
+                clientIp, request.getHeader("X-Forwarded-For"),
+                ua == null || ua.length() <= 200 ? ua : ua.substring(0, 200), null));
+    }
+
+    /**
+     * 回调验签的审计「方式」口径：优先取适配器自报（{@code InboundAuthAdapter.method()}）；
+     * 存量 `HmacCallbackVerifyAdapter` 尚未实现该契约（迁移属 B6/可选），按其语义补一个映射。
+     */
+    private static String inboundAuthMethod(Adapter bean, String impl) {
+        if (bean instanceof InboundAuthAdapter a) {
+            return a.method();
+        }
+        return switch (impl == null ? "" : impl) {
+            case "HmacCallbackVerifyAdapter" -> "HMAC-SHA256";
+            default -> "NONE";
+        };
+    }
+
+    /** 请求头 → Map（同名多值取首个；大小写原样保留） */
+    private static Map<String, String> requestHeaders(HttpServletRequest request) {
+        Map<String, String> headers = new LinkedHashMap<>();
+        Enumeration<String> names = request.getHeaderNames();
+        while (names != null && names.hasMoreElements()) {
+            String name = names.nextElement();
+            headers.putIfAbsent(name, request.getHeader(name));
+        }
+        return headers;
     }
 
     private String firstHeader(HttpServletRequest request, String... names) {

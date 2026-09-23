@@ -96,8 +96,19 @@ public class InboundEngine {
 
         // 2. 链执行：验签（INBOUND_AUTH，失败 40100/40101 抛异常不落运行表）→ 解码 → 报文适配 → 映射 → 编码
         Map<String, String> headers = readHeaders(request);
-        AdapterContext ctx = chainEngine.execute(iface.id(), UnifiedModel.emptyObject(), trace,
-                body == null ? new byte[0] : body, Map.<String, Object>of("headers", headers));
+        AdapterContext ctx;
+        try {
+            ctx = chainEngine.execute(iface.id(), UnifiedModel.emptyObject(), trace,
+                    body == null ? new byte[0] : body, Map.<String, Object>of("headers", headers));
+        } catch (BizException e) {
+            // 接入鉴权审计回填（2026-09-23 B3，设计方案 §9.2②）：401xx = 入站鉴权结论 ⇒ REJECT。
+            // 非 401xx 的链失败（如映射 40001）**保持 PASS** —— 鉴权确实通过了，业务失败由 call_log / 状态机负责。
+            if (e.getCode() / 100 == 401) {
+                com.deepx.apicenter.aspect.AccessAuthContext.withResult(
+                        "REJECT", String.valueOf(e.getCode()), e.getMessage(), null, null);
+            }
+            throw e;
+        }
 
         // 3. 落库 PENDING（next_retry_at=now+5s 防 worker 抢跑；崩溃后由 worker 兜底）
         byte[] payloadBytes = ctx.outbound().body();

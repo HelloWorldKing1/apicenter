@@ -17,6 +17,7 @@ import com.deepx.apicenter.repository.CredentialRepository;
 import com.deepx.apicenter.repository.InboundDeliveryRepository;
 import com.deepx.apicenter.repository.InterfaceRepository;
 import com.deepx.apicenter.service.CryptoService;
+import com.deepx.apicenter.service.InternalCallToken;
 import com.deepx.apicenter.service.InterfaceService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -64,6 +65,8 @@ public class InterfaceController {
     private final CryptoService cryptoService;
     private final RestClient restClient;
     private final PerRequestReadTimeoutFactory readTimeoutFactory;
+    /** 内部调用令牌（D-CA-17）：管理面「模拟回调」自调网关时携带，闸门步骤 ⓪ 凭它放行 PLATFORM_SELF */
+    private final InternalCallToken internalCallToken;
 
     /**
      * 管理面「模拟回调」自调网关时的读超时（2026-09-22）。
@@ -86,7 +89,8 @@ public class InterfaceController {
                                InboundDeliveryRepository inboundDeliveryRepository,
                                CryptoService cryptoService,
                                RestClient restClient,
-                               PerRequestReadTimeoutFactory readTimeoutFactory) {
+                               PerRequestReadTimeoutFactory readTimeoutFactory,
+                               InternalCallToken internalCallToken) {
         this.interfaceService = interfaceService;
         this.interfaceRepository = interfaceRepository;
         this.outboundEngine = outboundEngine;
@@ -97,6 +101,7 @@ public class InterfaceController {
         this.cryptoService = cryptoService;
         this.restClient = restClient;
         this.readTimeoutFactory = readTimeoutFactory;
+        this.internalCallToken = internalCallToken;
     }
 
     @GetMapping
@@ -225,6 +230,9 @@ public class InterfaceController {
                     .header("X-Timestamp", timestamp)
                     .header("X-Partner-Signature", signature)
                     .header("X-Trace-Id", trace)
+                // D-CA-17（v1.1）：自调网关也要过闸门 ⇒ 带内部令牌；否则 client-auth.mode=ENFORCED
+                // 一上线，「模拟回调」会被自家闸门拒掉（该调试工具直接失效）
+                .header(InternalCallToken.HEADER, internalCallToken.value())
                     .body(raw)
                     .retrieve()
                     .toEntity(byte[].class);

@@ -1019,6 +1019,8 @@ DB 密码用环境变量 `${APICENTER_DB_PASSWORD}`；AES 密钥用 `APICENTER_C
 | `app.api-center.retry-worker-fixed-delay-ms` | `3000` | 补偿 worker 扫描间隔 |
 | `app.api-center.max-body-bytes` | `1048576` | 报文大小上限（1MB） |
 | `app.api-center.connect-timeout-ms` | `3000` | 出站客户端**全局连接超时**（per-request 连接超时需 per-request HttpClient，成本高收益低） |
+| `app.api-center.client-auth.mode` | `OFF` | **调用方鉴权灰度三态**：`OFF` 不校验（现状，**仍写审计**）/ `OPTIONAL` 有凭证就验 / `ENFORCED` 必须通过（fail-closed）。上线路径建议 OFF+审计 → OPTIONAL → ENFORCED |
+| `app.api-center.client-auth.id-header` | `X-Client-Id` | 主体标识头名（单个调用方可在其适配器 params 里覆盖） |
 | `app.api-center.default-read-timeout-ms` | `10000` | **兜底读超时**：接口未配 `timeout_ms` / 配置非法（≤0）/ 未声明作用域（如管理面自调）时使用 |
 
 > 接口级配置值域（保存校验，越界返回 40001）：**读超时 100~60000ms**（默认 **10000**，2026-09-22 起；此前 3000）、**最大重试 0~10**（默认 4）。

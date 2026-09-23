@@ -46,4 +46,31 @@ public final class AccessAuthContext {
     public static void clear() {
         HOLDER.remove();
     }
+
+    /**
+     * **回填判定结果**（回调方向用，§9.2）：只改结果相关字段，主体/接口/IP 等其余字段保持闸门登记的原值。
+     * 未登记（`get()==null`）时不做任何事（例如直调引擎的调试路径不经网关）。
+     */
+    public static void withResult(String result, String errorCode, String reason,
+                                  String authMethod, String authAdapterId) {
+        Entry cur = HOLDER.get();
+        if (cur == null) {
+            return;
+        }
+        HOLDER.set(new Entry(cur.traceId(), cur.direction(), cur.principalType(), cur.principalId(),
+                cur.principalName(), cur.interfaceId(), cur.interfaceCode(),
+                authMethod == null ? cur.authMethod() : authMethod,
+                authAdapterId == null ? cur.authAdapterId() : authAdapterId,
+                result == null ? cur.result() : result,
+                errorCode, reason, cur.clientIp(), cur.xffChain(), cur.userAgent(), cur.latencyMs()));
+    }
+
+    /** 转换为落库行（网关切面在 offer 前调用） */
+    public static com.deepx.apicenter.repository.AccessAuthLogRepository.AccessAuthLogEntry toLogEntry(Entry e) {
+        return new com.deepx.apicenter.repository.AccessAuthLogRepository.AccessAuthLogEntry(
+                e.traceId(), e.direction(), e.principalType(), e.principalId(), e.principalName(),
+                e.interfaceId(), e.interfaceCode(), e.authMethod(), e.authAdapterId(),
+                e.result(), e.errorCode(), e.reason(),
+                e.clientIp(), e.xffChain(), e.userAgent(), e.latencyMs());
+    }
 }

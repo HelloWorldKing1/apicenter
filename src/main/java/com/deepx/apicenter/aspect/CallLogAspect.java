@@ -60,13 +60,17 @@ public class CallLogAspect {
     private final SensitiveDataMasker masker;
     private final MeterRegistry meterRegistry;
     private final ObjectMapper objectMapper;
+    /** 接入鉴权审计异步写（B3）：与 callLogWriter 同构，网关切面 finally 投递 */
+    private final com.deepx.apicenter.worker.AccessAuthLogWriter authLogWriter;
 
     public CallLogAspect(CallLogWriter callLogWriter, SensitiveDataMasker masker,
-                         MeterRegistry meterRegistry, ObjectMapper objectMapper) {
+                         MeterRegistry meterRegistry, ObjectMapper objectMapper,
+                         com.deepx.apicenter.worker.AccessAuthLogWriter authLogWriter) {
         this.callLogWriter = callLogWriter;
         this.masker = masker;
         this.meterRegistry = meterRegistry;
         this.objectMapper = objectMapper;
+        this.authLogWriter = authLogWriter;
     }
 
     // ---------- IN：网关入口（调用方 / 供应商回调 → 平台） ----------
@@ -96,6 +100,14 @@ public class CallLogAspect {
             // 清理契约（CallLogContext）：网关切面是 IN 方向的唯一清理方——
             // 引擎设置、调用方清理（调试端点在各自 finally 清理）
             CallLogContext.clear();
+            // 接入鉴权审计（2026-09-23 B3，设计方案 §10.1）：**登记方（闸门/链内）→ 网关切面 flush**
+            // —— 与 CallLogContext 同一契约（防 ThreadLocal 泄漏）。拒绝可能发生在引擎之前，
+            // 因此这里独立于 call_log 读取（不依赖 CallLogContext）。
+            AccessAuthContext.Entry authEntry = AccessAuthContext.get();
+            if (authEntry != null) {
+                authLogWriter.offer(AccessAuthContext.toLogEntry(authEntry));
+                AccessAuthContext.clear();
+            }
         }
     }
 
