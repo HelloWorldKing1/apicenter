@@ -219,7 +219,8 @@ public class ClientAuthVerifier {
         String principalType = known != null ? PRINCIPAL_CLIENT : PRINCIPAL_UNVERIFIED;
 
         // ② 方式解析（三级回退；fail-closed）
-        AdapterRow adapterRow = resolveAdapter(iface, client);
+        ResolvedAdapter resolved = resolveAdapter(iface, client);
+        AdapterRow adapterRow = resolved == null ? null : resolved.row();
         if (adapterRow == null) {
             // 文案同时覆盖两种成因（未配置 / 配了但不可用），便于联调自助定位
             return reject(iface, traceId, 40108,
@@ -235,6 +236,7 @@ public class ClientAuthVerifier {
         }
         String method = inbound.method();
         String credentialKind = inbound.credentialKind();
+        JsonNode adapterParams = params(adapterRow);   // 每请求只解析一次（掩码注册与本处判断共用）
 
         // ③ 档案维度 IP 名单（方式参数名单在适配器内判定）
         //    ⚠️ 传给适配器的 `clientIpAllowed` 只在**档案确实配了非空白名单且命中**时为 TRUE：
@@ -254,7 +256,10 @@ public class ClientAuthVerifier {
 
         // OPTIONAL 且未带任何凭证头 ⇒ 放行观察（真值表：OPTIONAL + 无凭证）
         //    例外（兼容档语义）：**声明了主体（且可识别）却未带凭证** ⇒ 40100（配置错误，不能静默放行 —— v1.1 行为）
-        if ("OPTIONAL".equals(mode) && credentialKind != null && firstPresent(headers) == null) {
+        //    ⚠ S2（评审修复）：此处用**适配器声明的头名**判定（`credentialHeaderName`/`headerName`/`signatureHeader`），
+        //      否则把凭证头改名的调用方会被当成"没带凭证"而放行（违反"带了就必须对"）。方式解析已完成 ⇒ params 可得。
+        if ("OPTIONAL".equals(mode) && credentialKind != null
+                && !carriesCredential(adapterParams, headers)) {
             if (client != null) {
                 return reject(iface, traceId, 40100,
                         "鉴权失败：声明了主体（" + client.clientId() + "）但未携带凭证",
@@ -280,7 +285,7 @@ public class ClientAuthVerifier {
         }
 
         // ⑤ 适配器校验
-        AdapterContext ctx = buildContext(iface, adapterRow, headers, rawBody, candidates, clientIpAllowed,
+        AdapterContext ctx = buildContext(iface, adapterParams, headers, rawBody, candidates, clientIpAllowed,
                 clientIp, traceId);
         try {
             inbound.process(ctx);
@@ -291,7 +296,12 @@ public class ClientAuthVerifier {
         }
         String label = attr(ctx, "matchedCredentialLabel");
         String fingerprint = attr(ctx, "matchedCredentialFingerprint");
-        return settle(iface, traceId, "PASS", principalId, "鉴权通过", method, adapterRow.id(),
+        // S1：审计里写明「方式来自哪一级」，回退时附原因 —— 让"鉴权为何变宽"可追查
+        String reason = "鉴权通过（方式来自" + resolved.levelName() + "）";
+        if (resolved.fallbackNote() != null) {
+            reason = reason + "；" + resolved.fallbackNote();
+        }
+        return settle(iface, traceId, "PASS", principalId, reason, method, adapterRow.id(),
                 clientIp, xffChain, userAgent, start, label, fingerprint,
                 Decision.pass(principalId, principalName, principalType, method, adapterRow.id(), label, fingerprint));
     }
@@ -304,21 +314,42 @@ public class ClientAuthVerifier {
      *
      * <p>返回 `null` = 三级皆无 ⇒ 40108（**fail-closed，绝不回退 Noop**，§6.5）。
      */
-    private AdapterRow resolveAdapter(InterfaceRow iface, ClientAppRow client) {
-        List<String> candidates = new ArrayList<>();
-        candidates.add(clientAuthBindingAdapterId(iface.id()));
-        candidates.add(settingService.defaultAdapterId());
-        candidates.add(client == null ? null : client.authAdapterId());
-        for (String id : candidates) {
-            if (id == null || id.isBlank()) {
+    private ResolvedAdapter resolveAdapter(InterfaceRow iface, ClientAppRow client) {
+        String fromBinding = clientAuthBindingAdapterId(iface.id());
+        String fromSetting = settingService.defaultAdapterId();
+        String fromClient = client == null ? null : client.authAdapterId();
+        List<String> candidates = List.of(fromBinding == null ? "" : fromBinding,
+                fromSetting == null ? "" : fromSetting,
+                fromClient == null ? "" : fromClient);
+        String[] levelNames = {"接口绑定（CLIENT_AUTH）", "平台默认设置", "调用方档案"};
+        java.util.Set<String> looked = new java.util.HashSet<>();   // S3：同一 id 只查一次库
+        List<String> skipped = new ArrayList<>();
+        for (int i = 0; i < candidates.size(); i++) {
+            String id = candidates.get(i);
+            if (id.isBlank() || !looked.add(id)) {
                 continue;
             }
             AdapterRow row = adapterRepository.findById(id).orElse(null);
             if (row != null && row.enabled() && "auth".equals(row.type())) {
-                return row;
+                // S1：若前序层级存在但因为不可用被跳过 ⇒ 回退要留痕（否则"鉴权被静默放宽"无人知晓）
+                String note = skipped.isEmpty() ? null
+                        : "方式回退到" + levelNames[i] + "（前序不可用：" + String.join("、", skipped) + "）";
+                if (note != null) {
+                    log.warn("入站鉴权方式回退：接口 {} 命中「{}」，{}", iface.code(), levelNames[i], note);
+                }
+                return new ResolvedAdapter(row, levelNames[i], note);
             }
+            skipped.add(levelNames[i] + "=" + id + (row == null ? "（不存在）"
+                    : (!row.enabled() ? "（已停用）" : "（类型非 auth）")));
+        }
+        if (!skipped.isEmpty()) {
+            log.warn("入站鉴权方式不可用：接口 {} 逐层尝试均失败：{}", iface.code(), String.join("、", skipped));
         }
         return null;
+    }
+
+    /** 方式解析结果（v1.2）：命中行 + **命中的层级名** + 回退说明（回退时非空，进审计与日志） */
+    private record ResolvedAdapter(AdapterRow row, String levelName, String fallbackNote) {
     }
 
     /** 接口绑定的 `CLIENT_AUTH` 角色（无绑定返回 null） */
@@ -378,7 +409,7 @@ public class ClientAuthVerifier {
 
     // ---------- 私有 ----------
 
-    private AdapterContext buildContext(InterfaceRow iface, AdapterRow adapterRow, Map<String, String> headers,
+    private AdapterContext buildContext(InterfaceRow iface, JsonNode adapterParams, Map<String, String> headers,
                                         byte[] rawBody, List<InboundCredential> candidates, Boolean ipAllowed,
                                         String clientIp, String traceId) {
         AdapterContext ctx = AdapterContext.create(ChainPhase.INBOUND_AUTH, UnifiedModel.emptyObject(),
@@ -386,7 +417,7 @@ public class ClientAuthVerifier {
                 new AdapterContext.AppMeta(null, null),          // 调用方方向没有"应用"概念
                 new AdapterContext.TraceMeta(traceId),
                 AdapterContext.AuthResult.pass(null), null);
-        JsonNode p = params(adapterRow);
+        JsonNode p = adapterParams;
         ctx.attrs().put("adapterParams", p);
         ctx.attrs().put("headers", headers == null ? Map.of() : headers);
         ctx.attrs().put("rawBody", rawBody == null ? new byte[0] : rawBody);
@@ -479,6 +510,23 @@ public class ClientAuthVerifier {
     private static String attr(AdapterContext ctx, String key) {
         Object v = ctx.attrs().get(key);
         return v instanceof String s ? s : null;
+    }
+
+    /**
+     * 判断"请求是否带了凭证头"（S2，2026-09-24 评审修复）：
+     * **先按适配器 params 声明的头名**（`credentialHeaderName` / `headerName` / `signatureHeader`），
+     * 都没有值再回退到默认头名清单 —— 这样"把凭证头改名"的调用方在 `OPTIONAL` 档下也**不会被误判为没带凭证**。
+     */
+    private static boolean carriesCredential(JsonNode params, Map<String, String> headers) {
+        for (String key : List.of("credentialHeaderName", "headerName", "signatureHeader")) {
+            if (params != null && params.has(key) && !params.get(key).isNull()) {
+                String v = header(headers, params.get(key).asText());
+                if (v != null && !v.isBlank()) {
+                    return true;
+                }
+            }
+        }
+        return firstPresent(headers) != null;
     }
 
     /** 是否带了（默认清单里的）凭证头 —— 仅用于 OPTIONAL 的"带了就必须对"判定 */

@@ -31,6 +31,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 /**
@@ -375,6 +376,87 @@ class ClientAuthVerifierTest {
     }
 
     // ---------- v1.2（C2）：判定中心 = 凭证池 ----------
+
+    // ---------- v1.2 评审修复（S1/S2/S3） ----------
+
+    /** S1：方式解析要**留痕** —— 审计 reason 写明「来自哪一级」，回退时附原因（否则鉴权被静默放宽无人知晓） */
+    @Test
+    void S1_方式来自接口绑定与回退到平台默认_审计reason可追查() {
+        // ① 接口绑定命中 ⇒ reason 标「接口绑定（CLIENT_AUTH）」
+        ClientAuthVerifier v1 = verifier("ENFORCED");     // ⚠ 先建（helper 会桩 anyLong()->空列表）
+        givenApiKeyAdapter(true);
+        when(interfaceRepo.findBindings(9L)).thenReturn(List.of(
+                new InterfaceRow.BindingRow(1, "CLIENT_AUTH", "ADP-K1", null)));
+        ClientAuthVerifier.Decision d1 = v1
+                .verify(iface(), "POST", Map.of("X-Client-Id", CLIENT, "X-Api-Key", "secret-1234"),
+                        "{}".getBytes(), "1.2.3.4", null, "curl/8", "t-s1a");
+        assertThat(d1.passed()).isTrue();
+        assertThat(AccessAuthContext.get().reason()).contains("方式来自接口绑定（CLIENT_AUTH）");
+
+        // ② 接口绑定的适配器已停用 + 平台默认可用 ⇒ 回退，reason 里必须写明「回退到平台默认设置」与前序不可用原因
+        ClientAuthVerifier v2 = verifier("ENFORCED", true, "ADP-K1");   // ⚠ 同上：先建，再打精确桩
+        when(interfaceRepo.findBindings(9L)).thenReturn(List.of(
+                new InterfaceRow.BindingRow(1, "CLIENT_AUTH", "ADP-OFF", null)));
+        when(adapterRepo.findById("ADP-OFF"))
+                .thenReturn(Optional.of(adapter("ADP-OFF", "ClientApiKeyVerifyAdapter", false, null)));
+        when(adapterRepo.findById("ADP-K1"))
+                .thenReturn(Optional.of(adapter("ADP-K1", "ClientApiKeyVerifyAdapter", true, null)));
+        ClientAuthVerifier.Decision d2 = v2
+                .verify(iface(), "POST", Map.of("X-Client-Id", CLIENT, "X-Api-Key", "secret-1234"),
+                        "{}".getBytes(), "1.2.3.4", null, "curl/8", "t-s1b");
+        assertThat(d2.passed()).isTrue();
+        assertThat(d2.authAdapterId()).isEqualTo("ADP-K1");
+        String reason = AccessAuthContext.get().reason();
+        assertThat(reason).contains("方式来自平台默认设置").contains("方式回退到平台默认设置").contains("已停用");
+    }
+
+    /** S2：`OPTIONAL` 下「是否带了凭证头」要认**适配器声明的头名** —— 改名后不能被当成"没带凭证"而放行 */
+    @Test
+    void S2_凭证头改名的调用方_OPTIONAL下不会被误判为未带凭证() {
+        ClientAuthVerifier v = openSetVerifier("OPTIONAL");   // ⚠ 先建（helper 会把 defaultAdapterId 桩回 null）
+        String customParams = "{\"credentialHeaderName\":\"X-Custom-Key\"}";
+        when(adapterRepo.findById("ADP-P1"))
+                .thenReturn(Optional.of(adapter("ADP-P1", "ClientApiKeyVerifyAdapter", true, customParams)));
+        when(settingService.defaultAdapterId()).thenReturn("ADP-P1");
+        when(credentialRepo.findVerifiable(eq(CredentialOwner.PLATFORM), eq(null), eq("API_KEY")))
+                .thenReturn(List.of(new CredentialRow(7, null, "API_KEY", "enc", "ACTIVE",
+                        null, null, null, null, null)));
+        when(cryptoService.decrypt("enc")).thenReturn("secret-1234");
+
+        // 带了改名后的凭证头（值不对）⇒ 必须校验并拒绝 40100（而不是"没带凭证"放行）
+        ClientAuthVerifier.Decision wrong = v.verify(iface(), "POST",
+                Map.of("X-Custom-Key", "WRONG"), "{}".getBytes(), "1.2.3.4", null, "curl/8", "t-s2a");
+        assertThat(wrong.passed()).isFalse();
+        assertThat(wrong.errorCode()).isEqualTo(40100);
+
+        // 完全没带任何凭证头 ⇒ 仍按真值表放行（观察）
+        ClientAuthVerifier.Decision none = v
+                .verify(iface(), "POST", Map.of(), "{}".getBytes(), "1.2.3.4", null, "curl/8", "t-s2b");
+        assertThat(none.passed()).isTrue();
+        assertThat(none.authMethod()).isEqualTo("NONE");
+    }
+
+    /** S3：解析成本可量化 —— 绑定只查一次；多级指向同一适配器时只查库一次；参数只解析一次（隐式由调用路径保证） */
+    @Test
+    void S3_绑定与适配器查询次数有界_同一id不重复查库() {
+        when(interfaceRepo.findBindings(9L)).thenReturn(List.of(
+                new InterfaceRow.BindingRow(1, "CLIENT_AUTH", "ADP-K1", null)));
+        when(adapterRepo.findById("ADP-K1"))
+                .thenReturn(Optional.of(adapter("ADP-K1", "ClientApiKeyVerifyAdapter", true, null)));
+        when(credentialRepo.findVerifiable(eq(CredentialOwner.PLATFORM), eq(null), eq("API_KEY")))
+                .thenReturn(List.of(new CredentialRow(7, null, "API_KEY", "enc", "ACTIVE",
+                        null, null, null, null, null)));
+        when(cryptoService.decrypt("enc")).thenReturn("secret-1234");
+
+        // 接口绑定与平台默认指向**同一个**适配器 ⇒ 只应查库一次
+        ClientAuthVerifier.Decision d = verifier("ENFORCED", false, "ADP-K1")
+                .verify(iface(), "POST", Map.of("X-Api-Key", "secret-1234"), "{}".getBytes(), "1.2.3.4",
+                        null, "curl/8", "t-s3");
+        assertThat(d.passed()).isTrue();
+        // 注意：本类有同名实例方法 `verify(mode, headers)` ⇒ 必须**全限定**调用 Mockito.verify
+        org.mockito.Mockito.verify(interfaceRepo, times(1)).findBindings(9L);
+        org.mockito.Mockito.verify(adapterRepo, times(1)).findById("ADP-K1");
+    }
 
     /** C4：指标标签必须**有界** —— 开放集下自报主体不可信，随机 id 不能变成新标签 */
     @Test
