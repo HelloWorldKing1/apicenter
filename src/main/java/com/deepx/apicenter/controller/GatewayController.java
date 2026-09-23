@@ -153,7 +153,7 @@ public class GatewayController {
                 iface.id(), iface.code(), method, adapterId,
                 "PASS", null, "回调方向：结果由链内验签回填",
                 clientIp, request.getHeader("X-Forwarded-For"),
-                ua == null || ua.length() <= 200 ? ua : ua.substring(0, 200), null));
+                ua == null || ua.length() <= 200 ? ua : ua.substring(0, 200), null, null, null));
     }
 
     /**

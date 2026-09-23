@@ -21,7 +21,8 @@ public record ClientAuthProperties(
         String idHeader,
         Audit audit,
         String internalToken,
-        Integer failAlertThreshold) {
+        Integer failAlertThreshold,
+        String maskHeaderNames) {
 
     public static final String DEFAULT_ID_HEADER = "X-Client-Id";
 
@@ -55,6 +56,23 @@ public record ClientAuthProperties(
     /** 连续失败告警阈值（默认 10，与设计方案 §14 一致） */
     public int failAlertThresholdOrDefault() {
         return failAlertThreshold == null || failAlertThreshold <= 0 ? 10 : failAlertThreshold;
+    }
+
+    /**
+     * 额外需脱敏的头名（逗号分隔，运维兜底，设计方案 §6.3）：正常路径由适配器 params 的头名**自动注册**，
+     * 这一项用于「运维知道有自定义密钥头但没配到适配器上」的场景。
+     */
+    public java.util.List<String> maskHeaderNamesOrDefault() {
+        if (maskHeaderNames == null || maskHeaderNames.isBlank()) {
+            return java.util.List.of();
+        }
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (String part : maskHeaderNames.split(",")) {
+            if (!part.isBlank()) {
+                out.add(part.trim());
+            }
+        }
+        return out;
     }
 
     public String internalTokenOrNull() {

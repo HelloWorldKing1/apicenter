@@ -29,7 +29,9 @@ public class AccessAuthLogRepository {
             String traceId, String direction, String principalType, String principalId, String principalName,
             Long interfaceId, String interfaceCode, String authMethod, String authAdapterId,
             String result, String errorCode, String reason,
-            String clientIp, String xffChain, String userAgent, Long latencyMs) {
+            String clientIp, String xffChain, String userAgent, Long latencyMs,
+            /** v1.2 / D-CA-20：命中的凭证备注与指纹（共享凭证下唯一不可伪造的归因抓手；可空） */
+            String credentialLabel, String credentialFingerprint) {
     }
 
     public void insertBatch(List<AccessAuthLogEntry> entries) {
@@ -39,8 +41,9 @@ public class AccessAuthLogRepository {
         jdbc.batchUpdate("""
                 INSERT INTO access_auth_log (trace_id, direction, principal_type, principal_id, principal_name,
                                              interface_id, interface_code, auth_method, auth_adapter_id,
-                                             result, error_code, reason, client_ip, xff_chain, user_agent, latency_ms)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                             result, error_code, reason, client_ip, xff_chain, user_agent, latency_ms,
+                                             credential_label, credential_fingerprint)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, entries, 100, (PreparedStatement ps, AccessAuthLogEntry e) -> {
             ps.setString(1, truncate(e.traceId(), 32));
             ps.setString(2, truncate(e.direction(), 16));
@@ -67,6 +70,9 @@ public class AccessAuthLogRepository {
             } else {
                 ps.setLong(16, e.latencyMs());
             }
+            // v1.2：凭证归因两列（追加在最后，**位置绑定序号 17/18** —— 加列必须同步「列表/视图/插入」三处）
+            ps.setString(17, truncate(e.credentialLabel(), 64));
+            ps.setString(18, truncate(e.credentialFingerprint(), 16));
         });
     }
 
@@ -76,7 +82,8 @@ public class AccessAuthLogRepository {
             String principalType, String principalId, String principalName,
             Long interfaceId, String interfaceCode, String authMethod, String authAdapterId,
             String result, String errorCode, String reason,
-            String clientIp, String xffChain, String userAgent, Long latencyMs) {
+            String clientIp, String xffChain, String userAgent, Long latencyMs,
+            String credentialLabel, String credentialFingerprint) {
     }
 
     /**
@@ -98,7 +105,8 @@ public class AccessAuthLogRepository {
                 rs.getString("interface_code"), rs.getString("auth_method"), rs.getString("auth_adapter_id"),
                 rs.getString("result"), rs.getString("error_code"), rs.getString("reason"),
                 rs.getString("client_ip"), rs.getString("xff_chain"), rs.getString("user_agent"),
-                rs.getObject("latency_ms") == null ? null : rs.getLong("latency_ms")), args.toArray());
+                rs.getObject("latency_ms") == null ? null : rs.getLong("latency_ms"),
+                rs.getString("credential_label"), rs.getString("credential_fingerprint")), args.toArray());
     }
 
     public long count(String principalId, String ip, String result, String method,
@@ -173,7 +181,8 @@ public class AccessAuthLogRepository {
                         rs.getString("interface_code"), rs.getString("auth_method"), rs.getString("auth_adapter_id"),
                         rs.getString("result"), rs.getString("error_code"), rs.getString("reason"),
                         rs.getString("client_ip"), rs.getString("xff_chain"), rs.getString("user_agent"),
-                        rs.getObject("latency_ms") == null ? null : rs.getLong("latency_ms")), traceId);
+                        rs.getObject("latency_ms") == null ? null : rs.getLong("latency_ms"),
+                        rs.getString("credential_label"), rs.getString("credential_fingerprint")), traceId);
     }
 
     private static String truncate(String s, int max) {

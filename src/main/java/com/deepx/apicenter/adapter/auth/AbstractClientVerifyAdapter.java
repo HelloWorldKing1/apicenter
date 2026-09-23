@@ -3,6 +3,7 @@ package com.deepx.apicenter.adapter.auth;
 import com.deepx.apicenter.engine.AdapterContext;
 import com.deepx.apicenter.engine.AdapterType;
 import com.deepx.apicenter.engine.ChainPhase;
+import com.deepx.apicenter.engine.InboundCredential;
 import com.deepx.apicenter.exception.BizException;
 import tools.jackson.databind.JsonNode;
 
@@ -51,8 +52,29 @@ abstract class AbstractClientVerifyAdapter implements InboundAuthAdapter {
 
     @SuppressWarnings("unchecked")
     protected List<String> credentials(AdapterContext ctx) {
+        return candidates(ctx).stream().map(InboundCredential::plaintext).toList();
+    }
+
+    /**
+     * 候选凭证（**v1.2 / D-CA-20**）：闸门注入的不再只是明文串，而是「id + 明文 + 备注 + 指纹」——
+     * 适配器命中哪一条就把 id 回写上下文，审计据此落 `credential_label` / `credential_fingerprint`。
+     *
+     * <p>兼容两种注入形态：`List&lt;InboundCredential&gt;`（闸门，v1.2）与 `List&lt;String&gt;`（存量测试/回调路径）。
+     */
+    protected List<InboundCredential> candidates(AdapterContext ctx) {
         Object o = ctx.attrs().get("inboundCredentials");
-        return o instanceof List<?> l ? (List<String>) l : List.of();
+        if (!(o instanceof List<?> list)) {
+            return List.of();
+        }
+        List<InboundCredential> out = new java.util.ArrayList<>(list.size());
+        for (Object e : list) {
+            if (e instanceof InboundCredential c) {
+                out.add(c);
+            } else if (e instanceof String s) {
+                out.add(InboundCredential.ofPlaintext(s));
+            }
+        }
+        return out;
     }
 
     protected byte[] rawBody(AdapterContext ctx) {
@@ -116,6 +138,38 @@ abstract class AbstractClientVerifyAdapter implements InboundAuthAdapter {
         for (String secret : credentials) {
             // 不用 || 短路：保持「每条都参与比较」的常量时间口径
             matched |= constantTimeEquals(secret, presented);
+        }
+        return matched;
+    }
+
+    /**
+     * 逐条比对并**记录命中的那条**（v1.2 / D-CA-20）：命中时把凭证 id 写入 `attrs("matchedCredentialId")`，
+     * 闸门读它回填审计的 `credential_label` / `credential_fingerprint`。
+     *
+     * <p>保留与 {@link #anyCredentialMatches} 相同的**常量时间口径**（不按命中早退）。
+     */
+    protected boolean matchCredential(AdapterContext ctx, List<InboundCredential> candidates, String presented) {
+        boolean matched = false;
+        long matchedId = InboundCredential.NO_ID;
+        String matchedLabel = null;
+        String matchedFingerprint = null;
+        for (InboundCredential c : candidates) {
+            boolean hit = constantTimeEquals(c.plaintext(), presented);
+            if (hit && !matched) {
+                matchedId = c.id();
+                matchedLabel = c.label();
+                matchedFingerprint = c.fingerprint();
+            }
+            matched |= hit;
+        }
+        if (matched) {
+            ctx.attrs().put("matchedCredentialId", matchedId);
+            if (matchedLabel != null) {
+                ctx.attrs().put("matchedCredentialLabel", matchedLabel);
+            }
+            if (matchedFingerprint != null) {
+                ctx.attrs().put("matchedCredentialFingerprint", matchedFingerprint);
+            }
         }
         return matched;
     }

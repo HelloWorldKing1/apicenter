@@ -1,6 +1,7 @@
 package com.deepx.apicenter.adapter.auth;
 
 import com.deepx.apicenter.engine.AdapterContext;
+import com.deepx.apicenter.engine.InboundCredential;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -52,12 +53,13 @@ public class ClientBearerVerifyAdapter extends AbstractClientVerifyAdapter {
         if (token.isEmpty()) {
             throw fail(40100, "鉴权失败：凭证为空");
         }
-        List<String> credentials = credentials(ctx);
-        if (credentials.isEmpty()) {
+        // v1.2：候选凭证带 id/备注/指纹 —— 命中时由 matchCredential 回写，供审计归因（D-CA-20）
+        List<InboundCredential> candidates = candidates(ctx);
+        if (candidates.isEmpty()) {
             throw fail(40100, "鉴权失败：无可用凭证");
         }
-        if (!anyCredentialMatches(credentials, token)) {
-            throw fail(40100, "鉴权失败：Token 不匹配（主体由 " + idHeader + " 声明）");
+        if (!matchCredential(ctx, candidates, token)) {
+            throw fail(40100, "鉴权失败：Token 不匹配" + (idHeader.isBlank() ? "" : "（自报主体头 " + idHeader + "）"));
         }
     }
 }

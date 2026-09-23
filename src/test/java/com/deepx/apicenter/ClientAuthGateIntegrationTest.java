@@ -107,6 +107,12 @@ class ClientAuthGateIntegrationTest {
     private com.deepx.apicenter.repository.ClientAppRepository clientAppRepository;
     @Autowired
     private com.deepx.apicenter.repository.InterfaceRepository interfaceRepository;
+    @Autowired
+    private com.deepx.apicenter.repository.CredentialRepository credentialRepository;
+    @Autowired
+    private com.deepx.apicenter.service.InboundAuthSettingService inboundAuthSettingService;
+    @Autowired
+    private com.deepx.apicenter.service.InboundCredentialService inboundCredentialService;
 
     private RestClient http;
     private String outboundPath;
@@ -152,9 +158,34 @@ class ClientAuthGateIntegrationTest {
     @AfterEach
     void tearDown() {
         cleanFixtures();
+        // v1.2：平台设置与平台池是**全局**状态，用例结束必须复位，避免污染其他用例/手动验收
+        inboundAuthSettingService.save(null, true, "b3-cleanup");
+        credentialRepository.deleteByOwner(com.deepx.apicenter.repository.CredentialOwner.PLATFORM, null);
     }
 
     // ---------- 用例 ----------
+
+    @Test
+    void 开放集_无主体_凭平台池凭证可调用_并落审计归因_用例39() {
+        stubFor(post(urlEqualTo("/echo")).willReturn(okJson("{\"ok\":true}")));
+        // v1.2（D-CA-18/19）：不登记调用方也能调 —— 平台默认方式 + 平台共享池凭证
+        inboundAuthSettingService.save(createApiKeyAdapter(), false, "b3-test");
+        com.deepx.apicenter.dto.CredentialDtos.CredentialIssuedView issued =
+                inboundCredentialService.prepare("PLATFORM", null, "API_KEY", "B3 开放集用例");
+        inboundCredentialService.activate("PLATFORM", null, issued.id());
+
+        String trace = nextTrace();
+        var resp = callPost(outboundPath, "{}", trace, null, issued.plaintext());
+
+        assertThat(resp.getStatusCode().value()).isEqualTo(200);
+        AccessAuthLogEntry audit = awaitAudit(trace);
+        assertThat(audit).isNotNull();
+        assertThat(audit.result()).isEqualTo("PASS");
+        assertThat(audit.principalType()).isEqualTo("UNVERIFIED");        // 无主体 ⇒ 自报未验证
+        assertThat(audit.credentialLabel()).isEqualTo("B3 开放集用例");   // 凭证归因（D-CA-20）
+        assertThat(audit.credentialFingerprint()).isEqualTo(
+                issued.plaintext().substring(issued.plaintext().length() - 4));
+    }
 
     @Test
     void ENFORCED_裸调无凭证_401且运行表零增量且审计REJECT() {
@@ -169,7 +200,9 @@ class ClientAuthGateIntegrationTest {
         AccessAuthLogEntry audit = awaitAudit(trace);
         assertThat(audit).isNotNull();
         assertThat(audit.direction()).isEqualTo("INBOUND_CALL");
-        assertThat(audit.principalType()).isEqualTo("CLIENT");
+        // v1.2：未带 X-Client-Id ⇒ 主体为「自报未验证」（UNVERIFIED），不再是 CLIENT
+        //       （§6.2 主体语义表：自报 ≠ 已验证身份；只有命中「档案池」凭证或回调验签才是 CLIENT/SUPPLIER）
+        assertThat(audit.principalType()).isEqualTo("UNVERIFIED");
         assertThat(audit.result()).isEqualTo("REJECT");
         assertThat(audit.errorCode()).isEqualTo("40107");
         assertThat(audit.clientIp()).isNotBlank();               // 审计三字段之一：IP

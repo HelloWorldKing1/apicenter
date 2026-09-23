@@ -1,6 +1,7 @@
 package com.deepx.apicenter.adapter.auth;
 
 import com.deepx.apicenter.engine.AdapterContext;
+import com.deepx.apicenter.engine.InboundCredential;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -75,16 +76,33 @@ public class ClientHmacVerifyAdapter extends AbstractClientVerifyAdapter {
         if (replayProtection && isReplayed(principal, signature, nowSeconds)) {
             throw fail(40100, "验签失败：重复请求（防重放）");
         }
-        List<String> credentials = credentials(ctx);
-        if (credentials.isEmpty()) {
+        // v1.2：候选凭证带 id/备注/指纹 —— 命中时回写上下文，供审计归因（D-CA-20）
+        List<InboundCredential> candidates = candidates(ctx);
+        if (candidates.isEmpty()) {
             throw fail(40100, "验签失败：无可用凭证");
         }
         boolean matched = false;
-        for (String secret : credentials) {
-            matched |= HmacSigner.verify(algorithm, secret, timestamp, rawBody(ctx), signature);
+        long matchedId = InboundCredential.NO_ID;
+        String matchedLabel = null;
+        String matchedFingerprint = null;
+        for (InboundCredential c : candidates) {
+            boolean hit = HmacSigner.verify(algorithm, c.plaintext(), timestamp, rawBody(ctx), signature);
+            if (hit && !matched) {
+                matchedId = c.id();
+                matchedLabel = c.label();
+                matchedFingerprint = c.fingerprint();
+            }
+            matched |= hit;   // 不早退：保持「每条都参与验签」的常量时间口径
         }
         if (!matched) {
             throw fail(40100, "验签失败：签名不匹配");
+        }
+        ctx.attrs().put("matchedCredentialId", matchedId);
+        if (matchedLabel != null) {
+            ctx.attrs().put("matchedCredentialLabel", matchedLabel);
+        }
+        if (matchedFingerprint != null) {
+            ctx.attrs().put("matchedCredentialFingerprint", matchedFingerprint);
         }
         if (replayProtection) {
             markReplayed(principal, signature, nowSeconds, tolerance);

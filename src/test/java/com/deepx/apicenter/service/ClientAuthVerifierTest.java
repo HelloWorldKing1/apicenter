@@ -15,6 +15,7 @@ import com.deepx.apicenter.repository.AdapterRepository;
 import com.deepx.apicenter.repository.ClientAppRepository;
 import com.deepx.apicenter.repository.CredentialOwner;
 import com.deepx.apicenter.repository.CredentialRepository;
+import com.deepx.apicenter.repository.InterfaceRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
@@ -26,6 +27,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -45,18 +47,34 @@ class ClientAuthVerifierTest {
     private final CredentialRepository credentialRepo = mock(CredentialRepository.class);
     private final CryptoService cryptoService = mock(CryptoService.class);
     private final AlertService alertService = mock(AlertService.class);
+    private final InterfaceRepository interfaceRepo = mock(InterfaceRepository.class);
+    /** 平台设置（v1.2）：默认「兼容档」= 强制自报主体 + 无平台默认方式（等价 v1.1 行为） */
+    private final InboundAuthSettingService settingService = mock(InboundAuthSettingService.class);
 
+    /** 兼容档（require_client_id=1）：v1.1 行为，既有用例全部据此断言 */
     private ClientAuthVerifier verifier(String mode) {
-        ClientAuthProperties props = new ClientAuthProperties(mode, null, null, INTERNAL, null);
+        return verifier(mode, true, null);
+    }
+
+    /** 开放集档（require_client_id=0）：自报主体不参与放行（v1.2 新增用例用） */
+    private ClientAuthVerifier openSetVerifier(String mode) {
+        return verifier(mode, false, null);
+    }
+
+    private ClientAuthVerifier verifier(String mode, boolean requireClientId, String defaultAdapterId) {
+        when(settingService.requireClientId()).thenReturn(requireClientId);
+        when(settingService.defaultAdapterId()).thenReturn(defaultAdapterId);
+        when(interfaceRepo.findBindings(anyLong())).thenReturn(List.of());
+        ClientAuthProperties props = new ClientAuthProperties(mode, null, null, INTERNAL, null, null);
         InternalCallToken token = new InternalCallToken(props);
         Map<String, Adapter> beans = Map.of(
                 "ClientApiKeyVerifyAdapter", new ClientApiKeyVerifyAdapter(),
                 "ClientHmacVerifyAdapter", new ClientHmacVerifyAdapter(),
                 "ClientBearerVerifyAdapter", new ClientBearerVerifyAdapter(),
                 "ClientIpWhitelistVerifyAdapter", new ClientIpWhitelistVerifyAdapter());
-        return new ClientAuthVerifier(props, token, clientRepo, adapterRepo, credentialRepo, cryptoService,
-                new ObjectMapper(), beans, new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
-                alertService);
+        return new ClientAuthVerifier(props, token, clientRepo, adapterRepo, credentialRepo, interfaceRepo,
+                settingService, cryptoService, new ObjectMapper(), beans,
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), alertService);
     }
 
     @AfterEach
@@ -262,9 +280,11 @@ class ClientAuthVerifierTest {
     @Test
     void 内部令牌为空_不豁免() {
         // 空令牌 ⇒ 不豁免（防"空令牌放行"）→ 仍按 ENFORCED 判：无主体头 ⇒ 40107
-        ClientAuthProperties props = new ClientAuthProperties("ENFORCED", null, null, "", null);
+        when(settingService.requireClientId()).thenReturn(true);
+        when(interfaceRepo.findBindings(anyLong())).thenReturn(List.of());
+        ClientAuthProperties props = new ClientAuthProperties("ENFORCED", null, null, "", null, null);
         ClientAuthVerifier v = new ClientAuthVerifier(props, new InternalCallToken(props), clientRepo,
-                adapterRepo, credentialRepo, cryptoService, new ObjectMapper(),
+                adapterRepo, credentialRepo, interfaceRepo, settingService, cryptoService, new ObjectMapper(),
                 Map.of("ClientApiKeyVerifyAdapter", new ClientApiKeyVerifyAdapter()),
                 new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), alertService);
         ClientAuthVerifier.Decision d = v.verify(iface(), "POST", Map.of(InternalCallToken.HEADER, ""),
@@ -348,5 +368,155 @@ class ClientAuthVerifierTest {
         assertThat(e.principalName()).isEqualTo("ERP 生产");
         assertThat(e.authMethod()).isEqualTo("API_KEY");
         assertThat(e.authAdapterId()).isEqualTo("ADP-K1");
+    }
+
+    // ---------- v1.2（C2）：判定中心 = 凭证池 ----------
+
+    /** 用例 39/40：开放集档（require_client_id=0）—— 不带 X-Client-Id 也能凭平台池凭证调用 */
+    @Test
+    void 开放集_无主体_平台池凭证命中即放行_并记录凭证归因() {
+        ClientAuthVerifier v = openSetVerifier("ENFORCED");
+        when(adapterRepo.findById("ADP-P1"))
+                .thenReturn(Optional.of(adapter("ADP-P1", "ClientApiKeyVerifyAdapter", true, null)));
+        when(settingService.defaultAdapterId()).thenReturn("ADP-P1");
+        when(credentialRepo.findVerifiable(eq(CredentialOwner.PLATFORM), eq(null), eq("API_KEY")))
+                .thenReturn(List.of(new CredentialRow(7, null, "API_KEY", "enc", "ACTIVE",
+                        null, null, null, null, "某公司 2026-09-24")));
+        when(cryptoService.decrypt("enc")).thenReturn("secret-1234");
+        when(cryptoService.fingerprint("secret-1234")).thenReturn("1234");
+
+        ClientAuthVerifier.Decision d = v
+                .verify(iface(), "POST", Map.of("X-Api-Key", "secret-1234"), "{}".getBytes(), "1.2.3.4",
+                        null, "curl/8", "t-open");
+
+        assertThat(d.passed()).isTrue();
+        assertThat(d.authMethod()).isEqualTo("API_KEY");
+        assertThat(d.principalType()).isEqualTo("UNVERIFIED");   // 无主体 ⇒ 自报未验证
+        assertThat(d.credentialLabel()).isEqualTo("某公司 2026-09-24");
+        assertThat(d.credentialFingerprint()).isEqualTo("1234");
+        // 审计同样落凭证归因（D-CA-20：共享凭证下唯一不可伪造的抓手）
+        assertThat(AccessAuthContext.get().credentialLabel()).isEqualTo("某公司 2026-09-24");
+    }
+
+    @Test
+    void 开放集_无主体_凭证错误_拒40100而非40107() {
+        ClientAuthVerifier v = openSetVerifier("ENFORCED");
+        when(adapterRepo.findById("ADP-P1"))
+                .thenReturn(Optional.of(adapter("ADP-P1", "ClientApiKeyVerifyAdapter", true, null)));
+        when(settingService.defaultAdapterId()).thenReturn("ADP-P1");
+        when(credentialRepo.findVerifiable(any(), any(), eq("API_KEY")))
+                .thenReturn(List.of(new CredentialRow(7, null, "API_KEY", "enc", "ACTIVE",
+                        null, null, null, null, null)));
+        when(cryptoService.decrypt("enc")).thenReturn("secret-1234");
+
+        ClientAuthVerifier.Decision d = v
+                .verify(iface(), "POST", Map.of("X-Api-Key", "WRONG"), "{}".getBytes(), "1.2.3.4",
+                        null, "curl/8", "t-open2");
+
+        assertThat(d.passed()).isFalse();
+        assertThat(d.errorCode()).isEqualTo(40100);   // 主体缺失不再拦截（v1.2）
+    }
+
+    /** 用例 42：池**逐级短路** —— 接口池有可用凭证时，平台池密钥必须被拒（接口隔离语义） */
+    @Test
+    void 接口池短路_接口池有凭证时平台池密钥被拒_删掉接口池后同一请求变200() {
+        ClientAuthVerifier v = openSetVerifier("ENFORCED");
+        when(adapterRepo.findById("ADP-P1"))
+                .thenReturn(Optional.of(adapter("ADP-P1", "ClientApiKeyVerifyAdapter", true, null)));
+        when(settingService.defaultAdapterId()).thenReturn("ADP-P1");
+        when(cryptoService.decrypt("encI")).thenReturn("iface-secret");
+        when(credentialRepo.findVerifiable(eq(CredentialOwner.INTERFACE), eq("9"), eq("API_KEY")))
+                .thenReturn(List.of(new CredentialRow(11, "9", "API_KEY", "encI", "ACTIVE",
+                        null, null, null, null, "接口专属")));
+        when(credentialRepo.findVerifiable(eq(CredentialOwner.PLATFORM), eq(null), eq("API_KEY")))
+                .thenReturn(List.of(new CredentialRow(12, null, "API_KEY", "encP", "ACTIVE",
+                        null, null, null, null, "平台共享")));
+        when(cryptoService.decrypt("encP")).thenReturn("platform-secret");
+
+        // 接口池有凭证（kind=API_KEY）⇒ 只看这一级 ⇒ 平台池密钥即便正确也被拒
+        ClientAuthVerifier.Decision denied = v
+                .verify(iface(), "POST", Map.of("X-Api-Key", "platform-secret"), "{}".getBytes(), "1.2.3.4",
+                        null, "curl/8", "t-sc1");
+        assertThat(denied.passed()).isFalse();
+        assertThat(denied.errorCode()).isEqualTo(40100);
+
+        // 接口池密钥则通过
+        ClientAuthVerifier.Decision ok = v
+                .verify(iface(), "POST", Map.of("X-Api-Key", "iface-secret"), "{}".getBytes(), "1.2.3.4",
+                        null, "curl/8", "t-sc2");
+        assertThat(ok.passed()).isTrue();
+        assertThat(ok.credentialLabel()).isEqualTo("接口专属");
+
+        // 反证：接口池清空（可用凭证不存在）后，同一平台池密钥变 200
+        when(credentialRepo.findVerifiable(eq(CredentialOwner.INTERFACE), eq("9"), eq("API_KEY")))
+                .thenReturn(List.of());
+        ClientAuthVerifier.Decision after = v
+                .verify(iface(), "POST", Map.of("X-Api-Key", "platform-secret"), "{}".getBytes(), "1.2.3.4",
+                        null, "curl/8", "t-sc3");
+        assertThat(after.passed()).isTrue();
+        assertThat(after.credentialLabel()).isEqualTo("平台共享");
+    }
+
+    /** 用例 43：档案停用 ⇒ 其档案池凭证不参与取值（「停用 = 吊销凭证」语义闭合） */
+    @Test
+    void 开放集_档案已停用_其档案池凭证不参与取值() {
+        ClientAuthVerifier v = openSetVerifier("ENFORCED");
+        givenClient(client("DISABLED", "ADP-K1", null, null));
+        when(adapterRepo.findById("ADP-K1"))
+                .thenReturn(Optional.of(adapter("ADP-K1", "ClientApiKeyVerifyAdapter", true, null)));
+        when(credentialRepo.findVerifiable(eq(CredentialOwner.CLIENT), eq(CLIENT), eq("API_KEY")))
+                .thenReturn(List.of(new CredentialRow(5, CLIENT, "API_KEY", "enc", "ACTIVE",
+                        null, null, null, null, null)));
+        when(cryptoService.decrypt("enc")).thenReturn("secret-1234");
+
+        ClientAuthVerifier.Decision d = v
+                .verify(iface(), "POST", Map.of("X-Client-Id", CLIENT, "X-Api-Key", "secret-1234"),
+                        "{}".getBytes(), "1.2.3.4", null, "curl/8", "t-dis");
+
+        assertThat(d.passed()).isFalse();
+        assertThat(d.errorCode()).isEqualTo(40108);   // 三级池皆不可用（档案停用 ⇒ 其池不参与）
+    }
+
+    /** 用例 45：方式归属 —— 接口绑定 CLIENT_AUTH 覆盖平台默认 */
+    @Test
+    void 接口绑定CLIENT_AUTH_覆盖平台默认方式() {
+        ClientAuthVerifier v = verifier("ENFORCED", false, "ADP-H1");
+        when(interfaceRepo.findBindings(9L)).thenReturn(List.of(
+                new InterfaceRow.BindingRow(1, "CLIENT_AUTH", "ADP-K1", null)));
+        when(adapterRepo.findById("ADP-K1"))
+                .thenReturn(Optional.of(adapter("ADP-K1", "ClientApiKeyVerifyAdapter", true, null)));
+        when(adapterRepo.findById("ADP-H1"))
+                .thenReturn(Optional.of(adapter("ADP-H1", "ClientHmacVerifyAdapter", true, null)));
+        when(credentialRepo.findVerifiable(eq(CredentialOwner.PLATFORM), eq(null), eq("API_KEY")))
+                .thenReturn(List.of(new CredentialRow(7, null, "API_KEY", "enc", "ACTIVE",
+                        null, null, null, null, null)));
+        when(cryptoService.decrypt("enc")).thenReturn("secret-1234");
+
+        // 平台默认是 HMAC，但接口绑了 API Key ⇒ 按 API Key 判定
+        ClientAuthVerifier.Decision d = v
+                .verify(iface(), "POST", Map.of("X-Api-Key", "secret-1234"), "{}".getBytes(), "1.2.3.4",
+                        null, "curl/8", "t-bind");
+
+        assertThat(d.passed()).isTrue();
+        assertThat(d.authAdapterId()).isEqualTo("ADP-K1");
+        assertThat(d.authMethod()).isEqualTo("API_KEY");
+    }
+
+    /** 用例 47 的对照：三级池全空 ⇒ 40108（与「密钥不匹配」40100 分开，运维可自助定位） */
+    @Test
+    void 开放集_池全空_拒40108而非40100() {
+        ClientAuthVerifier v = openSetVerifier("ENFORCED");
+        when(adapterRepo.findById("ADP-P1"))
+                .thenReturn(Optional.of(adapter("ADP-P1", "ClientApiKeyVerifyAdapter", true, null)));
+        when(settingService.defaultAdapterId()).thenReturn("ADP-P1");
+        when(credentialRepo.findVerifiable(any(), any(), eq("API_KEY"))).thenReturn(List.of());
+
+        ClientAuthVerifier.Decision d = v
+                .verify(iface(), "POST", Map.of("X-Api-Key", "whatever"), "{}".getBytes(), "1.2.3.4",
+                        null, "curl/8", "t-empty");
+
+        assertThat(d.passed()).isFalse();
+        assertThat(d.errorCode()).isEqualTo(40108);
+        assertThat(d.message()).contains("无可用凭证");
     }
 }

@@ -1,6 +1,7 @@
 package com.deepx.apicenter.adapter.auth;
 
 import com.deepx.apicenter.engine.AdapterContext;
+import com.deepx.apicenter.engine.InboundCredential;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -36,13 +37,14 @@ public class ClientApiKeyVerifyAdapter extends AbstractClientVerifyAdapter {
         if (presented.isEmpty()) {
             throw fail(40100, "鉴权失败：缺少凭证头 " + keyHeader);
         }
-        List<String> credentials = credentials(ctx);
-        if (credentials.isEmpty()) {
+        // v1.2：候选凭证带 id/备注/指纹 —— 命中时由 matchCredential 回写，供审计归因（D-CA-20）
+        List<InboundCredential> candidates = candidates(ctx);
+        if (candidates.isEmpty()) {
             throw fail(40100, "鉴权失败：无可用凭证");
         }
-        if (!anyCredentialMatches(credentials, presented)) {
-            // 不暴露主体是否存在（枚举信息泄露最小化）；主体信息由审计表承载
-            throw fail(40100, "鉴权失败：API Key 不匹配（主体由 " + idHeader + " 声明）");
+        if (!matchCredential(ctx, candidates, presented)) {
+            // 不暴露「密钥是否存在/主体是否存在」（枚举信息泄露最小化）；归因信息由审计表承载
+            throw fail(40100, "鉴权失败：API Key 不匹配" + (idHeader.isBlank() ? "" : "（自报主体头 " + idHeader + "）"));
         }
     }
 }

@@ -183,15 +183,42 @@ class InboundAuthAdaptersTest {
 
     @Test
     void 仅IP名单_以闸门判定结果为准() {
+        // v1.2：名单本体移入适配器 params，因此必须给出 clientIp；档案侧结论（clientIpAllowed）作为 AND 叠加项
         AdapterContext allowed = ctx("{}", Map.of(), "{}", List.of());
         allowed.attrs().put("clientIpAllowed", true);
+        allowed.attrs().put("clientIp", "1.2.3.4");
         assertThat(ip.process(allowed).attrs()).containsEntry("inboundAuthMethod", "IP_WHITELIST");
         assertThat(ip.credentialKind()).isNull();
 
         AdapterContext denied = ctx("{}", Map.of(), "{}", List.of());
         denied.attrs().put("clientIpAllowed", false);
+        denied.attrs().put("clientIp", "1.2.3.4");
         assertThatThrownBy(() -> ip.process(denied))
                 .isInstanceOf(BizException.class).hasMessageContaining("不在白名单");
+    }
+
+    @Test
+    void 仅IP名单_名单来自适配器params_命中放行_未命中与黑名单拒绝() {
+        // v1.2 核心：不登记调用方也能用 IP 方式（名单在 params 里）
+        AdapterContext hit = ctx("{\"ipWhitelist\":\"1.2.3.4,10.0.0.1\"}", Map.of(), "{}", List.of());
+        hit.attrs().put("clientIp", "10.0.0.1");
+        assertThat(ip.process(hit).attrs()).containsEntry("inboundAuthPassed", true);
+
+        AdapterContext miss = ctx("{\"ipWhitelist\":\"1.2.3.4\"}", Map.of(), "{}", List.of());
+        miss.attrs().put("clientIp", "9.9.9.9");
+        assertThatThrownBy(() -> ip.process(miss))
+                .isInstanceOf(BizException.class).hasMessageContaining("不在白名单");
+
+        AdapterContext black = ctx("{\"ipBlacklist\":\"9.9.9.9\"}", Map.of(), "{}", List.of());
+        black.attrs().put("clientIp", "9.9.9.9");
+        assertThatThrownBy(() -> ip.process(black))
+                .isInstanceOf(BizException.class).hasMessageContaining("黑名单");
+
+        // 名单为空 + 档案也没明确允许 ⇒ fail-closed（不回退「无名单即放行」）
+        AdapterContext none = ctx("{}", Map.of(), "{}", List.of());
+        none.attrs().put("clientIp", "1.2.3.4");
+        assertThatThrownBy(() -> ip.process(none))
+                .isInstanceOf(BizException.class).hasMessageContaining("未配置白名单");
     }
 
     // ---------- 阶段直通 ----------

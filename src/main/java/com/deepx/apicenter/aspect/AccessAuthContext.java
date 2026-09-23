@@ -27,6 +27,9 @@ public final class AccessAuthContext {
             String clientIp,
             String xffChain,
             String userAgent,
+            /** v1.2 / D-CA-20：命中的凭证备注与指纹（可空） */
+            String credentialLabel,
+            String credentialFingerprint,
             Long latencyMs) {
     }
 
@@ -62,7 +65,8 @@ public final class AccessAuthContext {
                 authMethod == null ? cur.authMethod() : authMethod,
                 authAdapterId == null ? cur.authAdapterId() : authAdapterId,
                 result == null ? cur.result() : result,
-                errorCode, reason, cur.clientIp(), cur.xffChain(), cur.userAgent(), cur.latencyMs()));
+                errorCode, reason, cur.clientIp(), cur.xffChain(), cur.userAgent(),
+                cur.credentialLabel(), cur.credentialFingerprint(), cur.latencyMs()));
     }
 
     /** 转换为落库行（网关切面在 offer 前调用） */
@@ -71,6 +75,7 @@ public final class AccessAuthContext {
                 e.traceId(), e.direction(), e.principalType(), e.principalId(), e.principalName(),
                 e.interfaceId(), e.interfaceCode(), e.authMethod(), e.authAdapterId(),
                 e.result(), e.errorCode(), e.reason(),
-                e.clientIp(), e.xffChain(), e.userAgent(), e.latencyMs());
+                e.clientIp(), e.xffChain(), e.userAgent(), e.latencyMs(),
+                e.credentialLabel(), e.credentialFingerprint());
     }
 }

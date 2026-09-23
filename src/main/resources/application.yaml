@@ -41,6 +41,24 @@ app:
     # 生产同源部署 / 反向代理无需配置；置空 = 不注册 CORS 配置。
     cors:
       allowed-origin-patterns: "http://localhost:[*],http://127.0.0.1:[*]"
+    # 平台入站鉴权（《入站鉴权设计方案.md》v1.2）：调用方鉴权闸门（网关入口，按 if_type 二分）
+    # ⚠ 只放「启动期」项 —— 平台默认鉴权方式与是否强制自报主体、内部令牌都不在这里：
+    #   · 平台默认方式 / require_client_id → **落库**（inbound_auth_setting 单行表，页面可改、即时生效）
+    #   · 内部调用令牌 → 启动时 SecureRandom 生成、仅存内存（不进配置/不落库，避免写入仓库）
+    client-auth:
+      # OFF 不校验 / OPTIONAL 有凭证就验、无凭证放行 / ENFORCED 必须通过；改后必须重启（有意动作）
+      # ⚠ 必须加引号：YAML 1.1 把裸 OFF 解析成布尔 false（绑定到 String 会变成 "false" 并触发枚举校验失败）
+      mode: "OFF"
+      # 自报主体标识头名（v1.2 起它**不参与放行判定**，仅用于审计与「档案池凭证是否参与取值」）
+      id-header: X-Client-Id
+      # 额外需脱敏的头名（逗号分隔，运维兜底；正常情况下由适配器 params 的头名自动注册，D-CA-13）
+      mask-header-names: ""
+      audit:
+        enabled: true
+        record-pass: true
+        record-unmatched: false
+        retention-days: 90
+      fail-alert-threshold: 10
     # 前置接口编排（《前置接口编排设计方案.md》D-PS-7，2026-09-18 落地）：
     # false = 装配期忽略 interface_step（配置保留但不执行）——线上应急一键回退今日行为
     pre-step:
