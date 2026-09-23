@@ -22,7 +22,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  *   <li>config/     配置与 Bean 装配（M1）</li>
  * </ul>
  *
- * @see src/main/resources/doc/开发文档/ M0 契约设计（链引擎 / 映射语义 / 客户端对账）
+ * @see src/main/resources/doc/开发文档/README.md 开发文档索引（契约 / 设计 / 计划 / 验收 / 测试 / 演示 / 记录 七类）
  */
 @SpringBootApplication
 @EnableScheduling        // 补偿 / 对账 worker 定时扫描（设计 §6.3）
