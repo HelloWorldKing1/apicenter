@@ -732,7 +732,7 @@ curl -s -X POST http://localhost:8080/api/admin/interfaces \
 |---|---|
 | `doc/表结构设计.html` | `interface` 新增 `protocol_params` 列（含校验纪律 / 语义 A / soap 延后说明）+ 原型映射表新增一行 |
 | `doc/API中心使用教程.md` | §4.4「**XML 协议参数**」：**XML 类型（普通 XML（POX）/ SOAP 1.1 / SOAP 1.2）** + 三个 SOAP 子项 + 三条行为 + 两个 SOAP 特有的坑 + 校验纪律 + 等价 curl（curl 示例已改为 `type=SOAP_1_1` 形态） |
-| `doc/开发文档/整体测试方案.md` | §6.6 **X-P**（B1，8 例）+ **X-S**（B2，8 例，含可用真实端点表与 UA 陷阱提醒）；**三处已更正**（“根元素写死”/“SOAP 不支持”/“配 soap 段会被拒”均已不成立）；变更记录 v2.5 |
+| `doc/开发文档/测试/整体测试方案.md` | §6.6 **X-P**（B1，8 例）+ **X-S**（B2，8 例，含可用真实端点表与 UA 陷阱提醒）；**三处已更正**（“根元素写死”/“SOAP 不支持”/“配 soap 段会被拒”均已不成立）；变更记录 v2.5 |
 | `CLAUDE.md` | 状态表两行（B1 / B2）；Gotchas 8 条（对象节点 `asText()` 陷阱 / 位置构造与 compat 重载 / `clean test-compile` 纪律 / 协议参数四条纪律 / **UA 拦截** / **传输异常打根因** / `SoapClientFaultException` 契约 / `xml.type` 唯一真相） |
 | 本方案 | v4.5 §14 完整落地记录（B1 §14.1–14.3 + B2 §14.4 + §14.5 本表）；**执行计划**《B2完整SOAP开发计划.md》§2.5.1（逐控件验收清单）+ §8（落地记录） |
 

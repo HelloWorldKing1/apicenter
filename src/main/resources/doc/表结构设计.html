@@ -139,7 +139,7 @@
     <tr><td class="c">path</td><td class="c">VARCHAR(255)</td><td>NOT NULL</td><td>平台侧路径（如 /api/orders、/callback/{appId}/instance-state）</td></tr>
     <tr><td class="c">protocol_in</td><td class="c">VARCHAR(8)</td><td>NOT NULL DEFAULT 'JSON'</td><td>入站协议（来源 → 平台）：JSON / XML</td></tr>
     <tr><td class="c">protocol_out</td><td class="c">VARCHAR(8)</td><td>NOT NULL DEFAULT 'JSON'</td><td>出站协议（平台 → 目标）：JSON / XML</td></tr>
-    <tr><td class="c">protocol_params</td><td class="c">LONGTEXT</td><td>NULL</td><td>协议参数 JSON（<b>2026-09-21 新增，无新表</b>）：描述 XML 出站报文的<b>声明 / 根元素 / 命名空间</b>。空 = 平台内置默认（<code>version 1.0</code> / <code>encoding UTF-8</code> / 根元素 <code>request</code> / 无命名空间）= 改造前硬编码行为。<br>形态：<code>{"xml":{"version":"1.1","encoding":"GBK","root":"QueryRequest","namespace":{"prefix":"ns","uri":"http://…"}}}</code>；<code>namespace.prefix</code> 为空串 = 默认命名空间。<br><b>校验纪律</b>：未知键 / <code>version</code> 非 1.0·1.1 / <code>encoding</code> 非「JDK 支持且 ASCII 兼容」（显式拒 UTF-16·UTF-32）/ <code>root</code> 非合法元素名或为空值 / <code>namespace.uri</code> 缺失 → 一律 <code>40001</code>（不静默回落默认）；<b>键缺失 = 用默认</b>。JSON 协议的接口配 <code>xml</code> 段 → <code>40001</code>。<br>🔎 <code>encoding</code> 只改<b>声明</b>：非 ASCII 文本以字符引用（<code>&amp;#x4e2d;</code>）输出、字节恒 ASCII 安全（Woodstox 实测产不出原生 GBK 字节）。<code>soap</code> 段未实现（B2 延后）→ 同样 40001。<br>详见《开发文档/XML声明配置设计方案.md》v4.3。</td></tr>
+    <tr><td class="c">protocol_params</td><td class="c">LONGTEXT</td><td>NULL</td><td>协议参数 JSON（<b>2026-09-21 新增，无新表</b>）：描述 XML 出站报文的<b>声明 / 根元素 / 命名空间</b>。空 = 平台内置默认（<code>version 1.0</code> / <code>encoding UTF-8</code> / 根元素 <code>request</code> / 无命名空间）= 改造前硬编码行为。<br>形态：<code>{"xml":{"version":"1.1","encoding":"GBK","root":"QueryRequest","namespace":{"prefix":"ns","uri":"http://…"}}}</code>；<code>namespace.prefix</code> 为空串 = 默认命名空间。<br><b>校验纪律</b>：未知键 / <code>version</code> 非 1.0·1.1 / <code>encoding</code> 非「JDK 支持且 ASCII 兼容」（显式拒 UTF-16·UTF-32）/ <code>root</code> 非合法元素名或为空值 / <code>namespace.uri</code> 缺失 → 一律 <code>40001</code>（不静默回落默认）；<b>键缺失 = 用默认</b>。JSON 协议的接口配 <code>xml</code> 段 → <code>40001</code>。<br>🔎 <code>encoding</code> 只改<b>声明</b>：非 ASCII 文本以字符引用（<code>&amp;#x4e2d;</code>）输出、字节恒 ASCII 安全（Woodstox 实测产不出原生 GBK 字节）。<code>soap</code> 段未实现（B2 延后）→ 同样 40001。<br>详见《开发文档/设计/XML声明配置设计方案.md》v4.3。</td></tr>
     <tr><td class="c ref">app_id</td><td class="c">VARCHAR(32)</td><td>NOT NULL</td><td>归属应用（供应商，既是归属也是供应商）</td></tr>
     <tr><td class="c ref">group_id</td><td class="c">BIGINT</td><td>NOT NULL</td><td>归属分组（须属于所选应用）</td></tr>
     <tr><td class="c">upstream_path</td><td class="c">VARCHAR(255)</td><td></td><td>出站供应商接口路径（相对路径，拼 app.base_url；仅 OUTBOUND）</td></tr>
@@ -474,12 +474,12 @@
     <tr><td class="c">updated_at</td><td class="c">DATETIME</td><td>NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP</td><td>更新时间</td></tr>
   </table>
   <div class="idx"><b>索引</b>：PK(id)，UNIQUE(interface_id, step_code)，INDEX(target_interface_id)</div>
-  <div class="t-desc" style="padding-bottom:14px">保存期校验（服务端权威）：宿主仅 OUTBOUND；步数 ≤5；步骤名 <span class="mono">^[A-Za-z0-9_]&#123;1,32&#125;$</span> 且不得为保留名 steps；目标必须 OUTBOUND + PUBLISHED 且非自身；<b>环检测 + 解析链长度 ≤3（节点数，含宿主）</b>；同时禁止将 <span class="mono">steps</span> 用作 IN 参数名 / 映射 target 名。运行期另有嵌套深度防线（preCallDepth ≥3 即拒）。<br><b>快照</b>：随 interface_snapshot.config_json 的 <span class="mono">steps</span> 段存 <span class="mono">targetCode</span>（跨环境可移植），回滚时解析回 id，解析失败报 40001（不静默丢步骤）。<br><b>删除策略</b>：宿主删除时级联删本表行；被引为前置的接口<b>禁止删除</b>（提示引用方），OFFLINE 允许但服务端返回 warnings 强提示。设计详见《开发文档/前置接口编排设计方案.md》。</div>
+  <div class="t-desc" style="padding-bottom:14px">保存期校验（服务端权威）：宿主仅 OUTBOUND；步数 ≤5；步骤名 <span class="mono">^[A-Za-z0-9_]&#123;1,32&#125;$</span> 且不得为保留名 steps；目标必须 OUTBOUND + PUBLISHED 且非自身；<b>环检测 + 解析链长度 ≤3（节点数，含宿主）</b>；同时禁止将 <span class="mono">steps</span> 用作 IN 参数名 / 映射 target 名。运行期另有嵌套深度防线（preCallDepth ≥3 即拒）。<br><b>快照</b>：随 interface_snapshot.config_json 的 <span class="mono">steps</span> 段存 <span class="mono">targetCode</span>（跨环境可移植），回滚时解析回 id，解析失败报 40001（不静默丢步骤）。<br><b>删除策略</b>：宿主删除时级联删本表行；被引为前置的接口<b>禁止删除</b>（提示引用方），OFFLINE 允许但服务端返回 warnings 强提示。设计详见《开发文档/设计/前置接口编排设计方案.md》。</div>
 </section>
 
 <section class="table" id="t-admin-user">
   <div class="t-head"><span class="no">21</span><h2>管理面账号</h2><span class="en">admin_user</span></div>
-  <div class="t-desc">管理面（<span class="mono">/api/admin/**</span>）的登录账号。<b>认证 + 三个角色的粗粒度权限</b>（RBAC 第一层：OWNER/ADMIN/VIEWER，无资源级授权）；口令以 <b>PBKDF2-HMAC-SHA256</b> 摘要存储（每用户随机盐，格式 <span class="mono">pbkdf2$iterations$salt$hash</span>，不可逆），任何接口与日志都不回显口令。连续失败达阈值写锁定时间（成功登录清零）。用户名统一小写存储：3-32 位字母/数字/下划线/点/连字符。设计详见《开发文档/账号登录设计方案.md》。</div>
+  <div class="t-desc">管理面（<span class="mono">/api/admin/**</span>）的登录账号。<b>认证 + 三个角色的粗粒度权限</b>（RBAC 第一层：OWNER/ADMIN/VIEWER，无资源级授权）；口令以 <b>PBKDF2-HMAC-SHA256</b> 摘要存储（每用户随机盐，格式 <span class="mono">pbkdf2$iterations$salt$hash</span>，不可逆），任何接口与日志都不回显口令。连续失败达阈值写锁定时间（成功登录清零）。用户名统一小写存储：3-32 位字母/数字/下划线/点/连字符。设计详见《开发文档/设计/账号登录设计方案.md》。</div>
   <table class="f">
     <tr><th style="width:22%">字段</th><th style="width:20%">类型</th><th style="width:16%">约束</th><th>说明</th></tr>
     <tr><td class="c pk">id</td><td class="c">BIGINT</td><td>PK 自增</td><td>主键</td></tr>
@@ -519,7 +519,7 @@
 <!-- ============ 23. client_app ============ -->
 <section class="table" id="t-client-app">
   <div class="t-head"><span class="no">23</span><h2>调用方（平台客户 / 接入方）</h2><span class="en">client_app</span></div>
-  <div class="t-desc">与「应用（供应商）」<b>对称的入站主体</b>（2026-09-23，平台入站鉴权 B1，见《开发文档/入站鉴权设计方案.md》v1.1）。方向相反：<span class="mono">app.auth_adapter_id</span> 管「平台作为调用方 → 供应商」的出站签名；本表 <span class="mono">auth_adapter_id</span> 管「<b>调用方 → 平台</b>」的入站鉴权。凭证在 <span class="mono">client_credential</span>（与 <span class="mono">app_credential</span> 同构）。</div>
+  <div class="t-desc">与「应用（供应商）」<b>对称的入站主体</b>（2026-09-23，平台入站鉴权 B1，见《开发文档/设计/入站鉴权设计方案.md》v1.1）。方向相反：<span class="mono">app.auth_adapter_id</span> 管「平台作为调用方 → 供应商」的出站签名；本表 <span class="mono">auth_adapter_id</span> 管「<b>调用方 → 平台</b>」的入站鉴权。凭证在 <span class="mono">client_credential</span>（与 <span class="mono">app_credential</span> 同构）。</div>
   <table class="f">
     <tr><th style="width:22%">字段</th><th style="width:20%">类型</th><th style="width:16%">约束</th><th>说明</th></tr>
     <tr><td class="c pk">id</td><td class="c">BIGINT</td><td>PK 自增</td><td>主键</td></tr>

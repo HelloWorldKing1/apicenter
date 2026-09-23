@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 /**
  * 平台**入站鉴权**（调用方鉴权）配置 —— `app.api-center.client-auth`（2026-09-23，入站鉴权 B2）。
  *
- * <p>依据《开发文档/入站鉴权设计方案.md》v1.1 §14。**只作用于平台对外接口路径** `/{platformPath}` 的
+ * <p>依据《开发文档/设计/入站鉴权设计方案.md》v1.1 §14。**只作用于平台对外接口路径** `/{platformPath}` 的
  * **调用方方向**（Flow A）；供应商回调验签（Flow B）仍在链内，不受本配置影响（D-CA-3）。
  *
  * @param mode      灰度三态：{@code OFF}（默认，不校验=现状）/ {@code OPTIONAL}（有凭证就验、无凭证放行）/

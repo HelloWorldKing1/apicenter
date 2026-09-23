@@ -259,7 +259,7 @@ CREATE TABLE alert_rule (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='告警规则';
 
 -- 16 应用凭证：出站签名 / 回调验签两类；轮换并存由 ACTIVE + ROTATING 双窗口承载
--- （验签方向新旧并存、签名方向激活切换，详见 doc/开发文档/M0-04凭证轮换存储方案.md）
+-- （验签方向新旧并存、签名方向激活切换，详见 doc/开发文档/契约/M0-04凭证轮换存储方案.md）
 CREATE TABLE app_credential (
     id             BIGINT       AUTO_INCREMENT PRIMARY KEY,
     app_id         VARCHAR(32)  NOT NULL COMMENT '所属应用',
@@ -446,7 +446,7 @@ CREATE TABLE admin_session (
 
 -- ============================================================
 -- 2026-09-23 平台入站鉴权（调用方鉴权 · 回调验签 · 接入审计）—— B1「数据与目录」
---   依据《开发文档/入站鉴权设计方案.md》v1.1 §4.1/§4.2
+--   依据《开发文档/设计/入站鉴权设计方案.md》v1.1 §4.1/§4.2
 --   方向说明：`app.auth_adapter_id` 管「平台作为调用方 → 供应商」的出站签名；
 --             `client_app.auth_adapter_id` 管「调用方 → 平台」的入站鉴权（主体相反）。
 --   ⚠ 三表已应用到开发库（2026-09-23）；《表结构设计.html》已同步。

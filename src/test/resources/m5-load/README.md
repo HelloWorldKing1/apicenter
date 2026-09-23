@@ -37,4 +37,4 @@ wrk -t4 -c100 -d30s -s src/test/resources/m5-load/wrk-callback.lua http://localh
 ## 环境注意
 - 开发库为远程 PolarDB（每 SQL WAN 往返 ~百毫秒）：绝对值为流程验证 + 相对基线，
   **绝对值不作 KPI**（M4 实测 IN ~1s / OUT ~9ms 即读放大所致）；贴近生产需本地库复测。
-- 压测结论写入 `doc/开发文档/M5压测报告.md`（环境 / 脚本 / 数据 / 结论 / 调优清单 / 同步送达决策）。
+- 压测结论写入 `doc/开发文档/验收/M5压测报告.md`（环境 / 脚本 / 数据 / 结论 / 调优清单 / 同步送达决策）。
