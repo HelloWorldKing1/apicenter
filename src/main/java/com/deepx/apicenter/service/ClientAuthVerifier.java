@@ -130,19 +130,25 @@ public class ClientAuthVerifier {
 
         // ① 主体识别
         if (rawClientId == null) {
-            String credentialHeader = firstPresent(headers);
-            if (credentialHeader != null) {
-                // 带了凭证却声明不出主体 = 配置错误或伪造，不能静默忽略（§6.2）
-                return reject(iface, traceId, 40107,
-                        "鉴权失败：携带了凭证头 " + credentialHeader + " 但缺少主体标识头 " + idHeader,
-                        null, null, "NONE", null, clientIp, xffChain, userAgent, start);
+            // ⚠️ 真值表第一行（§6.2）：**`OFF` 下"任意 × 任意"一律跳过鉴权**（不校验、不报错）
+            //    ⇒ "带了凭证却没声明主体 → 40107" 这条**只对 OPTIONAL 生效**（ENFORCED 由下面那条覆盖）。
+            //    2026-09-23 全量套件抓到：原实现把这条放到了 mode 判断之前 ⇒ `OFF` 下也会拒，
+            //    把"调用方自带 Authorization 头但平台未启用鉴权"的既有调用打成 401（M4IntegrationTest.c6）。
+            if ("OPTIONAL".equals(mode)) {
+                String credentialHeader = firstPresent(headers);
+                if (credentialHeader != null) {
+                    // 带了凭证却声明不出主体 = 配置错误或伪造，不能静默忽略（§6.2 OPTIONAL 行）
+                    return reject(iface, traceId, 40107,
+                            "鉴权失败：携带了凭证头 " + credentialHeader + " 但缺少主体标识头 " + idHeader,
+                            null, null, "NONE", null, clientIp, xffChain, userAgent, start);
+                }
             }
             if ("ENFORCED".equals(mode)) {
                 return reject(iface, traceId, 40107,
                         "鉴权失败：缺少主体标识头 " + idHeader, null, null, "NONE", null,
                         clientIp, xffChain, userAgent, start);
             }
-            // OFF / OPTIONAL：未带主体 → 放行（OPTIONAL 为灰度观察；OFF 为现状）
+            // OFF（放行，且**不看任何凭证头**）/ OPTIONAL 未带主体 → 放行
             return settle(iface, traceId, "PASS", null,
                     "OFF/OPTIONAL 且未带主体（mode=" + mode + "）", "NONE", null,
                     clientIp, xffChain, userAgent, start, Decision.pass(null, null, "NONE", null));

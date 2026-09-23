@@ -116,6 +116,16 @@ class ClientAuthVerifierTest {
     }
 
     @Test
+    void OFF_无主体但带了凭证头_仍放行_真值表第一行() {
+        // 全量套件抓到的回归（M4IntegrationTest.c6）：既有调用方**自带 Authorization 头**，
+        // 但平台未启用鉴权（mode=OFF）⇒ 必须一律跳过（不校验、不报错），
+        // 不能在"带了凭证却没主体"时误判为 40107（那条只对 OPTIONAL 生效）。
+        ClientAuthVerifier.Decision d = verify("OFF", Map.of("Authorization", "Bearer caller-token-abcdef123456"));
+        assertThat(d.passed()).isTrue();
+        assertThat(d.authMethod()).isEqualTo("NONE");
+    }
+
+    @Test
     void OFF_但主体不可识别_仍拒40107() {
         when(clientRepo.findById("UNKNOWN")).thenReturn(Optional.empty());
         ClientAuthVerifier.Decision d = verify("OFF", Map.of("X-Client-Id", "UNKNOWN"));
