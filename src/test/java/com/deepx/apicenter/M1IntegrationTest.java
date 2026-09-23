@@ -96,20 +96,30 @@ class M1IntegrationTest {
     // ---------- DDL 落库 ----------
 
     @Test
-    void 二十五张表已落库_含前置步骤_账号表与入站鉴权表() {
+    void 二十六张表已落库_含前置步骤_账号表与入站鉴权表() {
         // 16 张（设计 §表结构）+ M4 新增 alert_rule / reconcile_audit / alert_event
         // + M5 后新增 outbound_request_state_log（19）+ 前置编排新增 interface_step（20）
         // + 账号登录新增 admin_user / admin_session（21/22，2026-09-18）
         // + 平台入站鉴权新增 client_app / client_credential / access_auth_log（23/24/25，2026-09-23 B1）
+        // + v1.2 新增 inbound_auth_setting 入站鉴权平台设置（26，2026-09-24）
         Integer n = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'apicenter'", Integer.class);
-        assertThat(n).isEqualTo(25);
-        // 前置步骤表（编排 PS-1）+ 账号/会话表（账号登录）+ 入站鉴权三表（调用方/凭证/审计）均存在
+        assertThat(n).isEqualTo(26);
+        // 前置步骤表（编排 PS-1）+ 账号/会话表（账号登录）+ 入站鉴权四表（调用方/凭证池/审计/平台设置）均存在
         Integer tables = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'apicenter' "
                         + "AND table_name IN ('interface_step', 'admin_user', 'admin_session', "
-                        + "'client_app', 'client_credential', 'access_auth_log')", Integer.class);
-        assertThat(tables).isEqualTo(6);
+                        + "'client_app', 'client_credential', 'access_auth_log', 'inbound_auth_setting')", Integer.class);
+        assertThat(tables).isEqualTo(7);
+        // v1.2：凭证池三级属主列 + 平台设置表单行（同步 schema.sql 的应用层不变量）
+        Integer pool = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'apicenter' "
+                        + "AND table_name = 'client_credential' "
+                        + "AND column_name IN ('owner_type', 'owner_id', 'label')", Integer.class);
+        assertThat(pool).isEqualTo(3);
+        Integer setting = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM inbound_auth_setting", Integer.class);
+        assertThat(setting).isEqualTo(1);
         // 账号表唯一键（用户名）——防止「同名账号」这类静默数据问题
         Integer uk = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = 'apicenter' "

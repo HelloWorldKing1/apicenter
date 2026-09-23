@@ -15,7 +15,7 @@
 -- ============================================================================
 
 -- ============================================================================
--- 一、运行数据（7 张，TRUNCATE 自增重置）
+-- 一、运行数据（8 张，TRUNCATE 自增重置）
 -- ============================================================================
 TRUNCATE TABLE outbound_request_state_log; -- 状态链（M5 后，关联 outbound_request）
 TRUNCATE TABLE dead_letter;          -- ref_id 多态引用运行表
@@ -23,12 +23,15 @@ TRUNCATE TABLE reconcile_audit;      -- 对账审计（关联 outbound_request�
 TRUNCATE TABLE outbound_request;     -- 出站状态机载体
 TRUNCATE TABLE inbound_delivery;     -- 入站送达
 TRUNCATE TABLE call_log;             -- 调用日志
+TRUNCATE TABLE access_auth_log;      -- 接入鉴权审计（入站鉴权，2026-09-23 B1；2026-09-24 补漏）
 TRUNCATE TABLE alert_event;          -- 告警触发事件
 
 -- ============================================================================
--- 二、配置数据（12 张，adapter 保留；重头开始才执行）
+-- 二、配置数据（14 张 + 1 行设置表，adapter 保留；重头开始才执行）
 -- ⚠ 2026-09-21 补：原脚本漏了 interface_step（前置接口编排子表，2026-09-18 新增），
 --    不清理会在重建接口后残留孤儿前置步骤（interface_id 被复用时会误挂到新接口上）。
+-- ⚠ 2026-09-24 补：原脚本漏了入站鉴权三表（client_app / client_credential，2026-09-23 B1）；
+--    不清理会让旧调用方/凭证残留（测试用「停用调用方」等断言会不稳定）。
 -- ============================================================================
 TRUNCATE TABLE interface_step;       -- 前置步骤（编排，2026-09-18 新增；必须先于 interface）
 TRUNCATE TABLE interface_param;
@@ -42,6 +45,13 @@ TRUNCATE TABLE app_group;
 TRUNCATE TABLE app_credential;       -- 凭证密文（seed 会重建种子值）
 TRUNCATE TABLE app;
 TRUNCATE TABLE alert_rule;           -- 自建告警规则（seed 不重建）
+TRUNCATE TABLE client_credential;    -- 入站凭证池（三级属主；必须先于 client_app）
+TRUNCATE TABLE client_app;           -- 调用方档案（可选；v1.2）
+
+-- 平台设置表（单行不变量）：**不 TRUNCATE**，改为「重置回默认值」 —— 保证恒 1 行（设计方案 v1.2 §4.1）
+UPDATE inbound_auth_setting
+   SET default_adapter_id = NULL, require_client_id = 1, updated_by = NULL
+ WHERE id = 1;
 
 -- ============================================================================
 -- 附录 A：备选——不想重置自增 ID 时，用 DELETE 等价格式替代以上 TRUNCATE：
@@ -52,6 +62,7 @@ TRUNCATE TABLE alert_rule;           -- 自建告警规则（seed 不重建）
 -- DELETE FROM outbound_request;
 -- DELETE FROM inbound_delivery;
 -- DELETE FROM call_log;
+-- DELETE FROM access_auth_log;
 -- DELETE FROM alert_event;
 --
 -- DELETE FROM interface_step;
@@ -66,6 +77,9 @@ TRUNCATE TABLE alert_rule;           -- 自建告警规则（seed 不重建）
 -- DELETE FROM app_credential;
 -- DELETE FROM app;
 -- DELETE FROM alert_rule;
+-- DELETE FROM client_credential;
+-- DELETE FROM client_app;
+-- UPDATE inbound_auth_setting SET default_adapter_id = NULL, require_client_id = 1, updated_by = NULL WHERE id = 1;
 
 -- ============================================================================
 -- 附录 B：可选——如需连自建适配器一起清空并重置 ID（验证 seed 全量导入）：

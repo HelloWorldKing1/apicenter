@@ -15,7 +15,7 @@
 
 | 项 | 状态 |
 |---|---|
-| 设计文档 | 已定稿：`src/main/resources/doc/` 6 份 + schema.sql（**25 张表**，M4 新增 reconcile_audit / alert_event，M5 后新增 outbound_request_state_log 状态链，前置编排新增 interface_step，账号登录新增 admin_user / admin_session，**入站鉴权新增 client_app / client_credential / access_auth_log**） |
+| 设计文档 | 已定稿：`src/main/resources/doc/` 6 份 + schema.sql（**26 张表**，M4 新增 reconcile_audit / alert_event，M5 后新增 outbound_request_state_log 状态链，前置编排新增 interface_step，账号登录新增 admin_user / admin_session，**入站鉴权新增 client_app / client_credential / access_auth_log **+ inbound_auth_setting（v1.2 平台设置，第 26 张）**） |
 | M0 契约设计 | **已评审通过 v1.0（2026-09-02）**：`doc/开发文档/` M0-01/02/03/04（确认点全部通过） |
 | 旧 demo 代码 | 已删除（commit `ad55cea`），git 历史可查 |
 | 数据库 | MySQL PolarDB 已按新 schema 建库（连接信息见 application.yaml）；M4 DDL（两表 + idx_outreq_updated 索引）已于 2026-09-04 应用到开发库 |
@@ -48,7 +48,7 @@
 | `API中心设计方案.md` | 设计总纲：应用（供应商）/ 分组 / 接口 / 监控 / 适配器 5 模块；接口定义模型（出站中转 / 入站回调）；三类适配器（鉴权 / 协议 / 报文）+ 接口级字段映射；状态机 / 错误码 / 容错附录 |
 | `技术架构和实现方案.md` | 实现路径：分层架构、技术选型、适配器链引擎、出 / 入站执行引擎、M1–M5 路线图、ADR |
 | `可行性报告.md` | 技术可行性评估、工作量估算（约 81 人日）、风险与应对 |
-| `表结构设计.html` | **25 张表**（配置 12 + 运行 8 + 管理面账号 2 + **入站鉴权 3**；M4 增 reconcile_audit / alert_event，M5 后增 outbound_request_state_log，前置编排增 interface_step，账号登录增 admin_user / admin_session，入站鉴权增 client_app / client_credential / access_auth_log）+ 枚举汇总 + 原型数据模型映射对照 |
+| `表结构设计.html` | **26 张表**（配置 12 + 运行 8 + 管理面账号 2 + **入站鉴权 4**；M4 增 reconcile_audit / alert_event，M5 后增 outbound_request_state_log，前置编排增 interface_step，账号登录增 admin_user / admin_session，入站鉴权增 client_app / client_credential / access_auth_log）+ 枚举汇总 + 原型数据模型映射对照 |
 | `API中心时序图与流程图.md` | 配置流程、Flow A / B 时序、请求处理 + 容错流程图 |
 | `API中心原型.html` | 可交互管理面原型（数据模型与交互即事实来源） |
 | `API中心项目说明.md` | **面向使用者的项目总览**（非设计文档）：定位 / 核心概念 / 架构 / 两条链路 / 数据模型 / 状态机容错 / 错误码；对外介绍、新人入门的首选入口 |
@@ -124,7 +124,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 |---|---|---|
 | `controller/` | 管理面 REST（应用 / 分组 / 接口 / 监控 / 适配器 5 模块 + **账号 `auth`**）+ 接入层路由 | M1 / M2 / M4（监控 + 死信重放 + 对账端点）/ 账号登录（2026-09-18） |
 | `service/` | 业务编排：配置校验、状态机流转、接入层防护（GatewayGuard）、账号认证（AuthService + PasswordHasher） | M1 / M4 / 账号登录（2026-09-18） |
-| `repository/` | JdbcTemplate 数据访问（25 张表） | M1 / M4（reconcile_audit / alert_event）/ M5 后（state_log）/ 前置编排（interface_step）/ 账号登录（admin_user · admin_session）/ **入站鉴权（client_app · client_credential · access_auth_log）** |
+| `repository/` | JdbcTemplate 数据访问（26 张表） | M1 / M4（reconcile_audit / alert_event）/ M5 后（state_log）/ 前置编排（interface_step）/ 账号登录（admin_user · admin_session）/ **入站鉴权（client_app · client_credential · access_auth_log）** |
 | `engine/` | 适配器链引擎 + 出站 / 入站执行引擎 + 熔断器（CircuitBreakerRegistry） | M2 / M3 / M4 |
 | `adapter/` | 鉴权 / 协议 / 报文三类适配器实现 | M2 |
 | `mapping/` | 动态字段映射引擎（M0-02 规范，6 操作运行时解释器） | M2 |
@@ -153,7 +153,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 ## 配置与数据模型
 
 - 配置集中在 `src/main/resources/application.yaml`：仅基础设施参数（datasource、`retry-worker-fixed-delay-ms: 3000`、`unknown-ttl-minutes: 10`、`auth.*` 认证参数）；业务配置（应用 / 接口 / 适配器 / 字段映射）全部落库。认证配置：`auth.enabled/allow-register/session-ttl-hours/renew-interval-minutes/max-failed-attempts/lock-minutes`（账号与会话本身落库：`admin_user` / `admin_session`）。
-- `src/main/resources/doc/schema.sql`：**25 张表**（配置 12 + 运行 8 + 管理面账号 2 + **入站鉴权 3**；M4 新增 reconcile_audit / alert_event + idx_outreq_updated，M5 后新增 outbound_request_state_log + adapter.name 唯一，前置编排新增 interface_step，账号登录新增 admin_user / admin_session，**入站鉴权新增 client_app / client_credential / access_auth_log**），无数据库外键（引用完整性应用层保证，引用列建索引），与《表结构设计.html》逐表一致。
+- `src/main/resources/doc/schema.sql`：**26 张表**（配置 12 + 运行 8 + 管理面账号 2 + **入站鉴权 4**；M4 新增 reconcile_audit / alert_event + idx_outreq_updated，M5 后新增 outbound_request_state_log + adapter.name 唯一，前置编排新增 interface_step，账号登录新增 admin_user / admin_session，**入站鉴权新增 client_app / client_credential / access_auth_log **+ inbound_auth_setting（v1.2 平台设置，第 26 张）**），无数据库外键（引用完整性应用层保证，引用列建索引），与《表结构设计.html》逐表一致。
 
 ## 约定与注意事项（Gotchas）
 
