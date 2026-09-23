@@ -45,6 +45,10 @@ const ElStub = {
     // 注意：本替身未声明 props ⇒ 传入的属性全在 **attrs** 上（props 里是空的）。
     return () => h('span', { class: 'el-stub' }, [
       attrs.label ? h('span', String(attrs.label)) : null,
+      // v1.2：el-alert 的 title/description 是**属性**（不是插槽）—— 提示文案常在标题里，
+      // 不渲染就断言不到（例如「不登记也能调」这类关键说明）。
+      attrs.title ? h('span', String(attrs.title)) : null,
+      attrs.description ? h('span', String(attrs.description)) : null,
       // v1.2：卡片头/脚也会承载要断言的文案（如「改后立即生效」）—— 一并渲染，
       // 避免出现「组件确实接上了、但冒烟断言看不到」的假绿。
       slots.header ? slots.header({ row: {}, column: {}, $index: 0 }) : null,
@@ -105,7 +109,9 @@ const CASES = [
   // 调用方管理页（B4）：表头 / 新建入口 / 凭证提示都要渲染出来（防“逻辑对了但组件没接上”）
   ['调用方管理页',
     { __component: 'Clients' },
-    { text: ['新建调用方', '调用方标识', '鉴权方式', 'IP 名单', 'QPS / 日配额', '状态'] }],
+    { text: ['新建调用方', '调用方标识', '鉴权方式', 'IP 名单', 'QPS / 日配额', '状态',
+             // v1.2 降级说明（防「页面还是老口径」）
+             '不登记也能调', '入站鉴权'] }],
   // 入站鉴权页（v1.2 C3）：平台设置（页面可改、改即生效）+ 凭证池（三级属主）
   ['入站鉴权页（平台设置 + 凭证池）',
     { __component: 'InboundAuth' },

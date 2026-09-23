@@ -246,6 +246,9 @@
             <el-select v-model="authFilter.method" placeholder="全部方式" clearable size="small" style="width: 140px">
               <el-option v-for="m in AUTH_METHODS" :key="m" :label="m" :value="m" />
             </el-select>
+            <!-- v1.2（D-CA-20）：按「命中的凭证」筛（备注或指纹）—— 排除某把密钥后回答「还有人用吗」 -->
+            <el-input v-model="authFilter.credential" placeholder="凭证备注 / 指纹" clearable size="small"
+                      style="width: 170px" @keyup.enter="loadAccessLogs()" />
             <el-button size="small" type="primary" @click="loadAccessLogs()">查询</el-button>
           </div>
           <div class="auth-summary">
@@ -263,12 +266,18 @@
             <el-table-column label="方向" width="90">
               <template #default="{ row }">{{ row.direction === 'CALLBACK' ? '回调' : '调用方' }}</template>
             </el-table-column>
-            <el-table-column label="主体" min-width="150">
+            <el-table-column label="主体" min-width="160">
               <template #default="{ row }">
                 {{ row.principalName || '—' }}<span class="muted">（{{ row.principalId || '未识别' }}）</span>
+                <!-- v1.2：自报未验证必须显式标出来，否则会被当成「已验证身份」用于追责/管控 -->
+                <el-tag v-if="row.principalType === 'UNVERIFIED'" size="small" type="warning"
+                        style="margin-left: 4px">自报未验证</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="authMethod" label="方式" width="130" />
+            <el-table-column prop="authMethod" label="方式" width="120" />
+            <el-table-column label="凭证（命中）" min-width="170">
+              <template #default="{ row }">{{ credentialAttribution(row) }}</template>
+            </el-table-column>
             <el-table-column label="结果" width="90">
               <template #default="{ row }">
                 <el-tag size="small" :type="row.result === 'PASS' ? 'success' : 'danger'">
@@ -458,6 +467,7 @@ import { BarChart, LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import http from '@/api/http'
+import { credentialAttribution } from '@/utils/inboundAuth.mjs'
 import PayloadViewer from '@/components/PayloadViewer.vue'
 import CodeBlock from '@/components/CodeBlock.vue'
 import { contentTypeOf } from '@/utils/payload.mjs'
@@ -575,14 +585,14 @@ const AUTH_METHODS = ['API_KEY', 'HMAC-SHA256', 'HMAC-SHA1', 'HMAC-SHA512', 'BEA
 const accessLogs = ref([])
 const accessLogTotal = ref(0)
 const authSummary = reactive({ pass: 0, reject: 0, unknownPrincipal: 0, topRejectReasons: [] })
-const authFilter = reactive({ principalId: '', ip: '', result: '', method: '', page: 1 })
+const authFilter = reactive({ principalId: '', ip: '', result: '', method: '', credential: '', page: 1 })
 
 async function loadAccessLogs(page) {
   if (page) {
     authFilter.page = page
   }
   const params = new URLSearchParams({ page: String(authFilter.page), pageSize: '20' })
-  for (const k of ['principalId', 'ip', 'result', 'method']) {
+  for (const k of ['principalId', 'ip', 'result', 'method', 'credential']) {
     if (authFilter[k]) {
       params.set(k, authFilter[k])
     }

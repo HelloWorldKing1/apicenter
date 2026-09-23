@@ -1,5 +1,9 @@
 <template>
   <div>
+    <!-- v1.2 降级说明：调用方档案不再是鉴权前提（开放集第三方不可能先建档） -->
+    <el-alert type="info" :closable="false" show-icon style="margin-bottom: 12px"
+              title="不登记也能调：只需在「入站鉴权」页发放一把凭证（平台共享池）"
+              description="本页是**可选的精确管控**：登记后可获得「可验证身份」（凭证与档案绑定）、单独 IP 名单与将来的单独配额。若要按调用方统计/单独吊销，用「入站鉴权」页的凭证池更直接（一凭证一行 + 备注）。" />
     <div class="toolbar">
       <div class="toolbar-filters">
         <el-input v-model="keyword" placeholder="标识 / 名称" clearable style="width: 200px" @keyup.enter="load" />

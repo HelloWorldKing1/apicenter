@@ -3,6 +3,7 @@ package com.deepx.apicenter;
 import com.deepx.apicenter.dto.AppDtos.AppRequest;
 import com.deepx.apicenter.dto.GroupDtos.GroupRequest;
 import com.deepx.apicenter.dto.InterfaceDtos.InterfaceRequest;
+import com.deepx.apicenter.repository.AccessAuthLogRepository;
 import com.deepx.apicenter.service.AppService;
 import com.deepx.apicenter.service.GroupService;
 import com.deepx.apicenter.service.InterfaceService;
@@ -79,6 +80,8 @@ class MonitorStatsIntegrationTest {
     private com.deepx.apicenter.repository.OutboundRequestRepository outboundRequestRepository;
     @Autowired
     private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+    @Autowired
+    private AccessAuthLogRepository accessAuthLogRepository;
 
     private long ifaceId;
 
@@ -166,6 +169,35 @@ class MonitorStatsIntegrationTest {
     // ---------- helpers ----------
 
     /** call_log 异步写：轮询等待断言条件（≤8s）后再继续 */
+
+    /**
+     * C4（v1.2 / D-CA-20）：审计**按「命中的凭证」筛**（备注或指纹任一匹配），
+     * 且两列落库后可读 —— 这是「排除某把密钥前先问：这把还有谁在用」的入口。
+     */
+    @Test
+    void 审计可按凭证备注或指纹筛_且归因两列可读() {
+        String trace = "c4-cred-" + System.nanoTime();
+        String label = "C4 用例 · 某公司";
+        accessAuthLogRepository.insertBatch(List.of(new AccessAuthLogRepository.AccessAuthLogEntry(
+                trace, "INBOUND_CALL", "UNVERIFIED", null, null,
+                null, "IF-C4", "API_KEY", "ADP-X",
+                "PASS", null, "凭证归因用例", "1.2.3.4", null, "curl/8", 12L,
+                label, "9999")));
+        try {
+            var byLabel = accessAuthLogRepository.findPaged(null, null, null, null, label, null, null, 1, 20);
+            assertThat(byLabel).anyMatch(v -> trace.equals(v.traceId())
+                    && label.equals(v.credentialLabel()) && "9999".equals(v.credentialFingerprint()));
+
+            var byFingerprint = accessAuthLogRepository.findPaged(null, null, null, null, "9999", null, null, 1, 20);
+            assertThat(byFingerprint).anyMatch(v -> trace.equals(v.traceId()));
+
+            assertThat(accessAuthLogRepository.count(null, null, null, null, label, null, null))
+                    .isGreaterThanOrEqualTo(1);
+        } finally {
+            jdbcTemplate.update("DELETE FROM access_auth_log WHERE trace_id = ?", trace);
+        }
+    }
+
     private void waitFor(String path, String expectedToken) {
         long deadline = System.currentTimeMillis() + 8000;
         while (System.currentTimeMillis() < deadline) {

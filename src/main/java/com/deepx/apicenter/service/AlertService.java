@@ -41,6 +41,12 @@ public class AlertService {
     /** 调用方鉴权失败窗口（B4）：key = principal:<clientId> 或 ip:<addr> */
     private final Map<String, long[]> authFailWindows = new ConcurrentHashMap<>();
 
+    /**
+     * 失败窗口键数上限（v1.2）：主体可**自报** ⇒ 键值不可信，极端情况下（伪造随机 `X-Client-Id`）
+     * 会把内存键刷爆；超过上限的新键统一折算到 `overflow` 桶（仍会累计并触发阈值告警，只是无法再细分主体）。
+     */
+    private static final int MAX_AUTH_FAIL_KEYS = 2000;
+
     public AlertService(AlertEventRepository alertEventRepository) {
         this.alertEventRepository = alertEventRepository;
     }
@@ -69,6 +75,10 @@ public class AlertService {
      */
     public void recordAuthFailure(String principal, String clientIp, String principalName, String lastErrorCode) {
         String key = principal == null || principal.isBlank() ? "ip:" + clientIp : "principal:" + principal;
+        if (authFailWindows.size() >= MAX_AUTH_FAIL_KEYS && !authFailWindows.containsKey(key)) {
+            // 防「自报主体」把键刷爆：新键折到同一个桶（本类关注的仍是「连续失败」这个事实）
+            key = "overflow";
+        }
         long windowSeconds = 300;
         long currentSecond = System.currentTimeMillis() / 1000;
         long[] window = authFailWindows.compute(key, (k, old) ->

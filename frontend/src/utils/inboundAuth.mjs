@@ -80,3 +80,13 @@ export function kindLabel(kind) {
   }
   return map[kind] || kind || '—'
 }
+
+/** 审计行「凭证（命中）」列的展示口径：`备注 · …指纹` / 只有指纹 / 都没有 */
+export function credentialAttribution(row) {
+  const label = row?.credentialLabel
+  const fp = row?.credentialFingerprint
+  if (label && fp) return `${label} · …${fp}`
+  if (label) return label
+  if (fp) return `…${fp}`
+  return '—'
+}

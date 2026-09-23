@@ -173,14 +173,17 @@ public class MonitorController {
             @RequestParam(required = false) String ip,
             @RequestParam(required = false) String result,
             @RequestParam(required = false) String method,
+            // v1.2：按「命中的凭证」筛（备注或指纹）—— 回答「这把密钥还有谁在用」
+            @RequestParam(required = false) String credential,
             @RequestParam(required = false) String timeFrom,
             @RequestParam(required = false) String timeTo,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize) {
         var w = normalizeAuditWindow(timeFrom, timeTo);
         List<AccessAuthLogRepository.AccessAuthLogView> list = accessAuthLogRepository.findPaged(
-                principalId, ip, result, method, w[0], w[1], Math.max(1, page), Math.min(Math.max(1, pageSize), 200));
-        long total = accessAuthLogRepository.count(principalId, ip, result, method, w[0], w[1]);
+                principalId, ip, result, method, credential, w[0], w[1],
+                Math.max(1, page), Math.min(Math.max(1, pageSize), 200));
+        long total = accessAuthLogRepository.count(principalId, ip, result, method, credential, w[0], w[1]);
         return ApiResult.ok(new PagedResponse<>(list, total, Math.max(1, page), Math.min(Math.max(1, pageSize), 200)));
     }
 

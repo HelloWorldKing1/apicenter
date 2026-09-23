@@ -61,6 +61,10 @@ class ClientAuthVerifierTest {
         return verifier(mode, false, null);
     }
 
+    /** 指标注册表提为字段：v1.2 要断言「自报主体不进标签」（防基数爆炸） */
+    private final io.micrometer.core.instrument.simple.SimpleMeterRegistry registry =
+            new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+
     private ClientAuthVerifier verifier(String mode, boolean requireClientId, String defaultAdapterId) {
         when(settingService.requireClientId()).thenReturn(requireClientId);
         when(settingService.defaultAdapterId()).thenReturn(defaultAdapterId);
@@ -73,8 +77,7 @@ class ClientAuthVerifierTest {
                 "ClientBearerVerifyAdapter", new ClientBearerVerifyAdapter(),
                 "ClientIpWhitelistVerifyAdapter", new ClientIpWhitelistVerifyAdapter());
         return new ClientAuthVerifier(props, token, clientRepo, adapterRepo, credentialRepo, interfaceRepo,
-                settingService, cryptoService, new ObjectMapper(), beans,
-                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), alertService);
+                settingService, cryptoService, new ObjectMapper(), beans, registry, alertService);
     }
 
     @AfterEach
@@ -371,6 +374,24 @@ class ClientAuthVerifierTest {
     }
 
     // ---------- v1.2（C2）：判定中心 = 凭证池 ----------
+
+    /** C4：指标标签必须**有界** —— 开放集下自报主体不可信，随机 id 不能变成新标签 */
+    @Test
+    void 指标标签_自报未知主体归入unverified_已登记主体才用其id() {
+        // ① 未知自报主体（兼容档 ⇒ 40107，但标签不能是那个随机 id）
+        when(clientRepo.findById("bogus-123")).thenReturn(Optional.empty());
+        verifier("ENFORCED").verify(iface(), "POST", Map.of("X-Client-Id", "bogus-123"),
+                "{}".getBytes(), "1.2.3.4", null, "curl/8", "t-tag1");
+        assertThat(registry.find("apicenter.gateway.auth").tag("principal", "unverified").counter()).isNotNull();
+        assertThat(registry.find("apicenter.gateway.auth").tag("principal", "bogus-123").counter()).isNull();
+
+        // ② 已登记主体 ⇒ 用它的 id（基数 = 登记集，天然有界）
+        givenApiKeyAdapter(true);
+        verifier("ENFORCED").verify(iface(), "POST",
+                Map.of("X-Client-Id", CLIENT, "X-Api-Key", "secret-1234"),
+                "{}".getBytes(), "1.2.3.4", null, "curl/8", "t-tag2");
+        assertThat(registry.find("apicenter.gateway.auth").tag("principal", CLIENT).counter()).isNotNull();
+    }
 
     /** 用例 39/40：开放集档（require_client_id=0）—— 不带 X-Client-Id 也能凭平台池凭证调用 */
     @Test

@@ -47,3 +47,12 @@ test('凭证状态与类型的中文口径', () => {
   assert.equal(kindLabel('API_KEY'), 'API Key')
   assert.equal(kindLabel(''), '—')
 })
+
+// ---------- C4：审计「凭证归因」展示口径 ----------
+
+test('凭证归因展示：有备注显示备注，只有指纹时显示指纹', async () => {
+  const { credentialAttribution } = await import('./inboundAuth.mjs')
+  assert.equal(credentialAttribution({ credentialLabel: '某公司', credentialFingerprint: '1234' }), '某公司 · …1234')
+  assert.equal(credentialAttribution({ credentialFingerprint: '1234' }), '…1234')
+  assert.equal(credentialAttribution({}), '—')
+})

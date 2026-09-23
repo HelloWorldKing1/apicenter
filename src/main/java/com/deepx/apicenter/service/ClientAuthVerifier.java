@@ -498,7 +498,13 @@ public class ClientAuthVerifier {
     private Decision settle(InterfaceRow iface, String traceId, String result, String clientId, String reason,
                             String method, String adapterId, String clientIp, String xffChain, String userAgent,
                             long start, String label, String fingerprint, Decision decision) {
-        String principalTag = clientId == null || clientId.isBlank() ? "-" : clientId;
+        // ⚠️ 指标标签必须**有界**：v1.2 起主体可自报（开放集），若把自报值打成标签，
+        //    伪造者可用随机 id 让 Micrometer 无限建标签（内存/报表爆炸）。
+        //    口径：只有**已登记主体**（principalType=CLIENT）才用其 id，其余一律 "unverified"。
+        String principalTag = decision != null && "CLIENT".equals(decision.principalType())
+                && clientId != null && !clientId.isBlank()
+                ? clientId
+                : (clientId == null || clientId.isBlank() ? "-" : "unverified");
         String methodTag = method == null || method.isBlank() ? "NONE" : method;
         meterRegistry.counter("apicenter.gateway.auth", "direction", "INBOUND_CALL", "principal", principalTag,
                 "method", methodTag, "result", decision.passed() ? "pass" : "reject").increment();

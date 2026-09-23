@@ -90,10 +90,11 @@ public class AccessAuthLogRepository {
      * 监控页分页查询（B4，设计方案 §7.1）：按主体 / IP / 结果 / 方式筛（均可空），时间窗必传（上限由 service 兜）。
      */
     public List<AccessAuthLogView> findPaged(String principalId, String ip, String result, String method,
+                                             String credential,
                                              java.time.LocalDateTime from, java.time.LocalDateTime to,
                                              int page, int pageSize) {
         StringBuilder sql = new StringBuilder("SELECT * FROM access_auth_log");
-        List<Object> args = where(principalId, ip, result, method, from, to, sql);
+        List<Object> args = where(principalId, ip, result, method, credential, from, to, sql);
         sql.append(" ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?");
         args.add(pageSize);
         args.add((page - 1) * pageSize);
@@ -109,10 +110,10 @@ public class AccessAuthLogRepository {
                 rs.getString("credential_label"), rs.getString("credential_fingerprint")), args.toArray());
     }
 
-    public long count(String principalId, String ip, String result, String method,
+    public long count(String principalId, String ip, String result, String method, String credential,
                       java.time.LocalDateTime from, java.time.LocalDateTime to) {
         StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM access_auth_log");
-        List<Object> args = where(principalId, ip, result, method, from, to, sql);
+        List<Object> args = where(principalId, ip, result, method, credential, from, to, sql);
         Long n = jdbc.queryForObject(sql.toString(), Long.class, args.toArray());
         return n == null ? 0 : n;
     }
@@ -137,6 +138,7 @@ public class AccessAuthLogRepository {
     }
 
     private static List<Object> where(String principalId, String ip, String result, String method,
+                                      String credential,
                                       java.time.LocalDateTime from, java.time.LocalDateTime to,
                                       StringBuilder sql) {
         List<Object> args = new java.util.ArrayList<>();
@@ -156,6 +158,12 @@ public class AccessAuthLogRepository {
         if (method != null && !method.isBlank()) {
             conds.add("auth_method = ?");
             args.add(method.trim());
+        }
+        // v1.2（D-CA-20）：按「命中的凭证」筛 —— 备注或指纹任一匹配（共享凭证下的归因入口）
+        if (credential != null && !credential.isBlank()) {
+            conds.add("(credential_label = ? OR credential_fingerprint = ?)");
+            args.add(credential.trim());
+            args.add(credential.trim());
         }
         if (from != null) {
             conds.add("created_at >= ?");
