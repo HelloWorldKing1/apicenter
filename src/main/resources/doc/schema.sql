@@ -1,7 +1,7 @@
 -- ============================================================
 -- API 中心（现行设计）· 建表脚本
--- 依据《表结构设计.html》生成，共 25 张表：配置类 11 + 运行类 8
---   + 平台入站鉴权 3（client_app / client_credential / access_auth_log，2026-09-23 落地 B1）（M4 新增 reconcile_audit / alert_event；M5 后新增 outbound_request_state_log 状态链）
+-- 依据《表结构设计.html》生成，共 26 张表：配置类 11 + 运行类 8
+--   + 平台入站鉴权 **4**（client_app / client_credential / access_auth_log / inbound_auth_setting；B1 2026-09-23，凭证池与平台设置 v1.2 2026-09-24）（M4 新增 reconcile_audit / alert_event；M5 后新增 outbound_request_state_log 状态链）
 --   + 管理面账号类 2（admin_user / admin_session，2026-09-18 账号登录）；另 interface_step 为编排配置子表（第 20 张）
 -- 目标库：MySQL 5.7 / 8.0 InnoDB（双兼容），字符集 utf8mb4
 -- 注意：与 doc_old/schema.sql（旧版 ERP demo 9 表）不是同一套，勿混用
@@ -446,7 +446,7 @@ CREATE TABLE admin_session (
 
 -- ============================================================
 -- 2026-09-23 平台入站鉴权（调用方鉴权 · 回调验签 · 接入审计）—— B1「数据与目录」
---   依据《开发文档/设计/入站鉴权设计方案.md》v1.1 §4.1/§4.2
+--   依据《开发文档/设计/入站鉴权设计方案.md》v1.1 §4.1/§4.2（**v1.2 修订见下方分段注释**）
 --   方向说明：`app.auth_adapter_id` 管「平台作为调用方 → 供应商」的出站签名；
 --             `client_app.auth_adapter_id` 管「调用方 → 平台」的入站鉴权（主体相反）。
 --   ⚠ 三表已应用到开发库（2026-09-23）；《表结构设计.html》已同步。
@@ -471,10 +471,16 @@ CREATE TABLE client_app (
     KEY idx_client_auth_adapter (auth_adapter_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='调用方（平台客户 / 接入方）';
 
--- 24 调用方凭证（与 app_credential 同构）：AES-256-GCM 密文 + ACTIVE/ROTATING/RETIRED 轮换并存
+-- 24 入站鉴权凭证池（**v1.2 语义升级**：三级属主共用一张表）—— AES-256-GCM 密文 + ACTIVE/ROTATING/RETIRED 轮换并存
+--   属主 owner_type：INTERFACE 接口专属池（owner_id=interface.id）/ PLATFORM 平台共享池（owner_id=NULL）
+--                  / CLIENT 调用方档案专属（owner_id=client_id，可选精确管控）；取池顺序 INTERFACE → PLATFORM → CLIENT
+--   label = 「发给谁/何时」备注 —— 共享凭证下唯一可归因、可吊销的抓手（落入审计 credential_label）
+--   ✅ 加列 + 回填 + 换索引已应用到开发库（2026-09-24）；⚠ client_id 列**待 C1 代码同批删除**（删列必须先改代码）
 CREATE TABLE client_credential (
     id             BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    client_id      VARCHAR(32)  NOT NULL COMMENT '所属调用方',
+    owner_type     VARCHAR(16)  NOT NULL DEFAULT 'PLATFORM' COMMENT 'INTERFACE 接口池 / PLATFORM 平台池 / CLIENT 档案池',
+    owner_id       VARCHAR(32)  COMMENT 'INTERFACE=interface.id / PLATFORM=NULL / CLIENT=client_id',
+    label          VARCHAR(64)  COMMENT '备注（发给谁/何时；审计 credential_label 来源）',
     kind           VARCHAR(16)  NOT NULL COMMENT '凭证类型（须与 adapter.credentialKind() 一致）：API_KEY / HMAC_SECRET / BEARER_TOKEN / BASIC',
     credential     TEXT         NOT NULL COMMENT '凭证内容（AES-256-GCM 可逆加密；复合凭证 JSON 化）',
     status         VARCHAR(16)  NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE 当前使用 / ROTATING 轮换并存 / RETIRED 已失效',
@@ -482,8 +488,8 @@ CREATE TABLE client_credential (
     retired_at     DATETIME     COMMENT '失效时间',
     rotating_until DATETIME     COMMENT 'ROTATING 并存窗口截止（默认 +24h；过期后读取路径惰性视为 RETIRED）',
     created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    KEY idx_client_credential (client_id, kind, status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='调用方凭证（支持轮换并存）';
+    KEY idx_client_credential (owner_type, owner_id, kind, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='入站鉴权凭证池（三级属主，支持轮换并存）';
 
 -- 25 接入鉴权审计（本设计核心交付物之一）：谁（主体+名称）· 从哪（IP）· 什么方式 · 结果如何
 --   写入点统一（网关切面 finally flush），数据来自 AccessAuthContext（ThreadLocal，与 CallLogContext 同构）；
@@ -492,13 +498,15 @@ CREATE TABLE access_auth_log (
     id              BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
     trace_id        VARCHAR(32)  COMMENT 'traceId（与 call_log / 运行表同源，可三方串联）',
     direction       VARCHAR(16)  NOT NULL COMMENT 'INBOUND_CALL 调用方→平台（Flow A）/ CALLBACK 供应商回调→平台（Flow B）',
-    principal_type  VARCHAR(16)  NOT NULL COMMENT '主体类型：CLIENT 调用方 / SUPPLIER 供应商',
+    principal_type  VARCHAR(16)  NOT NULL COMMENT '主体类型：CLIENT 已登记调用方 / UNVERIFIED 自报未验证 / SUPPLIER 供应商',
     principal_id    VARCHAR(32)  COMMENT '主体标识：client_id 或 app_id（主体未识别时为空）',
     principal_name  VARCHAR(64)  COMMENT '主体名称快照（主体改名 / 删除后历史仍可读——审计的硬要求）',
     interface_id    BIGINT       COMMENT '关联接口（多态引用不设外键；接口删除后仍保留）',
     interface_code  VARCHAR(16)  COMMENT '接口标识快照',
     auth_method     VARCHAR(24)  NOT NULL COMMENT '鉴权方式：API_KEY / HMAC-SHA256 / BEARER / BASIC / IP_WHITELIST / PLATFORM_SELF / NONE',
     auth_adapter_id VARCHAR(16)  COMMENT '命中的鉴权适配器实例（adapter.id；平台内置或主体未知时为空）',
+    credential_label VARCHAR(64) COMMENT '【v1.2】命中的凭证备注（凭证池 label）—— 共享凭证下的可归因抓手',
+    credential_fingerprint VARCHAR(16) COMMENT '【v1.2】命中的凭证指纹（尾 4 / SHA-256 前 8，口径同 CredentialService）',
     result          VARCHAR(8)   NOT NULL COMMENT 'PASS 通过 / REJECT 拒绝',
     error_code      VARCHAR(16)  COMMENT '拒绝错误码（40100/40101/40103/40107/40108…）',
     reason          VARCHAR(255) COMMENT '结论说明（拒绝原因 / 通过补充）',
@@ -513,8 +521,25 @@ CREATE TABLE access_auth_log (
     KEY idx_auth_result (result, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='接入鉴权审计';
 
+-- 26 入站鉴权平台设置（**单行表**，v1.2 新增；运行期可改、页面可编辑、即时生效）
+--   只放「日常运维要频繁调」的两项：平台默认鉴权方式 + 是否强制自报主体。
+--   `mode`（OFF/OPTIONAL/ENFORCED）**刻意留在配置项**：改它必须重启 = 有意动作（安全默认纪律）。
+--   写入必须：① 更新 updated_by/updated_at；② 发 ConfigChangedEvent（缓存即时失效）；
+--   ③ 对「放松类」变更（换方式 / require_client_id 1→0）额外 log.warn + 告警（level=WARN）。
+--   ✅ 已应用到开发库（2026-09-24，已初始化单行 id=1）；《表结构设计.html》已同步。
+CREATE TABLE inbound_auth_setting (
+    id                 TINYINT      NOT NULL DEFAULT 1 PRIMARY KEY COMMENT '恒为 1（单行表；应用层保证，MySQL 5.7 无 CHECK 强制）',
+    default_adapter_id VARCHAR(16)  COMMENT '平台默认入站鉴权方式（adapter.type=auth；空 = 未配置 ⇒ fail-closed 40108，不回退 Noop）',
+    require_client_id  TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '1=强制自报主体（v1.1 兼容档）/ 0=开放集（主体仅入审计，不参与放行）',
+    updated_by         VARCHAR(64)  COMMENT '最后修改人（admin_user.username 快照）',
+    updated_at         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后修改时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='入站鉴权平台设置（单行，运行期可改）';
+
 -- 删除策略（与设计方案 §4.2 一致）：
 --   · 删调用方     → 级联删其凭证（client_credential）；**审计表不删**（靠保留期清理 + 名称快照回溯）
---   · 删鉴权适配器 → client_app.auth_adapter_id 置 NULL（回退「未配置」→ 启用后 fail-closed 40108）
---   · 删接口       → 不删 access_auth_log（interface_id/interface_code 快照保留）
+--   · 删凭证行     → **即时生效**（下一请求即失效，无缓存/不需重启）—— 这是「单独吊销某个调用方」的正式手段
+--   · 删鉴权适配器 → ① 清 client_app.auth_adapter_id（L2 档案默认方式，若有）② 删/清 interface_adapter_binding 的 CLIENT_AUTH 行
+--                     ③ 平台默认 inbound_auth_setting.default_adapter_id 指向它 ⇒ 必须同时清空（否则该接口 fail-closed 40108）
+--   · 删接口       → 不删 access_auth_log（interface_id/interface_code 快照保留）；其 CLIENT_AUTH 绑定随绑定行删除
+--   · 平台设置表   → 恒 1 行（仓储层只 UPDATE ... WHERE id=1，禁止 INSERT 第二行）
 --   · 审计表清理   → 保留期（默认 90 天）或手工 SQL（P1 不引调度）
