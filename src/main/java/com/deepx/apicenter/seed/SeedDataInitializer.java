@@ -14,6 +14,9 @@ import com.deepx.apicenter.repository.AdapterRepository;
 import com.deepx.apicenter.repository.AppRepository;
 import com.deepx.apicenter.repository.InterfaceRepository;
 import com.deepx.apicenter.service.AppService;
+import com.deepx.apicenter.repository.ClientAppRepository;
+import com.deepx.apicenter.service.ClientCredentialService;
+import com.deepx.apicenter.service.ClientService;
 import com.deepx.apicenter.service.CredentialService;
 import com.deepx.apicenter.service.GroupService;
 import com.deepx.apicenter.service.InterfaceService;
@@ -40,6 +43,10 @@ public class SeedDataInitializer implements ApplicationRunner {
     /** 黄金用例测试 token（占位值；真实 token 通过管理面凭证管理更新） */
     private static final String FASTBOSS_TEST_TOKEN = "fastmoss-test-token";
 
+    /** 演示调用方（2026-09-23 入站鉴权 B5）：手动验收/联调开箱可用；与 fastmoss 黄金用例解耦、幂等 */
+    private static final String DEMO_CLIENT = "DEMO-CLIENT";
+    private static final String DEMO_CLIENT_API_KEY = "demo-client-key-1234";
+
     /** 黄金用例请求体模板（开发计划 §2.4） */
     private static final String BODY_TEMPLATE = """
             {
@@ -59,6 +66,9 @@ public class SeedDataInitializer implements ApplicationRunner {
     private final InterfaceService interfaceService;
     private final InterfaceRepository interfaceRepository;
     private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+    private final ClientAppRepository clientAppRepository;
+    private final ClientService clientService;
+    private final ClientCredentialService clientCredentialService;
 
     public SeedDataInitializer(@Value("${app.api-center.seed.enabled:true}") boolean seedEnabled,
                                AppRepository appRepository,
@@ -68,7 +78,10 @@ public class SeedDataInitializer implements ApplicationRunner {
                                GroupService groupService,
                                InterfaceService interfaceService,
                                InterfaceRepository interfaceRepository,
-                               org.springframework.jdbc.core.JdbcTemplate jdbcTemplate) {
+                               org.springframework.jdbc.core.JdbcTemplate jdbcTemplate,
+                               ClientAppRepository clientAppRepository,
+                               ClientService clientService,
+                               ClientCredentialService clientCredentialService) {
         this.seedEnabled = seedEnabled;
         this.appRepository = appRepository;
         this.adapterRepository = adapterRepository;
@@ -78,6 +91,9 @@ public class SeedDataInitializer implements ApplicationRunner {
         this.interfaceService = interfaceService;
         this.interfaceRepository = interfaceRepository;
         this.jdbcTemplate = jdbcTemplate;
+        this.clientAppRepository = clientAppRepository;
+        this.clientService = clientService;
+        this.clientCredentialService = clientCredentialService;
     }
 
     @Override
@@ -94,6 +110,7 @@ public class SeedDataInitializer implements ApplicationRunner {
     /** 手动导入入口（幂等 / 增量补齐 / 残缺重建语义与启动自动导入一致；controller 复用） */
     public synchronized void importSeed() {
         try {
+            seedDemoClientIfAbsent();   // 与 fastmoss 种子解耦：幂等、可单独补齐
             doImport();
         } catch (Exception e) {
             log.error("种子导入失败", e);
@@ -174,6 +191,23 @@ public class SeedDataInitializer implements ApplicationRunner {
     }
 
     // ---------- 各实体种子（走业务 service 保证校验一致） ----------
+
+    /**
+     * 演示调用方（调用方鉴权用）：adapter `ADP-401`（调用方 API Key 验签）+ `DEMO-CLIENT` + 一个 `API_KEY` 凭证。
+     * 密钥是**固定的演示值**（同 fastmoss 的占位 token 口径），真实接入请用管理面「凭证」轮换。
+     */
+    private void seedDemoClientIfAbsent() {
+        if (clientAppRepository.existsById(DEMO_CLIENT)) {
+            return;
+        }
+        insertAdapter("ADP-401", "调用方 API Key 验签", "auth", "ClientApiKeyVerifyAdapter", "{}");
+        clientService.create(new com.deepx.apicenter.dto.ClientDtos.ClientRequest(
+                DEMO_CLIENT, "演示调用方", "平台联调", "ADP-401", null, null, null, null,
+                "种子：入站鉴权演示（示例密钥见《入站鉴权手动验收测试方案.md》）"));
+        clientCredentialService.update(DEMO_CLIENT,
+                new com.deepx.apicenter.dto.CredentialDtos.UpdateRequest("API_KEY", DEMO_CLIENT_API_KEY));
+        log.info("已写入演示调用方 {}（鉴权方式=调用方 API Key 验签；示例密钥见入站鉴权手动验收方案）", DEMO_CLIENT);
+    }
 
     private void seedAdapters() {
         insertAdapter("ADP-000", "无鉴权", "auth", "NoopAuthAdapter", "{}");
