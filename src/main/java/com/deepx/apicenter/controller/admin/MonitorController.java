@@ -8,6 +8,7 @@ import com.deepx.apicenter.model.AlertRuleRow;
 import com.deepx.apicenter.model.OutboundRequestRow;
 import com.deepx.apicenter.repository.AlertEventRepository;
 import com.deepx.apicenter.repository.AlertRuleRepository;
+import com.deepx.apicenter.repository.AccessAuthLogRepository;
 import com.deepx.apicenter.repository.CallLogRepository;
 import com.deepx.apicenter.repository.DeadLetterRepository;
 import com.deepx.apicenter.repository.OutboundRequestRepository;
@@ -42,6 +43,8 @@ public class MonitorController {
     private static final Duration KEYWORD_MAX_WINDOW = Duration.ofDays(7);
 
     private final MonitorService monitorService;
+    /** 接入鉴权审计查询（B4） */
+    private final AccessAuthLogRepository accessAuthLogRepository;
     private final OutboundRequestRepository outboundRequestRepository;
     private final DeadLetterRepository deadLetterRepository;
     private final AlertEventRepository alertEventRepository;
@@ -55,6 +58,7 @@ public class MonitorController {
                              AlertEventRepository alertEventRepository,
                              AlertRuleRepository alertRuleRepository,
                              CallLogRepository callLogRepository,
+                             AccessAuthLogRepository accessAuthLogRepository,
                              com.deepx.apicenter.service.AlertService alertService) {
         this.monitorService = monitorService;
         this.outboundRequestRepository = outboundRequestRepository;
@@ -62,6 +66,7 @@ public class MonitorController {
         this.alertEventRepository = alertEventRepository;
         this.alertRuleRepository = alertRuleRepository;
         this.callLogRepository = callLogRepository;
+        this.accessAuthLogRepository = accessAuthLogRepository;
         this.alertService = alertService;
     }
 
@@ -160,6 +165,61 @@ public class MonitorController {
     // ---------- 统计增强（仪表盘 / 监控 v0.2） ----------
 
     /** 趋势（1h/24h/7d 分桶；仪表盘与监控总览共用，60s 缓存） */
+    // ---------- 接入鉴权审计（B4；设计方案 §7.1） ----------
+
+    @GetMapping("/access-logs")
+    public ApiResult<PagedResponse<AccessAuthLogRepository.AccessAuthLogView>> accessLogs(
+            @RequestParam(required = false) String principalId,
+            @RequestParam(required = false) String ip,
+            @RequestParam(required = false) String result,
+            @RequestParam(required = false) String method,
+            @RequestParam(required = false) String timeFrom,
+            @RequestParam(required = false) String timeTo,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int pageSize) {
+        var w = normalizeAuditWindow(timeFrom, timeTo);
+        List<AccessAuthLogRepository.AccessAuthLogView> list = accessAuthLogRepository.findPaged(
+                principalId, ip, result, method, w[0], w[1], Math.max(1, page), Math.min(Math.max(1, pageSize), 200));
+        long total = accessAuthLogRepository.count(principalId, ip, result, method, w[0], w[1]);
+        return ApiResult.ok(new PagedResponse<>(list, total, Math.max(1, page), Math.min(Math.max(1, pageSize), 200)));
+    }
+
+    /** 近 24h 摘要（观察期主力视图）：通过/拒绝数 + Top 拒绝原因 + 未知主体计数 */
+    @GetMapping("/access-logs/summary")
+    public ApiResult<AccessAuthLogRepository.AccessAuthSummary> accessLogSummary(
+            @RequestParam(required = false) String timeFrom,
+            @RequestParam(required = false) String timeTo) {
+        var w = normalizeAuditWindow(timeFrom, timeTo);
+        return ApiResult.ok(accessAuthLogRepository.summary(w[0], w[1]));
+    }
+
+    /**
+     * 审计查询的时间窗约束（与 call-logs 同纪律）：未传 → 近 24h；跨度超 7 天 → 截断为近 7 天；
+     * 上限不取 `withNano(0)`（否则本秒写入的行被半开区间排除，TOP 偶发少一条）。
+     */
+    private java.time.LocalDateTime[] normalizeAuditWindow(String from, String to) {
+        java.time.LocalDateTime end = parseTime(to, java.time.LocalDateTime.now());
+        java.time.LocalDateTime start = parseTime(from, end.minusHours(24));
+        if (start.isAfter(end)) {
+            start = end.minusHours(24);
+        }
+        if (java.time.Duration.between(start, end).toDays() > 7) {
+            start = end.minusDays(7);
+        }
+        return new java.time.LocalDateTime[]{start, end};
+    }
+
+    private java.time.LocalDateTime parseTime(String text, java.time.LocalDateTime def) {
+        if (text == null || text.isBlank()) {
+            return def;
+        }
+        try {
+            return java.time.LocalDateTime.parse(text.replace(" ", "T"));
+        } catch (Exception e) {
+            return def;
+        }
+    }
+
     @GetMapping("/stats/trend")
     public ApiResult<Trend> trend(@RequestParam(defaultValue = "24h") String range,
                                   @RequestParam(required = false) String appId) {

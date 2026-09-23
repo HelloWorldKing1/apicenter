@@ -44,9 +44,10 @@ class ClientAuthVerifierTest {
     private final AdapterRepository adapterRepo = mock(AdapterRepository.class);
     private final CredentialRepository credentialRepo = mock(CredentialRepository.class);
     private final CryptoService cryptoService = mock(CryptoService.class);
+    private final AlertService alertService = mock(AlertService.class);
 
     private ClientAuthVerifier verifier(String mode) {
-        ClientAuthProperties props = new ClientAuthProperties(mode, null, null, INTERNAL);
+        ClientAuthProperties props = new ClientAuthProperties(mode, null, null, INTERNAL, null);
         InternalCallToken token = new InternalCallToken(props);
         Map<String, Adapter> beans = Map.of(
                 "ClientApiKeyVerifyAdapter", new ClientApiKeyVerifyAdapter(),
@@ -54,7 +55,8 @@ class ClientAuthVerifierTest {
                 "ClientBearerVerifyAdapter", new ClientBearerVerifyAdapter(),
                 "ClientIpWhitelistVerifyAdapter", new ClientIpWhitelistVerifyAdapter());
         return new ClientAuthVerifier(props, token, clientRepo, adapterRepo, credentialRepo, cryptoService,
-                new ObjectMapper(), beans);
+                new ObjectMapper(), beans, new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+                alertService);
     }
 
     @AfterEach
@@ -250,10 +252,11 @@ class ClientAuthVerifierTest {
     @Test
     void 内部令牌为空_不豁免() {
         // 空令牌 ⇒ 不豁免（防"空令牌放行"）→ 仍按 ENFORCED 判：无主体头 ⇒ 40107
-        ClientAuthProperties props = new ClientAuthProperties("ENFORCED", null, null, "");
+        ClientAuthProperties props = new ClientAuthProperties("ENFORCED", null, null, "", null);
         ClientAuthVerifier v = new ClientAuthVerifier(props, new InternalCallToken(props), clientRepo,
                 adapterRepo, credentialRepo, cryptoService, new ObjectMapper(),
-                Map.of("ClientApiKeyVerifyAdapter", new ClientApiKeyVerifyAdapter()));
+                Map.of("ClientApiKeyVerifyAdapter", new ClientApiKeyVerifyAdapter()),
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), alertService);
         ClientAuthVerifier.Decision d = v.verify(iface(), "POST", Map.of(InternalCallToken.HEADER, ""),
                 "{}".getBytes(), null, null, null, "t");
         assertThat(d.passed()).isFalse();

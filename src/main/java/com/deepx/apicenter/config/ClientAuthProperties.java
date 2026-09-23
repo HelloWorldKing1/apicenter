@@ -13,13 +13,15 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param idHeader  主体标识头名（默认 {@code X-Client-Id}；单个调用方可由其适配器 params.idHeaderName 覆盖）
  * @param audit     审计（{@code access_auth_log}）相关开关
  * @param internalToken 内部调用令牌（D-CA-17）；**留空 = 不豁免**，仅在测试里显式设置
+ * @param failAlertThreshold 连续鉴权失败告警阈值（5 分钟窗口，按主体；主体未知时按 IP）
  */
 @ConfigurationProperties(prefix = "app.api-center.client-auth")
 public record ClientAuthProperties(
         String mode,
         String idHeader,
         Audit audit,
-        String internalToken) {
+        String internalToken,
+        Integer failAlertThreshold) {
 
     public static final String DEFAULT_ID_HEADER = "X-Client-Id";
 
@@ -48,6 +50,11 @@ public record ClientAuthProperties(
 
     public boolean recordPass() {
         return audit == null || audit.recordPass() == null || audit.recordPass();
+    }
+
+    /** 连续失败告警阈值（默认 10，与设计方案 §14 一致） */
+    public int failAlertThresholdOrDefault() {
+        return failAlertThreshold == null || failAlertThreshold <= 0 ? 10 : failAlertThreshold;
     }
 
     public String internalTokenOrNull() {

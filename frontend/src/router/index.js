@@ -19,6 +19,7 @@ const router = createRouter({
         { path: 'dashboard', name: 'dashboard', component: () => import('@/views/Dashboard.vue'), meta: { title: '概览' } },
         { path: 'apps', name: 'apps', component: () => import('@/views/Apps.vue'), meta: { title: '应用管理' } },
         { path: 'groups', name: 'groups', component: () => import('@/views/Groups.vue'), meta: { title: '分组管理' } },
+        { path: 'clients', name: 'clients', component: () => import('@/views/Clients.vue'), meta: { title: '调用方管理' } },
         { path: 'interfaces', name: 'interfaces', component: () => import('@/views/Interfaces.vue'), meta: { title: '接口管理' } },
         { path: 'adapters', name: 'adapters', component: () => import('@/views/Adapters.vue'), meta: { title: '适配器' } },
         { path: 'monitor', name: 'monitor', component: () => import('@/views/Monitor.vue'), meta: { title: '接口监控' } },

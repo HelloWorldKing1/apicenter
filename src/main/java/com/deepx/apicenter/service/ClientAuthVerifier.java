@@ -55,6 +55,8 @@ import java.util.Optional;
 @org.springframework.boot.context.properties.EnableConfigurationProperties(ClientAuthProperties.class)
 public class ClientAuthVerifier {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ClientAuthVerifier.class);
+
     /** 判定结果：网关据 `passed` 放行/拒绝（`errorCode`/`message` 直接用于错误响应） */
     public record Decision(boolean passed, int errorCode, String message,
                            String clientId, String principalName,
@@ -78,11 +80,15 @@ public class ClientAuthVerifier {
     private final CryptoService cryptoService;
     private final ObjectMapper objectMapper;
     private final Map<String, Adapter> adapterBeans;
+    private final io.micrometer.core.instrument.MeterRegistry meterRegistry;
+    private final AlertService alertService;
 
     public ClientAuthVerifier(ClientAuthProperties props, InternalCallToken internalCallToken,
                               ClientAppRepository clientAppRepository, AdapterRepository adapterRepository,
                               CredentialRepository credentialRepository, CryptoService cryptoService,
-                              ObjectMapper objectMapper, Map<String, Adapter> adapterBeans) {
+                              ObjectMapper objectMapper, Map<String, Adapter> adapterBeans,
+                              io.micrometer.core.instrument.MeterRegistry meterRegistry,
+                              AlertService alertService) {
         this.props = props;
         this.internalCallToken = internalCallToken;
         this.clientAppRepository = clientAppRepository;
@@ -91,6 +97,8 @@ public class ClientAuthVerifier {
         this.cryptoService = cryptoService;
         this.objectMapper = objectMapper;
         this.adapterBeans = adapterBeans;
+        this.meterRegistry = meterRegistry;
+        this.alertService = alertService;
     }
 
     /**
@@ -142,6 +150,9 @@ public class ClientAuthVerifier {
 
         Optional<ClientAppRow> found = clientAppRepository.findById(rawClientId);
         if (found.isEmpty()) {
+            // 未知主体探测指标（§13.1；P2 用于封禁决策）
+            meterRegistry.counter("apicenter.auth.unknown_principal", "ip",
+                    clientIp == null ? "-" : clientIp).increment();
             // 显式声明的主体必须可识别（与 mode 无关）
             return reject(iface, traceId, 40107, "鉴权失败：调用方不存在：" + rawClientId,
                     rawClientId, null, "NONE", null, clientIp, xffChain, userAgent, start);
@@ -338,6 +349,22 @@ public class ClientAuthVerifier {
     private Decision settle(InterfaceRow iface, String traceId, String result, String clientId, String reason,
                             String method, String adapterId, String clientIp, String xffChain, String userAgent,
                             long start, Decision decision) {
+        // 指标（设计方案 §13.1：命名沿用 apicenter.*；principal 维度用 "-" 占位避免高基数标签名缺失）
+        String principalTag = clientId == null || clientId.isBlank() ? "-" : clientId;
+        String methodTag = method == null || method.isBlank() ? "NONE" : method;
+        meterRegistry.counter("apicenter.gateway.auth", "direction", "INBOUND_CALL", "principal", principalTag,
+                "method", methodTag, "result", decision.passed() ? "pass" : "reject").increment();
+        meterRegistry.timer("apicenter.gateway.auth.latency", "direction", "INBOUND_CALL", "method", methodTag)
+                .record(java.time.Duration.ofNanos(System.nanoTime() - start));
+        if (!decision.passed()) {
+            // 连续失败告警（§13.2：按主体；主体未知时按 IP）—— 阈值默认 10 / 5 分钟窗口
+            alertService.recordAuthFailure(clientId, clientIp, decision.principalName(),
+                    String.valueOf(decision.errorCode()));
+        }
+        // 结构化单行日志（§13.3；**不打凭证/签名**，只打结论与主体）
+        log.info("鉴权结论 result={} principal={} ip={} method={} code={} reason={}",
+                result, principalTag, clientIp == null ? "-" : clientIp, methodTag,
+                decision.passed() ? 0 : decision.errorCode(), reason);
         if (props.auditEnabled() && ("REJECT".equals(result) || props.recordPass())) {
             AccessAuthContext.set(new AccessAuthContext.Entry(
                     traceId, "INBOUND_CALL", "CLIENT",

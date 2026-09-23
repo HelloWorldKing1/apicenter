@@ -233,6 +233,61 @@
             <el-pagination background layout="total, prev, pager, next" :total="alertTotal"
                            :page-size="20" :current-page="alertPage" @current-change="loadAlerts" />
           </div>
+        <!-- ============ Tab 6 接入鉴权（B4：调用方鉴权 / 回调验签的判定留痕） ============ -->
+        <el-tab-pane label="接入鉴权" name="accessauth">
+          <div class="filters">
+            <el-input v-model="authFilter.principalId" placeholder="主体（调用方标识）" clearable size="small"
+                      style="width: 170px" @keyup.enter="loadAccessLogs()" />
+            <el-input v-model="authFilter.ip" placeholder="来源 IP" clearable size="small"
+                      style="width: 140px" @keyup.enter="loadAccessLogs()" />
+            <el-select v-model="authFilter.result" placeholder="全部结果" clearable size="small" style="width: 110px">
+              <el-option label="通过" value="PASS" /><el-option label="拒绝" value="REJECT" />
+            </el-select>
+            <el-select v-model="authFilter.method" placeholder="全部方式" clearable size="small" style="width: 140px">
+              <el-option v-for="m in AUTH_METHODS" :key="m" :label="m" :value="m" />
+            </el-select>
+            <el-button size="small" type="primary" @click="loadAccessLogs()">查询</el-button>
+          </div>
+          <div class="auth-summary">
+            近 24h：<b class="pass">通过 {{ authSummary.pass }}</b> ·
+            <b class="reject">拒绝 {{ authSummary.reject }}</b> ·
+            未识别主体 {{ authSummary.unknownPrincipal }}
+            <span v-if="authSummary.topRejectReasons && authSummary.topRejectReasons.length" class="reasons">
+              ｜ 拒绝 Top：{{ authSummary.topRejectReasons.join('、') }}
+            </span>
+          </div>
+          <el-table :data="accessLogs" size="small">
+            <el-table-column label="时间" width="160">
+              <template #default="{ row }">{{ (row.createdAt || '').replace('T', ' ').slice(0, 19) }}</template>
+            </el-table-column>
+            <el-table-column label="方向" width="90">
+              <template #default="{ row }">{{ row.direction === 'CALLBACK' ? '回调' : '调用方' }}</template>
+            </el-table-column>
+            <el-table-column label="主体" min-width="150">
+              <template #default="{ row }">
+                {{ row.principalName || '—' }}<span class="muted">（{{ row.principalId || '未识别' }}）</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="authMethod" label="方式" width="130" />
+            <el-table-column label="结果" width="90">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.result === 'PASS' ? 'success' : 'danger'">
+                  {{ row.result === 'PASS' ? '通过' : '拒绝' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="errorCode" label="错误码" width="80" />
+            <el-table-column prop="clientIp" label="来源 IP" width="130" />
+            <el-table-column label="耗时" width="80">
+              <template #default="{ row }">{{ row.latencyMs == null ? '—' : row.latencyMs + 'ms' }}</template>
+            </el-table-column>
+            <el-table-column prop="reason" label="说明" min-width="180" show-overflow-tooltip />
+          </el-table>
+          <div class="pager">
+            <el-pagination background layout="total, prev, pager, next" :total="accessLogTotal"
+                           :page-size="20" :current-page="authFilter.page" @current-change="onAuthPageChange" />
+          </div>
+        </el-tab-pane>
         </el-tab-pane>
       </el-tabs>
     </el-card>
@@ -395,7 +450,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, nextTick, ref, computed } from 'vue'
+import { onBeforeUnmount, onMounted, nextTick, reactive, ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts/core'
@@ -512,6 +567,38 @@ async function loadOverviewTrend() {
       ]
     }, true)
   } catch (e) { console.warn('[monitor] 忽略的失败', e?.message || e) }
+}
+
+// ---------- Tab 接入鉴权（B4） ----------
+const AUTH_METHODS = ['API_KEY', 'HMAC-SHA256', 'HMAC-SHA1', 'HMAC-SHA512', 'BEARER', 'BASIC',
+  'IP_WHITELIST', 'PLATFORM_SELF', 'NONE']
+const accessLogs = ref([])
+const accessLogTotal = ref(0)
+const authSummary = reactive({ pass: 0, reject: 0, unknownPrincipal: 0, topRejectReasons: [] })
+const authFilter = reactive({ principalId: '', ip: '', result: '', method: '', page: 1 })
+
+async function loadAccessLogs(page) {
+  if (page) {
+    authFilter.page = page
+  }
+  const params = new URLSearchParams({ page: String(authFilter.page), pageSize: '20' })
+  for (const k of ['principalId', 'ip', 'result', 'method']) {
+    if (authFilter[k]) {
+      params.set(k, authFilter[k])
+    }
+  }
+  const data = await http.get(`/monitor/access-logs?${params.toString()}`)
+  accessLogs.value = data.list || []
+  accessLogTotal.value = data.total || 0
+}
+
+function onAuthPageChange(p) {
+  loadAccessLogs(p)
+}
+
+async function loadAuthSummary() {
+  const data = await http.get('/monitor/access-logs/summary')
+  Object.assign(authSummary, data)
 }
 
 // ---------- Tab 调用日志 ----------
@@ -718,6 +805,8 @@ function applyQuery() {
 
 let timer = null
 onMounted(async () => {
+  loadAccessLogs()
+  loadAuthSummary()
   await Promise.all([loadOverview(), loadDicts()])
   loadOverviewTrend()
   await loadLogs(1)
@@ -744,6 +833,11 @@ onBeforeUnmount(() => {
 .tip { color: #909399; font-size: 12px; margin-top: 8px; }
 .pager { margin-top: 8px; display: flex; justify-content: center; }
 .rules-title { color: #909399; font-size: 13px; margin: 12px 0 4px; }
+.auth-summary { font-size: 12px; color: #606266; line-height: 1.8; margin-bottom: 8px; }
+.auth-summary .pass { color: #529b2e; }
+.auth-summary .reject { color: #e6a23c; }
+.auth-summary .reasons { color: #909399; }
+.muted { color: #c0c4cc; }
 .side-title { margin: 12px 0 6px; color: #606266; font-size: 13px; }
 .side-note {
   background: #f4f6f9;

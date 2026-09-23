@@ -7,6 +7,7 @@
         <el-menu-item index="/dashboard"><span class="ico">◧</span>概览</el-menu-item>
         <el-menu-item index="/apps"><span class="ico">▤</span>应用管理</el-menu-item>
         <el-menu-item index="/groups"><span class="ico">▦</span>分组管理</el-menu-item>
+        <el-menu-item index="/clients"><span class="ico">◫</span>调用方管理</el-menu-item>
         <el-menu-item index="/interfaces"><span class="ico">⇄</span>接口管理</el-menu-item>
         <el-menu-item index="/monitor"><span class="ico">◎</span>接口监控</el-menu-item>
         <el-menu-item index="/adapters"><span class="ico">⚙</span>适配器</el-menu-item>

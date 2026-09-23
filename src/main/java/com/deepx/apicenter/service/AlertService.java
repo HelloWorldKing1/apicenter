@@ -27,6 +27,10 @@ public class AlertService {
     @Value("${app.api-center.verify-fail-alert-threshold:10}")
     private int verifyFailThreshold;
 
+    /** 调用方鉴权连续失败阈值（B4；默认 10） */
+    @Value("${app.api-center.client-auth.fail-alert-threshold:10}")
+    private int failAlertThreshold;
+
     private final AlertEventRepository alertEventRepository;
 
     /** 冷却判重（内存，单实例）：key = rule:<id> 或 verify:<appId> → 上次触发时刻 */
@@ -34,6 +38,8 @@ public class AlertService {
 
     /** 验签失败计数（内存滑动 5 分钟窗口近似：key=appId，值=[窗口起始秒, 计数]） */
     private final Map<String, long[]> verifyFailWindows = new ConcurrentHashMap<>();
+    /** 调用方鉴权失败窗口（B4）：key = principal:<clientId> 或 ip:<addr> */
+    private final Map<String, long[]> authFailWindows = new ConcurrentHashMap<>();
 
     public AlertService(AlertEventRepository alertEventRepository) {
         this.alertEventRepository = alertEventRepository;
@@ -53,6 +59,32 @@ public class AlertService {
             fire(null, "verify_fail_streak", "CRITICAL",
                     "应用 " + appId + " 回调验签连续失败 " + count + " 次（5 分钟窗口），疑似凭证错误或恶意探测",
                     "{\"appId\":\"" + appId + "\",\"count\":" + count + "}");
+        }
+    }
+
+    /**
+     * **调用方鉴权连续失败**告警（2026-09-23 B4，设计方案 §13.2）：与 {@link #recordVerifyFailure} 同模式
+     * （5 分钟窗口、命中即上报并重置窗口），但**按主体**计数（主体未知时按来源 IP）——
+     * 两条告警并行不冲突（一条按 app，一条按 principal）。
+     */
+    public void recordAuthFailure(String principal, String clientIp, String principalName, String lastErrorCode) {
+        String key = principal == null || principal.isBlank() ? "ip:" + clientIp : "principal:" + principal;
+        long windowSeconds = 300;
+        long currentSecond = System.currentTimeMillis() / 1000;
+        long[] window = authFailWindows.compute(key, (k, old) ->
+                old == null || currentSecond - old[0] >= windowSeconds
+                        ? new long[]{currentSecond, 0} : old);
+        long count = ++window[1];
+        if (count >= failAlertThreshold) {
+            authFailWindows.remove(key);
+            String who = principalName != null && !principalName.isBlank()
+                    ? principalName + "（" + principal + "）" : "未识别主体";
+            fire(null, "auth_fail_streak", "CRITICAL",
+                    "调用方鉴权连续失败 " + count + " 次（5 分钟窗口）：" + who + " ip=" + clientIp
+                            + "，最后错误码 " + lastErrorCode + "，疑似凭证错误或恶意探测",
+                    "{\"principal\":\"" + (principal == null ? "" : principal) + "\",\"clientIp\":\""
+                            + (clientIp == null ? "" : clientIp) + "\",\"count\":" + count
+                            + ",\"errorCode\":\"" + (lastErrorCode == null ? "" : lastErrorCode) + "\"}");
         }
     }
 

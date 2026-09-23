@@ -18,6 +18,8 @@ import InterfaceStepsTab from '../src/components/InterfaceStepsTab.vue'
 import RequestBodyEditor from '../src/components/RequestBodyEditor.vue'
 import Login from '../src/views/Login.vue'
 import Users from '../src/views/Users.vue'
+// 调用方管理页（B4 入站鉴权）
+import Clients from '../src/views/Clients.vue'
 
 function decode(html) {
   return html
@@ -49,7 +51,9 @@ const ElStub = {
 const EL_COMPONENTS = ['el-tag', 'el-button', 'el-radio-group', 'el-radio-button',
   'el-dropdown', 'el-dropdown-menu', 'el-dropdown-item', 'el-dialog', 'el-input',
   'el-table', 'el-table-column', 'el-switch', 'el-select', 'el-option', 'el-input-number', 'el-alert',
-  'el-form', 'el-form-item', 'el-card']
+  'el-form', 'el-form-item', 'el-card',
+  // 2026-09-23（B4）：调用方管理页用到抽屉/分页/空态，补进替身清单（替身渲染默认插槽，断言才能看到文案）
+  'el-drawer', 'el-pagination', 'el-descriptions', 'el-descriptions-item', 'el-empty']
 
 const longJson = '{"items":[' + Array.from({ length: 80 }, (_, i) => `{"id":${i}}`).join(',') + ']}'
 const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/wFvpM0AAAAASUVORK5CYII='
@@ -93,6 +97,10 @@ const CASES = [
   // 前置步骤 Tab（编排，PS-7）：空态 + 上限口径 + 入口按钮（含 <script setup> 里 .value/绑定回归防线）
   ['前置步骤 Tab（空态）', { __component: 'InterfaceStepsTab', form: stepsForm, ifaces: [] },
     { text: ['前置步骤', '暂无前置步骤', '添加前置步骤', '最多 5 步', '不配 = 与现在行为完全一致'] }],
+  // 调用方管理页（B4）：表头 / 新建入口 / 凭证提示都要渲染出来（防“逻辑对了但组件没接上”）
+  ['调用方管理页',
+    { __component: 'Clients' },
+    { text: ['新建调用方', '调用方标识', '鉴权方式', 'IP 名单', 'QPS / 日配额', '状态'] }],
   // 请求体输入框（2026-09-22）：格式随「入站协议」——提示语 + 格式标签 + 美化按钮都要渲染出来
   ['请求体输入框（入站 XML）',
     { __component: 'RequestBodyEditor', modelValue: '<request><event_id>evt-1</event_id></request>', protocolIn: 'XML' },
@@ -133,10 +141,13 @@ const CASES = [
 async function main() {
   let failed = 0
   for (const [label, props, expect] of CASES) {
-    const COMPONENTS = { ParamImportDialog, InterfaceParamsTab, InterfaceStepsTab, RequestBodyEditor, Login, Users }
+    const COMPONENTS = { ParamImportDialog, InterfaceParamsTab, InterfaceStepsTab, RequestBodyEditor, Login, Users, Clients }
     const component = COMPONENTS[props.__component] || PayloadViewer
     const app = createSSRApp({ render: () => h(component, props) })
     EL_COMPONENTS.forEach((name) => app.component(name, ElStub))
+    // 指令替身：`v-loading` 仅 Element Plus 运行时有实现，SSR 冒烟里注册空指令即可
+    // （不注册会在 render 阶段抛 `Cannot read properties of undefined (reading 'getSSRProps')`）
+    app.directive('loading', {})
     // 轻量 router 替身：组件里 useRoute/useRouter 拿到的对象可读可调用（不引入真实 router）
     app.provide(routeLocationKey, { path: '/login', query: {}, meta: {} })
     app.provide(routerKey, { replace: () => {}, push: () => {} })

@@ -70,6 +70,99 @@ public class AccessAuthLogRepository {
         });
     }
 
+    /** 监控页视图（含 id / createdAt；B4）。`createdAt` 供筛选展示，`reason` 供排查 */
+    public record AccessAuthLogView(
+            long id, java.time.LocalDateTime createdAt, String traceId, String direction,
+            String principalType, String principalId, String principalName,
+            Long interfaceId, String interfaceCode, String authMethod, String authAdapterId,
+            String result, String errorCode, String reason,
+            String clientIp, String xffChain, String userAgent, Long latencyMs) {
+    }
+
+    /**
+     * 监控页分页查询（B4，设计方案 §7.1）：按主体 / IP / 结果 / 方式筛（均可空），时间窗必传（上限由 service 兜）。
+     */
+    public List<AccessAuthLogView> findPaged(String principalId, String ip, String result, String method,
+                                             java.time.LocalDateTime from, java.time.LocalDateTime to,
+                                             int page, int pageSize) {
+        StringBuilder sql = new StringBuilder("SELECT * FROM access_auth_log");
+        List<Object> args = where(principalId, ip, result, method, from, to, sql);
+        sql.append(" ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?");
+        args.add(pageSize);
+        args.add((page - 1) * pageSize);
+        return jdbc.query(sql.toString(), (rs, i) -> new AccessAuthLogView(
+                rs.getLong("id"), rs.getTimestamp("created_at").toLocalDateTime(),
+                rs.getString("trace_id"), rs.getString("direction"), rs.getString("principal_type"),
+                rs.getString("principal_id"), rs.getString("principal_name"),
+                rs.getObject("interface_id") == null ? null : rs.getLong("interface_id"),
+                rs.getString("interface_code"), rs.getString("auth_method"), rs.getString("auth_adapter_id"),
+                rs.getString("result"), rs.getString("error_code"), rs.getString("reason"),
+                rs.getString("client_ip"), rs.getString("xff_chain"), rs.getString("user_agent"),
+                rs.getObject("latency_ms") == null ? null : rs.getLong("latency_ms")), args.toArray());
+    }
+
+    public long count(String principalId, String ip, String result, String method,
+                      java.time.LocalDateTime from, java.time.LocalDateTime to) {
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM access_auth_log");
+        List<Object> args = where(principalId, ip, result, method, from, to, sql);
+        Long n = jdbc.queryForObject(sql.toString(), Long.class, args.toArray());
+        return n == null ? 0 : n;
+    }
+
+    /** 摘要（观察期主力视图 §7.1）：通过 / 拒绝数 + Top 拒绝原因 + 未知主体计数 */
+    public record AccessAuthSummary(long pass, long reject, long unknownPrincipal,
+                                    List<String> topRejectReasons) {
+    }
+
+    public AccessAuthSummary summary(java.time.LocalDateTime from, java.time.LocalDateTime to) {
+        Long pass = jdbc.queryForObject("SELECT COUNT(*) FROM access_auth_log WHERE result = 'PASS' "
+                + "AND created_at >= ? AND created_at <= ?", Long.class, from, to);
+        Long reject = jdbc.queryForObject("SELECT COUNT(*) FROM access_auth_log WHERE result = 'REJECT' "
+                + "AND created_at >= ? AND created_at <= ?", Long.class, from, to);
+        Long unknown = jdbc.queryForObject("SELECT COUNT(*) FROM access_auth_log WHERE interface_code IS NULL "
+                + "AND created_at >= ? AND created_at <= ?", Long.class, from, to);
+        List<String> reasons = jdbc.queryForList("SELECT CONCAT(IFNULL(error_code,'-'), ' × ', COUNT(*)) AS r "
+                + "FROM access_auth_log WHERE result = 'REJECT' AND created_at >= ? AND created_at <= ? "
+                + "GROUP BY error_code ORDER BY COUNT(*) DESC LIMIT 5", String.class, from, to);
+        return new AccessAuthSummary(pass == null ? 0 : pass, reject == null ? 0 : reject,
+                unknown == null ? 0 : unknown, reasons);
+    }
+
+    private static List<Object> where(String principalId, String ip, String result, String method,
+                                      java.time.LocalDateTime from, java.time.LocalDateTime to,
+                                      StringBuilder sql) {
+        List<Object> args = new java.util.ArrayList<>();
+        List<String> conds = new java.util.ArrayList<>();
+        if (principalId != null && !principalId.isBlank()) {
+            conds.add("principal_id = ?");
+            args.add(principalId.trim());
+        }
+        if (ip != null && !ip.isBlank()) {
+            conds.add("client_ip = ?");
+            args.add(ip.trim());
+        }
+        if (result != null && !result.isBlank()) {
+            conds.add("result = ?");
+            args.add(result.trim().toUpperCase());
+        }
+        if (method != null && !method.isBlank()) {
+            conds.add("auth_method = ?");
+            args.add(method.trim());
+        }
+        if (from != null) {
+            conds.add("created_at >= ?");
+            args.add(java.sql.Timestamp.valueOf(from));
+        }
+        if (to != null) {
+            conds.add("created_at <= ?");
+            args.add(java.sql.Timestamp.valueOf(to));
+        }
+        if (!conds.isEmpty()) {
+            sql.append(" WHERE ").append(String.join(" AND ", conds));
+        }
+        return args;
+    }
+
     /** 按 traceId 查审计行（三方串联：call_log / 运行表 / 审计；B4 的监控页也走这里） */
     public List<AccessAuthLogEntry> findByTrace(String traceId) {
         return jdbc.query("SELECT * FROM access_auth_log WHERE trace_id = ? ORDER BY id", (rs, i) ->

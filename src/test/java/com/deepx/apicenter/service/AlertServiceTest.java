@@ -29,7 +29,39 @@ class AlertServiceTest {
     void setUp() {
         ReflectionTestUtils.setField(service, "cooldownMinutes", 5L);
         ReflectionTestUtils.setField(service, "verifyFailThreshold", 3);
+        ReflectionTestUtils.setField(service, "failAlertThreshold", 3);   // 调用方鉴权失败阈值（B4）
         service.reset();
+    }
+
+    @Test
+    void 调用方鉴权连续失败_达阈值触发auth_fail_streak告警并重置窗口() {
+        // 阈值 3：前 2 次不触发
+        service.recordAuthFailure("ERP-PROD", "1.2.3.4", "ERP 生产", "40100");
+        service.recordAuthFailure("ERP-PROD", "1.2.3.4", "ERP 生产", "40100");
+        verify(alertEventRepository, never()).insert(any(), anyString(), anyString(), anyString(), anyString());
+
+        service.recordAuthFailure("ERP-PROD", "1.2.3.4", "ERP 生产", "40100");
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(alertEventRepository).insert(isNull(), org.mockito.ArgumentMatchers.eq("auth_fail_streak"),
+                org.mockito.ArgumentMatchers.eq("CRITICAL"), message.capture(), anyString());
+        // 文案含主体名 + IP + 最后错误码（§13.2）
+        assertThat(message.getValue()).contains("ERP 生产").contains("1.2.3.4").contains("40100");
+        // 命中即重置窗口：再 2 次不重复触发
+        service.recordAuthFailure("ERP-PROD", "1.2.3.4", "ERP 生产", "40100");
+        service.recordAuthFailure("ERP-PROD", "1.2.3.4", "ERP 生产", "40100");
+        verify(alertEventRepository, times(1)).insert(any(), anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void 调用方鉴权失败_按主体分桶_与回调验签告警互不干扰() {
+        for (int i = 0; i < 3; i++) {
+            service.recordAuthFailure("ERP-PROD", "1.2.3.4", "ERP 生产", "40100");
+        }
+        // 另一主体仅 1 次；回调方向（按 app）另计——三条并行不冲突
+        service.recordAuthFailure("ERP-B", "5.6.7.8", "ERP 备", "40100");
+        service.recordVerifyFailure("APP-1");
+        verify(alertEventRepository, times(1)).insert(isNull(), org.mockito.ArgumentMatchers.eq("auth_fail_streak"),
+                anyString(), anyString(), anyString());
     }
 
     private AlertRuleRow rule(long id, String metric, String threshold) {
