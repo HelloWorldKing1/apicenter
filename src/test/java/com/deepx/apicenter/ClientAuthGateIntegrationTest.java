@@ -44,6 +44,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.stubFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.options;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 调用方鉴权**闸门接入**集成测试（2026-09-23，入站鉴权 B3；设计方案 §7/§10/§19）。
@@ -388,6 +389,62 @@ class ClientAuthGateIntegrationTest {
                 List.of(new BindingDto("CALLBACK_AUTH", adapterId, null)),
                 List.of(), null);
         interfaceService.publish(interfaceService.create(req));
+    }
+
+
+    // ---------- C3：接口级「入站鉴权方式」（CLIENT_AUTH） ----------
+
+    @Test
+    void 接口绑定CLIENT_AUTH_未配平台默认时靠绑定生效_改绑定即时生效_用例45与51b() {
+        stubFor(post(urlEqualTo("/echo")).willReturn(okJson("{\"ok\":true}")));
+        // 平台默认留空 + 开放集（免自报主体）⇒ 本次完全依赖「接口绑定」
+        inboundAuthSettingService.save(null, false, "b3-test");
+        com.deepx.apicenter.dto.CredentialDtos.CredentialIssuedView issued =
+                inboundCredentialService.prepare("PLATFORM", null, "API_KEY", "接口绑定用例");
+        inboundCredentialService.activate("PLATFORM", null, issued.id());
+
+        // ⓪ 未绑定 + 无平台默认 ⇒ fail-closed 40108（不是放行；两级都没有）
+        String t0 = nextTrace();
+        assertThat(callPost(outboundPath, "{}", t0, null, issued.plaintext()).getStatusCode().value())
+                .isEqualTo(401);
+        assertThat(awaitAudit(t0).errorCode()).isEqualTo("40108");
+
+        // ① 绑定 CLIENT_AUTH ⇒ 同一请求 200（**闸门每请求读绑定** ⇒ 改绑定即时生效，无需重启/不用等 TTL）
+        Long interfaceId = interfaceRepository.findByPath(outboundPath).orElseThrow().id();
+        jdbc.update("INSERT INTO interface_adapter_binding (interface_id, role, adapter_id, version) "
+                + "VALUES (?, 'CLIENT_AUTH', ?, NULL)", interfaceId, createApiKeyAdapter());
+        String t1 = nextTrace();
+        assertThat(callPost(outboundPath, "{}", t1, null, issued.plaintext()).getStatusCode().value())
+                .isEqualTo(200);
+        assertThat(awaitAudit(t1).credentialLabel()).isEqualTo("接口绑定用例");
+
+        // ② 解绑 ⇒ 立刻回到 40108（反证：绑定确实是热读的）
+        jdbc.update("DELETE FROM interface_adapter_binding WHERE interface_id = ? AND role = 'CLIENT_AUTH'",
+                interfaceId);
+        String t2 = nextTrace();
+        assertThat(callPost(outboundPath, "{}", t2, null, issued.plaintext()).getStatusCode().value())
+                .isEqualTo(401);
+        assertThat(awaitAudit(t2).errorCode()).isEqualTo("40108");
+    }
+
+    @Test
+    void 绑定角色校验_入站回调接口不允许绑定CLIENT_AUTH() {
+        long groupId = jdbc.queryForObject("SELECT id FROM app_group WHERE app_id = ? LIMIT 1",
+                Long.class, TEST_APP);
+        InterfaceRequest req = new InterfaceRequest("IF-CA-BAD", "错误绑定夹具", "INBOUND", "POST",
+                "/ca/bad-binding", "JSON", "JSON", TEST_APP, groupId,
+                null, WM_BASE + "/delivery-ok", null, 3000, 0, "C3 校验用例", BigDecimal.ONE,
+                List.of(new ParamDto("IN", "event_id", "string", true, "evt-b3", 1),
+                        new ParamDto("OUT", "event_id", "string", true, null, 1)),
+                List.of(new BodyDto("IN", "json", "{\"event_id\":\"evt-b3\"}", null)),
+                List.of(), List.of(),
+                List.of(new BindingDto("CALLBACK_AUTH", createHmacAdapter(), null),
+                        new BindingDto("CLIENT_AUTH", createApiKeyAdapter(), null)),
+                List.of(), null);
+
+        assertThatThrownBy(() -> interfaceService.create(req))
+                .isInstanceOf(com.deepx.apicenter.exception.BizException.class)
+                .hasMessageContaining("入站接口不允许绑定调用方鉴权（CLIENT_AUTH）");
     }
 
     /** 先清运行数据（接口有运行数据时禁止删除），再删接口/分组/应用/调用方；审计行按 trace 前缀清 */

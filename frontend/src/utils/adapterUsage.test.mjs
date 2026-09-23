@@ -28,3 +28,24 @@ test('空 impl：两侧都不匹配（无可选项）', () => {
   assert.equal(adapterMatchesRole('', 'OUTBOUND'), false)
   assert.equal(adapterMatchesRole(null, 'CALLBACK'), false)
 })
+
+// ---------- v1.2：入站鉴权方式（CLIENT_AUTH） ----------
+
+test('入站鉴权角色只认 4 个已知实现（未知 impl 一律不允许）', () => {
+  for (const impl of ['ClientApiKeyVerifyAdapter', 'ClientHmacVerifyAdapter',
+    'ClientBearerVerifyAdapter', 'ClientIpWhitelistVerifyAdapter']) {
+    assert.equal(adapterMatchesRole(impl, 'CLIENT_AUTH'), true, impl)
+  }
+  assert.equal(adapterMatchesRole('SomeCustomAdapter', 'CLIENT_AUTH'), false)
+  assert.equal(adapterMatchesRole('HmacCallbackVerifyAdapter', 'CLIENT_AUTH'), false)
+  assert.equal(adapterMatchesRole('BearerTokenAuthAdapter', 'CLIENT_AUTH'), false)
+})
+
+test('入站鉴权的 4 个实现仍可绑回调验签，但不能当出站签名', () => {
+  assert.equal(adapterMatchesRole('ClientApiKeyVerifyAdapter', 'CALLBACK'), true)
+  assert.equal(adapterMatchesRole('ClientApiKeyVerifyAdapter', 'OUTBOUND'), false)
+})
+
+test('角色提示文案覆盖入站鉴权侧', () => {
+  assert.equal(adapterRoleHint('ClientApiKeyVerifyAdapter'), '入站鉴权 / 回调验签')
+})

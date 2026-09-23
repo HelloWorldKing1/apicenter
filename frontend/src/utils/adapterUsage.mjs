@@ -17,12 +17,30 @@ const CALLBACK_ONLY = new Set(['HmacCallbackVerifyAdapter'])
 const OUTBOUND_ONLY = new Set(['BearerTokenAuthAdapter', 'ApiKeyAuthAdapter'])
 
 /**
+ * 只该出现在「**入站鉴权方式**（接口级 CLIENT_AUTH）」侧的 4 个实现（2026-09-24 v1.2）。
+ *
+ * <p>与上面两个集合的口径差别：这里**只认已知 impl**（未知 impl 在入站鉴权角色下**不允许**）——
+ * 因为闸门要求 `instanceof InboundAuthAdapter`，未知实现会被 fail-closed 成 40108；
+ * 与其让用户选完才发现不生效，不如在选择器里就不给选。**新增 impl 时必须同步本集合**。
+ *
+ * <p>注意：这 4 个 impl **仍可**绑到接口的「回调验签（CALLBACK_AUTH）」角色（设计方案 §9.3：
+ * 校验逻辑与「是谁的凭证」无关）—— 所以它们只是「不能当出站签名」。
+ */
+const CLIENT_AUTH_ONLY = new Set([
+  'ClientApiKeyVerifyAdapter', 'ClientHmacVerifyAdapter',
+  'ClientBearerVerifyAdapter', 'ClientIpWhitelistVerifyAdapter'
+])
+
+/**
  * 该 impl 是否可用于指定角色。
  * @param {string} impl 适配器实现类（如 `HmacCallbackVerifyAdapter`）
- * @param {'OUTBOUND'|'CALLBACK'} role 凭证角色（= 界面上的两个下拉）
+ * @param {'OUTBOUND'|'CALLBACK'|'CLIENT_AUTH'} role 角色（应用弹窗两下拉 / 接口「入站鉴权方式」）
  */
 export function adapterMatchesRole(impl, role) {
   if (!impl) return false
+  // 入站鉴权（v1.2）：只认 4 个已知实现（未知 impl 在闸门里必然 40108）
+  if (role === 'CLIENT_AUTH') return CLIENT_AUTH_ONLY.has(impl)
+  if (CLIENT_AUTH_ONLY.has(impl)) return role === 'CALLBACK'   // 可当回调验签，但不能当出站签名
   if (CALLBACK_ONLY.has(impl)) return role === 'CALLBACK'
   if (OUTBOUND_ONLY.has(impl)) return role === 'OUTBOUND'
   return true
@@ -30,6 +48,7 @@ export function adapterMatchesRole(impl, role) {
 
 /** 给下拉标签用的短提示（让"这个适配器该放哪一侧"在界面上可见） */
 export function adapterRoleHint(impl) {
+  if (CLIENT_AUTH_ONLY.has(impl)) return '入站鉴权 / 回调验签'
   if (CALLBACK_ONLY.has(impl)) return '仅回调验签'
   if (OUTBOUND_ONLY.has(impl)) return '仅出站签名'
   return '两者皆可'

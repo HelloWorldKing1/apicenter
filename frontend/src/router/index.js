@@ -21,6 +21,7 @@ const router = createRouter({
         { path: 'groups', name: 'groups', component: () => import('@/views/Groups.vue'), meta: { title: '分组管理' } },
         { path: 'clients', name: 'clients', component: () => import('@/views/Clients.vue'), meta: { title: '调用方管理' } },
         { path: 'interfaces', name: 'interfaces', component: () => import('@/views/Interfaces.vue'), meta: { title: '接口管理' } },
+        { path: 'inbound-auth', name: 'inbound-auth', component: () => import('@/views/InboundAuth.vue'), meta: { title: '入站鉴权' } },
         { path: 'adapters', name: 'adapters', component: () => import('@/views/Adapters.vue'), meta: { title: '适配器' } },
         { path: 'monitor', name: 'monitor', component: () => import('@/views/Monitor.vue'), meta: { title: '接口监控' } },
         { path: 'users', name: 'users', component: () => import('@/views/Users.vue'), meta: { title: '账号管理', roles: ['OWNER', 'ADMIN'] } }

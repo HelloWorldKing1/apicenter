@@ -52,7 +52,7 @@ public class InterfaceService {
     private static final Set<String> PROTOCOLS = Set.of("JSON", "XML");
     private static final Set<String> OPS = Set.of("rename", "typeCast", "enumMap", "default", "condition", "aggregate");
     private static final Set<String> PARAM_OPS = Set.of("typeCast", "enumMap", "condition", "aggregate");
-    private static final Set<String> ROLES = Set.of("MESSAGE", "AUTH", "CALLBACK_AUTH");
+    private static final Set<String> ROLES = Set.of("MESSAGE", "AUTH", "CALLBACK_AUTH", "CLIENT_AUTH");
 
     // ---------- 前置步骤（编排，PS-2） ----------
 
@@ -497,6 +497,11 @@ public class InterfaceService {
             }
             if (bindings.stream().anyMatch(b -> "AUTH".equals(b.role()))) {
                 throw BizException.fieldInvalid("入站接口不允许绑定供应商签名（AUTH）");
+            }
+            // v1.2（D-CA-19）：入站回调接口的入站方是**供应商**（走链内回调验签），不存在「调用方鉴权」概念
+            if (bindings.stream().anyMatch(b -> "CLIENT_AUTH".equals(b.role()))) {
+                throw BizException.fieldInvalid(
+                        "入站接口不允许绑定调用方鉴权（CLIENT_AUTH）：入站回调的入站方是供应商，请用回调验签（CALLBACK_AUTH）");
             }
             // 送达报文必填（设计 §3.1：入站回调的出站侧 = 送达报文）
             if (params.stream().noneMatch(p -> "OUT".equals(p.side()))) {

@@ -309,8 +309,20 @@
               <span class="basic-label">{{ form.ifType === 'OUTBOUND' ? '供应商签名' : '回调验签' }}</span>
               <el-select v-model="form.authAdapterId" clearable placeholder="继承应用默认" style="width: 100%"
                          @change="onAdapterChange('auth')">
-                <el-option v-for="a in authAdapters" :key="a.id" :label="`${a.name}（${a.impl}）`" :value="a.id" />
+                <el-option v-for="a in (form.ifType === 'OUTBOUND' ? signatureAdapters : callbackAdapters)"
+                           :key="a.id" :label="`${a.name}（${a.impl}）`" :value="a.id" />
               </el-select>
+            </div>
+            <!-- v1.2：入站鉴权方式（调用方 → 平台）—— 仅出站中转接口有「调用方」概念 -->
+            <div v-if="form.ifType === 'OUTBOUND'" class="adv-item">
+              <span class="basic-label">入站鉴权方式</span>
+              <el-select v-model="form.clientAuthAdapterId" clearable placeholder="继承平台默认" style="width: 100%">
+                <el-option v-for="a in clientAuthAdapters" :key="a.id"
+                           :label="`${a.name}（${a.impl} · ${adapterRoleHint(a.impl)}）`" :value="a.id" />
+              </el-select>
+              <div class="proto-hint" style="margin-top: 4px">
+                调用方 → 平台的鉴权方式。留空 = 按<b>平台默认</b>（入站鉴权设置页）；两级都没有 ⇒ 拒绝 40108。
+              </div>
             </div>
           </div>
 
@@ -621,6 +633,7 @@ import {
 } from '@/utils/protocolParams.mjs'
 // 报文格式由**入站协议**决定（XML 入站原样发、JSON 入站解析成对象）—— 见该模块注释
 import { buildTestPayload } from '@/utils/testPayload.mjs'
+import { adapterMatchesRole, adapterRoleHint } from '@/utils/adapterUsage.mjs'
 
 const route = useRoute()
 
@@ -641,6 +654,11 @@ const filterKeyword = ref('')
 const loading = ref(false)
 
 const authAdapters = computed(() => adapters.value.filter((a) => a.type === 'auth' && a.enabled))
+// 两个「鉴权」下拉按角色过滤（避免把回调验签选进供应商签名这类静默错配；2026-09-22 起的口径）
+const signatureAdapters = computed(() => authAdapters.value.filter((a) => adapterMatchesRole(a.impl, 'OUTBOUND')))
+const callbackAdapters = computed(() => authAdapters.value.filter((a) => adapterMatchesRole(a.impl, 'CALLBACK')))
+// v1.2：接口级「入站鉴权方式」（CLIENT_AUTH）—— 只列 4 个入站验签实现，未选 = 继承平台默认
+const clientAuthAdapters = computed(() => authAdapters.value.filter((a) => adapterMatchesRole(a.impl, 'CLIENT_AUTH')))
 const messageAdapters = computed(() => adapters.value.filter((a) => a.type === 'message' && a.enabled))
 const filterGroups = computed(() => groups.value.filter((g) => g.appId === filterApp.value))
 
@@ -714,7 +732,7 @@ function emptyForm() {
     inBodyType: 'none', inBodyRaw: '', inFormRows: [],
     outBodyType: 'none', outBodyRaw: '', outFormRows: [],
     mappings: [], fieldDefs: [], messageAdapterId: null, messageVersion: null,
-    authAdapterId: null, authVersion: null, changeNote: '',
+    authAdapterId: null, authVersion: null, clientAuthAdapterId: null, changeNote: '',
     // 前置步骤（编排，仅 OUTBOUND）：{seq, stepCode, targetInterfaceId, failurePolicy, enabled}
     steps: []
   }
@@ -825,6 +843,7 @@ async function openEdit(row) {
     messageVersion: d.bindings?.find((b) => b.role === 'MESSAGE')?.version || null,
     authAdapterId: (d.bindings?.find((b) => b.role === 'AUTH') || d.bindings?.find((b) => b.role === 'CALLBACK_AUTH'))?.adapterId || null,
     authVersion: (d.bindings?.find((b) => b.role === 'AUTH') || d.bindings?.find((b) => b.role === 'CALLBACK_AUTH'))?.version || null,
+    clientAuthAdapterId: d.bindings?.find((b) => b.role === 'CLIENT_AUTH')?.adapterId || null,
     steps: (d.steps || []).map((s) => ({ ...s })),
     changeNote: ''
   })
@@ -881,6 +900,7 @@ function onTypeChange() {
   form.steps = []          // 编排仅出站中转：切类型时清空（避免残留步骤跟着提交）
   form.authAdapterId = null
   form.authVersion = null
+  form.clientAuthAdapterId = null
   form.messageVersion = null
   form.mappings = []
   form.outParams = []
@@ -973,7 +993,11 @@ async function save() {
     { role: 'MESSAGE', adapterId: form.messageAdapterId, version: null },
     form.ifType === 'OUTBOUND'
       ? { role: 'AUTH', adapterId: form.authAdapterId, version: null }
-      : { role: 'CALLBACK_AUTH', adapterId: form.authAdapterId, version: null }
+      : { role: 'CALLBACK_AUTH', adapterId: form.authAdapterId, version: null },
+    // v1.2：入站鉴权方式（CLIENT_AUTH）—— 仅出站中转；留空则闸门回退平台默认
+    ...(form.ifType === 'OUTBOUND'
+      ? [{ role: 'CLIENT_AUTH', adapterId: form.clientAuthAdapterId || null, version: null }]
+      : [])
   ]
   // 透传模式（仅出站接口）：提交空映射规则、清空出站侧参数（后端零映射直通）
   const passthrough = form.ifType === 'OUTBOUND' && form.passthrough
@@ -1265,7 +1289,7 @@ const chainSteps = computed(() => {
     {
       title: '① 入站鉴权',
       desc: d.ifType === 'OUTBOUND'
-        ? '调用方鉴权（平台统一，范围外）'
+        ? `调用方鉴权：${d.bindings?.find((b) => b.role === 'CLIENT_AUTH')?.adapterId || '继承平台默认'}`
         : `回调验签：${authBinding?.adapterId || '继承应用默认'}`
     },
     { title: '② 协议解码', desc: `入站协议 ${d.protocolIn}` },

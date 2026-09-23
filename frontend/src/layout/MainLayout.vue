@@ -9,6 +9,7 @@
         <el-menu-item index="/groups"><span class="ico">▦</span>分组管理</el-menu-item>
         <el-menu-item index="/clients"><span class="ico">◫</span>调用方管理</el-menu-item>
         <el-menu-item index="/interfaces"><span class="ico">⇄</span>接口管理</el-menu-item>
+        <el-menu-item index="/inbound-auth"><span class="ico">◉</span>入站鉴权</el-menu-item>
         <el-menu-item index="/monitor"><span class="ico">◎</span>接口监控</el-menu-item>
         <el-menu-item index="/adapters"><span class="ico">⚙</span>适配器</el-menu-item>
         <el-menu-item v-if="canManage" index="/users"><span class="ico">◈</span>账号管理</el-menu-item>

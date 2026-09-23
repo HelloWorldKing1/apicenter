@@ -20,6 +20,7 @@ import Login from '../src/views/Login.vue'
 import Users from '../src/views/Users.vue'
 // 调用方管理页（B4 入站鉴权）
 import Clients from '../src/views/Clients.vue'
+import InboundAuth from '../src/views/InboundAuth.vue'
 
 function decode(html) {
   return html
@@ -44,7 +45,11 @@ const ElStub = {
     // 注意：本替身未声明 props ⇒ 传入的属性全在 **attrs** 上（props 里是空的）。
     return () => h('span', { class: 'el-stub' }, [
       attrs.label ? h('span', String(attrs.label)) : null,
-      slots.default ? slots.default({ row: {}, column: {}, $index: 0 }) : []
+      // v1.2：卡片头/脚也会承载要断言的文案（如「改后立即生效」）—— 一并渲染，
+      // 避免出现「组件确实接上了、但冒烟断言看不到」的假绿。
+      slots.header ? slots.header({ row: {}, column: {}, $index: 0 }) : null,
+      slots.default ? slots.default({ row: {}, column: {}, $index: 0 }) : [],
+      slots.footer ? slots.footer({ row: {}, column: {}, $index: 0 }) : null
     ])
   }
 }
@@ -101,6 +106,12 @@ const CASES = [
   ['调用方管理页',
     { __component: 'Clients' },
     { text: ['新建调用方', '调用方标识', '鉴权方式', 'IP 名单', 'QPS / 日配额', '状态'] }],
+  // 入站鉴权页（v1.2 C3）：平台设置（页面可改、改即生效）+ 凭证池（三级属主）
+  ['入站鉴权页（平台设置 + 凭证池）',
+    { __component: 'InboundAuth' },
+    { text: ['平台设置（改后', '立即生效', '平台默认鉴权方式', '强制自报主体', '影响面', '保存设置',
+             '入站鉴权凭证池', '发放新凭证', '备注（发给谁 / 何时）', '类型', '指纹'],
+      html: ['placeholder="（未配置 ⇒ 未绑定接口一律拒绝 40108）"'] }],
   // 请求体输入框（2026-09-22）：格式随「入站协议」——提示语 + 格式标签 + 美化按钮都要渲染出来
   ['请求体输入框（入站 XML）',
     { __component: 'RequestBodyEditor', modelValue: '<request><event_id>evt-1</event_id></request>', protocolIn: 'XML' },
@@ -141,7 +152,7 @@ const CASES = [
 async function main() {
   let failed = 0
   for (const [label, props, expect] of CASES) {
-    const COMPONENTS = { ParamImportDialog, InterfaceParamsTab, InterfaceStepsTab, RequestBodyEditor, Login, Users, Clients }
+    const COMPONENTS = { ParamImportDialog, InterfaceParamsTab, InterfaceStepsTab, RequestBodyEditor, Login, Users, Clients, InboundAuth }
     const component = COMPONENTS[props.__component] || PayloadViewer
     const app = createSSRApp({ render: () => h(component, props) })
     EL_COMPONENTS.forEach((name) => app.component(name, ElStub))
