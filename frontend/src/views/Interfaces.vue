@@ -376,10 +376,17 @@
               <div class="adv-item">
                 <span class="basic-label">响应解包 Envelope</span>
                 <el-switch v-model="form.xmlUnwrap" active-text="开（推荐）" inactive-text="关" />
+                <!-- 实测（2026-09-23）：关掉后模型多一层 Body，而「出站响应字段」是按顶层匹配的白名单
+                     ⇒ 声明过的业务字段会命中不到、data 为空对象（易误判为缺陷） -->
+                <div v-if="!form.xmlUnwrap" class="proto-hint">
+                  关掉后业务字段会带上 <code>Envelope/Body</code> 层级——若你在「出站响应字段」里声明过字段
+                  （<strong>按顶层匹配</strong>的白名单），会取不到值（<code>data</code> 为空对象，不是缺陷）；
+                  只想看原始层级时，请先删掉那些响应字段声明。
+                </div>
               </div>
               <div class="adv-item" style="grid-column: 1 / -1">
                 <div class="proto-hint">
-                  不确定版本时**先用 SOAP 1.1**（实测样服 6/6 支持 1.1、仅 5/6 支持 1.2；发错版本会得到
+                  不确定版本时<strong>先用 SOAP 1.1</strong>（实测样服 6/6 支持 1.1、仅 5/6 支持 1.2；发错版本会得到
                   <code>VersionMismatch</code> Fault）；<code>action</code> 多数服务不强制，可留空。
                 </div>
               </div>

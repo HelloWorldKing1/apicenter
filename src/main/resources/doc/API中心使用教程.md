@@ -377,7 +377,7 @@ curl -i -X POST http://localhost:8080/qd/ok \
 | 命名空间前缀 | 合法前缀；**留空 = 默认命名空间** | 默认命名空间 | 前缀 `ns` → `<ns:QueryRequest xmlns:ns="…">`；留空 → `<QueryRequest xmlns="…">`。⚠️ **需先填「命名空间 URI」**——没有 URI 的前缀无意义，该输入框在 URI 为空时会**禁用**（避免"填了却没保存"） |
 | ① SOAP `action`（可选） | 任意串 | 空（不发） | 1.1 → `SOAPAction: "…"` 头；1.2 → `Content-Type` 的 `action="…"`。**实测 6/6 公开服务不强制**，可留空 |
 | ② SOAP envelope 前缀 | 合法前缀 | `soap` | 包在 `Envelope`/`Body` 上的前缀（前缀无语义，绑定的是命名空间） |
-| ③ 响应解包 Envelope | 开 / 关 | **开** | 开后：业务字段直接在 `data` 根（`Envelope/Body` 被剥）；关：保留层级（`data.Body.…`） |
+| ③ 响应解包 Envelope | 开 / 关 | **开** | 开后：业务字段直接在 `data` 根（`Envelope/Body` 被剥）；关：保留层级（`data.Body.…`）。⚠️ 关掉后若你声明过「出站响应字段」（**按顶层匹配的白名单**），`data` 会是**空对象**（层级的顶层是 `Body`）—— 不是缺陷 |
 
 **三条必须知道的行为**：
 
