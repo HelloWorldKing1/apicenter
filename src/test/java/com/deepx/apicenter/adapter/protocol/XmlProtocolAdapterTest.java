@@ -18,6 +18,9 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import com.deepx.apicenter.mapping.MappingEngine;
+import com.deepx.apicenter.mapping.ConditionEvaluator;
+import com.deepx.apicenter.model.InterfaceRow;
 
 /**
  * XmlProtocolAdapter 单测矩阵（M3 开发计划 §4，D-M3-1 边界）：
@@ -172,6 +175,55 @@ class XmlProtocolAdapterTest {
         assertThat(((ScalarNode) back.fields().get("empty")).type()).isEqualTo(ScalarType.NULL); // 空元素 ↔ NULL
         assertThat(((ArrayNode) back.fields().get("nums")).items()).hasSize(2);
         assertThat(back.attributes()).containsEntry("mode", "fast"); // XML→XML 属性保留
+    }
+
+    // ---------- XML 层级嵌套（2026-09-24 按使用方提问补充的回归） ----------
+
+    /** 嵌套对象 → 嵌套元素：`{"data":{"id":7}}` ⇒ `<request><data><id>7</id></data></request>` */
+    @Test
+    void 嵌套_对象层级输出为嵌套元素() {
+        LinkedHashMap<String, UnifiedModel.UNode> inner = new LinkedHashMap<>();
+        inner.put("id", ScalarNode.num(7));
+        LinkedHashMap<String, UnifiedModel.UNode> outer = new LinkedHashMap<>();
+        outer.put("data", new ObjectNode(inner, Map.of()));
+        outer.put("tail", ScalarNode.str("t"));
+
+        AdapterContext ctx = encodeCtx(UnifiedModel.of(new ObjectNode(outer, Map.of())), null);
+        adapter.process(ctx);
+        String xml = new String(ctx.outbound().body(), java.nio.charset.StandardCharsets.UTF_8);
+
+        assertThat(xml).contains("<request>").contains("<data>").contains("<id>7</id>")
+                .contains("</data>").contains("<tail>t</tail>");
+        // 层级顺序：data 在 tail 之前（保序），且 id 嵌在 data 内（而非平铺）
+        assertThat(xml.indexOf("<id>7</id>")).isGreaterThan(xml.indexOf("<data>"));
+        assertThat(xml.indexOf("<id>7</id>")).isLessThan(xml.indexOf("</data>"));
+    }
+
+    /**
+     * **端到端**：入站 `<request><id>7</id></request>` ⇒ 解码 `{"id":"7"}` ⇒ **字段映射 `id` → `data.id`**
+     * ⇒ 编码 `<request><data><id>7</id></data></request>` —— 即"`<id></id>` 映射为 `<data><id/></data>`"。
+     */
+    @Test
+    void 嵌套_端到端_平铺id经映射后编码为嵌套data_id() {
+        // ① 入站解码（平铺）
+        ObjectNode decoded = decodeRoot(bytes("<request><id>7</id></request>"));
+        assertThat(((ScalarNode) decoded.fields().get("id")).value()).isEqualTo("7");
+
+        // ② 字段映射：id → data.id（用真实引擎，非手搓）
+        UnifiedModel mapped = new MappingEngine(null, new ConditionEvaluator()).apply(
+                UnifiedModel.of(decoded),
+                java.util.List.of(new InterfaceRow.MappingRow(0, "id", "rename", "data.id", null, "NULL", 0)));
+
+        // ③ 出站编码（嵌套）
+        AdapterContext ctx = encodeCtx(mapped, null);
+        adapter.process(ctx);
+        String xml = new String(ctx.outbound().body(), java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(xml).contains("<data>").contains("<id>7</id>").contains("</data>");
+
+        // ④ 反向也成立：编码出来的嵌套 XML 再解码 ⇒ 模型结构一致（data.id）
+        ObjectNode back = decodeRoot(ctx.outbound().body());
+        ObjectNode data = (ObjectNode) back.fields().get("data");
+        assertThat(((ScalarNode) data.fields().get("id")).value()).isEqualTo("7");
     }
 
     // ---------- 辅助 ----------

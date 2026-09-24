@@ -204,6 +204,78 @@ class MappingEngineTest {
         assertThat(value(out, "t")).isEqualTo("1"); // 别名变量可解析 → 条件真 → 搬移 a
     }
 
+    // ---------- 层级嵌套（2026-09-24 按使用方提问补充的回归） ----------
+
+    /** 扁平 → 多层嵌套：`a.id` ⇒ `b.data.id`（target 自动创建中间 OBJECT） */
+    @Test
+    void 嵌套_扁平到多层_object自动建中间节点() {
+        LinkedHashMap<String, UnifiedModel.UNode> f = new LinkedHashMap<>();
+        LinkedHashMap<String, UnifiedModel.UNode> a = new LinkedHashMap<>();
+        a.put("id", UnifiedModel.ScalarNode.num(123));
+        f.put("a", new UnifiedModel.ObjectNode(a, Map.of()));
+        UnifiedModel in = UnifiedModel.of(new UnifiedModel.ObjectNode(f, Map.of()));
+
+        UnifiedModel out = engine.apply(in, List.of(rule("a.id", "rename", "b.data.id", null, "NULL")));
+
+        // {"b":{"data":{"id":123}}} —— 逐层断言（不看 JSON 字符串，避免序列化干扰）
+        UnifiedModel.ObjectNode b = (UnifiedModel.ObjectNode) ((UnifiedModel.ObjectNode) out.root()).fields().get("b");
+        UnifiedModel.ObjectNode data = (UnifiedModel.ObjectNode) b.fields().get("data");
+        assertThat(((UnifiedModel.ScalarNode) data.fields().get("id")).value()).isEqualTo(123L);
+    }
+
+    /** 嵌套 → 扁平：`a.b.c` ⇒ `flat`；**深层 → 更深**：`x.y` ⇒ `x.y.z`（同名对象原地追加） */
+    @Test
+    void 嵌套_嵌套到扁平_以及深层到更深() {
+        LinkedHashMap<String, UnifiedModel.UNode> c = new LinkedHashMap<>();
+        c.put("c", UnifiedModel.ScalarNode.str("deep"));
+        LinkedHashMap<String, UnifiedModel.UNode> b = new LinkedHashMap<>();
+        b.put("b", new UnifiedModel.ObjectNode(c, Map.of()));
+        LinkedHashMap<String, UnifiedModel.UNode> x = new LinkedHashMap<>();
+        x.put("y", UnifiedModel.ScalarNode.str("v"));
+        LinkedHashMap<String, UnifiedModel.UNode> f = new LinkedHashMap<>();
+        f.put("a", new UnifiedModel.ObjectNode(b, Map.of()));
+        f.put("x", new UnifiedModel.ObjectNode(x, Map.of()));
+        UnifiedModel in = UnifiedModel.of(new UnifiedModel.ObjectNode(f, Map.of()));
+
+        UnifiedModel out = engine.apply(in, List.of(
+                rule("a.b.c", "rename", "flat", null, "NULL"),
+                rule("x.y", "rename", "x.y.z", null, "NULL")));
+
+        UnifiedModel.ObjectNode root = (UnifiedModel.ObjectNode) out.root();
+        assertThat(((UnifiedModel.ScalarNode) root.fields().get("flat")).value()).isEqualTo("deep");
+        UnifiedModel.ObjectNode xOut = (UnifiedModel.ObjectNode) root.fields().get("x");
+        UnifiedModel.ObjectNode yOut = (UnifiedModel.ObjectNode) xOut.fields().get("y");
+        assertThat(((UnifiedModel.ScalarNode) yOut.fields().get("z")).value()).isEqualTo("v");
+    }
+
+    /**
+     * **文档化限制（M0-02 D1）**：路径**不支持数组下标寻址** —— `list[0].id` 会被当成
+     * 字面键 `list[0]` 去查（必然取不到）⇒ 按 nullStrategy 处理，而**不是**报错或猜下标。
+     * 数组元素级转换请用 `aggregate`（SUM/MAX/MIN/CONCAT），或改由协议适配器的同名合并 + 前端拆字段。
+     */
+    @Test
+    void 嵌套_数组下标不被支持_按null策略处理而非报错() {
+        LinkedHashMap<String, UnifiedModel.UNode> f = new LinkedHashMap<>();
+        LinkedHashMap<String, UnifiedModel.UNode> item0 = new LinkedHashMap<>();
+        item0.put("id", UnifiedModel.ScalarNode.num(7));
+        f.put("list", UnifiedModel.ArrayNode.of(new UnifiedModel.ObjectNode(item0, Map.of())));
+        f.put("nums", UnifiedModel.ArrayNode.of(UnifiedModel.ScalarNode.num(1), UnifiedModel.ScalarNode.num(2)));
+        UnifiedModel in = UnifiedModel.of(new UnifiedModel.ObjectNode(f, Map.of()));
+
+        // NULL 策略：不写该字段（既不报错，也拿不到值）
+        UnifiedModel outNull = engine.apply(in, List.of(rule("list[0].id", "rename", "got", null, "NULL")));
+        assertThat(((UnifiedModel.ObjectNode) outNull.root()).fields()).doesNotContainKey("got");
+
+        // KEEP 策略：写 null 节点（仍然是"没取到"，只是形态不同）
+        UnifiedModel outKeep = engine.apply(in, List.of(rule("list[0].id", "rename", "got", null, "KEEP")));
+        assertThat(value(outKeep, "got")).isNull();
+
+        // 对比：**整数组聚合是支持的**（元素级请用它）—— 数值数组求和
+        UnifiedModel outAgg = engine.apply(in, List.of(
+                rule("nums", "aggregate", "sum", "SUM", "NULL")));
+        assertThat(value(outAgg, "sum")).isEqualTo(3L);
+    }
+
     @Test
     void 空规则整体透传_非空白名单() {
         UnifiedModel in = inbound();
