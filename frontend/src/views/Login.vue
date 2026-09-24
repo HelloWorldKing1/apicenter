@@ -56,10 +56,7 @@
             <el-checkbox v-model="rememberPassword" :disabled="authDisabled || !pwSupported"
                          @change="onRememberPasswordChange">记住密码（本机加密）</el-checkbox>
           </div>
-          <span class="hint">
-            <template v-if="!pwSupported">当前浏览器不支持安全保存口令（需 WebCrypto + IndexedDB），已禁用它</template>
-            <template v-else>密码加密保存在本机；也可交给浏览器密码管理器（登录时点「保存密码」）</template>
-          </span>
+          <span v-if="!pwSupported" class="hint">当前浏览器不支持安全保存口令（需 WebCrypto + IndexedDB），已禁用它</span>
         </div>
 
         <el-button type="primary" class="submit" :loading="loading" native-type="submit">
