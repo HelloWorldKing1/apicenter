@@ -33,7 +33,11 @@
         </div>
       </div>
       <div class="actions">
-        <el-button type="primary" :disabled="readOnly" @click="saveSetting">保存设置</el-button>
+        <!-- 平台设置是**安全策略类**配置 ⇒ 后端限 OWNER（40304）；ADMIN 可看不可改（前端禁用并说明） -->
+        <el-button type="primary" :disabled="!canSaveSetting" @click="saveSetting">保存设置</el-button>
+        <span v-if="!canSaveSetting" class="muted">
+          {{ readOnly ? '只读角色无法访问入站鉴权' : '仅 OWNER 可修改平台设置（凭证发放/吊销仍可由 ADMIN 执行）' }}
+        </span>
         <el-button @click="loadAll">刷新</el-button>
       </div>
     </el-card>
@@ -137,7 +141,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '@/api/http'
-import { isReadOnly } from '@/utils/roles.mjs'
+import { isReadOnly, canChangeInboundAuthSetting } from '@/utils/roles.mjs'
 import { authStore } from '@/utils/auth.mjs'
 import { adapterMatchesRole } from '@/utils/adapterUsage.mjs'
 import {
@@ -147,6 +151,8 @@ import {
 
 const meRole = computed(() => authStore.getUser()?.role)
 const readOnly = computed(() => isReadOnly(meRole.value))
+// 平台设置限 OWNER（后端 40304）；凭证池的日常操作仍由 ADMIN/OWNER（readOnly 控制）
+const canSaveSetting = computed(() => !readOnly.value && canChangeInboundAuthSetting(meRole.value))
 
 // ---------- 平台设置 ----------
 const setting = reactive({ ...EMPTY_SETTING })

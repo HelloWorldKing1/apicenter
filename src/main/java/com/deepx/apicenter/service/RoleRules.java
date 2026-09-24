@@ -16,7 +16,9 @@ import java.util.List;
  * <p>强制位置（只有这两处，避免散落各 Controller）：
  * <ul>
  *   <li>{@code AdminAuthFilter}：VIEWER 的非 GET 请求（`/api/admin/**`，`/api/admin/auth/**` 除外）→ 40302；
- *       `/api/admin/users/**` 要求 OWNER/ADMIN → 40303；</li>
+ *       `/api/admin/users/**` 要求 OWNER/ADMIN → 40303；
+ *       `/api/admin/inbound-auth/**` 与 `/api/admin/inbound-credentials/**`（入站鉴权管理，**读写都算**）
+ *       要求 OWNER/ADMIN → 40305；其中 `PUT /api/admin/inbound-auth/settings`（**平台设置**）再收紧到 OWNER → 40304；</li>
  *   <li>{@link AdminUserService}：拒绝「动比自己权限高的账号」「改自己角色」「降级最后一个 OWNER」「ADMIN 删账号」
  *       这类**语义级**越权（403/400 由具体校验返回）。</li>
  * </ul>
@@ -49,6 +51,28 @@ public final class RoleRules {
     }
 
     /** 能否进入账号管理（列表 / 新建 / 编辑 / 重置 / 解锁 / 删除的门槛） */
+    /**
+     * 能否**访问入站鉴权管理**（读+写：平台设置 / 凭证池）—— 要求 **ADMIN / OWNER**。
+     *
+     * <p>2026-09-24 决策（需求方选 B+C）：**读也要求 ADMIN/OWNER** ⇒ VIEWER 连页面与接口都不可达
+     * （理由：平台设置与凭证池台账属于**安全配置面**，只读账号没必要看到"平台默认方式是什么、
+     * 有哪些密钥、指纹是多少"）；而**修改平台设置**进一步收紧到 OWNER（见下）。
+     */
+    public static boolean canManageInboundAuth(String role) {
+        return level(role) >= 2;
+    }
+
+    /**
+     * 能否修改「入站鉴权」的**平台设置**（平台默认鉴权方式 / 是否强制自报主体）—— **仅 OWNER**。
+     *
+     * <p>为什么提级到 OWNER：这两项是**安全策略**，一改就是**对所有未单独绑定鉴权方式的接口放宽/收紧**；
+     * 而日常接入动作（发放/吊销凭证、接口级绑定方式）仍是 ADMIN/OWNER 即可 ——
+     * 即"日常不打断，放宽策略只有拥有者能动"（2026-09-24 决策，见《入站鉴权设计方案.md》v1.2 §7.3）。
+     */
+    public static boolean canChangeInboundAuthSetting(String role) {
+        return OWNER.equals(role);
+    }
+
     public static boolean canManageAccounts(String role) {
         return level(role) >= 2;
     }

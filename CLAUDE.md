@@ -173,6 +173,12 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
   影响三处写法：① **curl / 文档示例**必须先登录取 token（《使用教程》§8.3）；② **集成测试**里直连管理面 HTTP 的类（`HttpErrorSemanticsTest` / M3 / M4 / M5 / `MonitorStatsIntegrationTest`）在 `@SpringBootTest(properties=...)` 中置 `app.api-center.auth.enabled=false`（它们不测认证），认证本身由 `AuthIntegrationTest` 用默认值覆盖；③ **新增管理面端点无需改任何东西**（过滤器按前缀统一拦），但新增**豁免**路径要显式加到 `AdminAuthFilter.EXEMPT`（且要想清楚：豁免 = 匿名可访问）。
   `auth.enabled=false` 是唯一总开关（应急回退/本地调试）；`allow-register=false` 时仍允许「首个账号」初始化。设计见《账号登录设计方案.md》。
 - **`AuthService.login()` 刻意不加 `@Transactional`（真坑，别加回去）**：登录失败要抛 `BizException`，同一事务会把「失败计数 +1」一起回滚 → 连续失败次数永远停在 1，**锁定形同虚设**（被 `AuthIntegrationTest#连续失败达阈值_锁定且正确密码也被拒` 抓到）。同类通用结论：**「先写库、再抛异常」的流程不要挂事务**（或把写库放 `REQUIRES_NEW`）。
+- **入站鉴权管理面的角色（2026-09-24 决策 B+C）**：`/api/admin/inbound-auth/**` 与 `/api/admin/inbound-credentials/**`
+  **读写都要求 `OWNER`/`ADMIN`**（`VIEWER` → `40305`，**连页面都进不去**：路由 `meta.roles` + 菜单 `v-if` + 后端前缀规则）；
+  其中 **`PUT /inbound-auth/settings`（平台设置）进一步限 `OWNER`**（`40304`）—— 因为「平台默认方式 / 强制自报主体」
+  一改就是**对所有未单独绑定方式的接口放宽/收紧**，属安全策略级动作；而凭证发放/吊销等**日常接入仍 ADMIN 即可**。
+  三处同步齐了：`RoleRules`（`canManageInboundAuth` / `canChangeInboundAuthSetting`）→ `AdminAuthFilter`（规则 3/4）→
+  前端 `roles.mjs` 镜像 + 路由 `meta.roles` + 菜单 + 页面按钮（保存设置限 OWNER）。回归：`AuthIntegrationTest#入站鉴权_权限矩阵_…`。
 - **角色（RBAC 第一层，2026-09-18）**：`OWNER` > `ADMIN` > `VIEWER`（默认 VIEWER = 最小权限；首个账号自动 OWNER）。**强制只写两处**：`AdminAuthFilter`（VIEWER 非 GET 管理面请求 → 40302；`/api/admin/users/**` 需 OWNER/ADMIN → 40303）与 `AdminUserService`（语义级：ADMIN 不能删账号/改角色/操作 OWNER，不能改自己角色，不能降级或删除最后一个 OWNER）。新增管理面写端点**不用改任何权限代码**；但要新增「角色相关入口」时，务必同步三处：`RoleRules`（判定源）、`utils/roles.mjs`（前端镜像）、路由 `meta.roles` + 菜单 `v-if`（否则界面露出「点了必 403」的入口）。**角色变更会吊销该账号会话**（避免旧权限残留）。
 - **账号管理（2026-09-18）的三条安全底线**：① 不能停用/删除**最后一个可用账号**（`countEnabled()<=1`）② **不能动自己**（停用/删除/重置口令；改显示名允许）③ 不能降级/删除**最后一个 OWNER**、不能改自己角色。①②判定顺序固定「先①后②」（单账号环境下提示更贴切）。新增账号管理类端点时：守卫写进 `AdminUserService`（服务端权威），前端 `utils/users.mjs#accountGuard(row, meId, meRole)` 只做按钮禁用镜像。
 - **`AdminUserService.guardLockout(operatorId, target, action)` 的第一个参数是操作者**（真 bug 曾被抓到）：调用处一度把 **target id** 当 operatorId → 判成「操作自己」→ 停用他人永远被拒。两个参数都是 `long`、极易传反，改动时务必连带复核审计日志里的 operator（回归：`AdminUserServiceTest#停用他人_改状态并吊销其全部会话`）。

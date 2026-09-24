@@ -44,6 +44,10 @@ public class BizException extends RuntimeException {
     public static final int READ_ONLY_ROLE = 40302;
     /** 40303 当前角色无账号管理权限（HTTP 403） */
     public static final int NO_ACCOUNT_ADMIN = 40303;
+    /** 40304 该操作仅 OWNER 可执行（安全策略类写操作，如改「入站鉴权」平台设置；HTTP 403） */
+    public static final int OWNER_ONLY = 40304;
+    /** 40305 当前角色无入站鉴权管理权限（读也要求 ADMIN/OWNER；HTTP 403） */
+    public static final int NO_INBOUND_AUTH_ADMIN = 40305;
 
     private final int code;
 

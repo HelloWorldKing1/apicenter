@@ -2,7 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   OWNER, ADMIN, VIEWER, ROLE_LABEL, ROLE_OPTIONS, assignableRoles, canChangeRole, canDeleteAccount,
-  canManageAccounts, canOperate, isReadOnly, level, roleLabel
+  canManageAccounts, canOperate, isReadOnly, level, roleLabel,
+  canManageInboundAuth, canChangeInboundAuthSetting
 } from './roles.mjs'
 
 /** 角色矩阵（前端镜像服务端 RoleRules）：菜单/路由/按钮显示与禁用都用它 */
@@ -53,4 +54,19 @@ test('展示口径：中文标签与兜底', () => {
   assert.equal(roleLabel(null), '—')
   assert.equal(ROLE_OPTIONS.length, 3)
   assert.ok(ROLE_OPTIONS.every((o) => ROLE_LABEL[o.value]))
+})
+
+// ---------- 入站鉴权权限（2026-09-24 决策 B+C） ----------
+
+test('入站鉴权管理：读也要 ADMIN/OWNER（VIEWER 连页面都进不去）', () => {
+  assert.equal(canManageInboundAuth('VIEWER'), false)
+  assert.equal(canManageInboundAuth('ADMIN'), true)
+  assert.equal(canManageInboundAuth('OWNER'), true)
+  assert.equal(canManageInboundAuth(undefined), false)   // 未知角色按最低
+})
+
+test('改「平台设置」限 OWNER（安全策略类；ADMIN 可看不可改）', () => {
+  assert.equal(canChangeInboundAuthSetting('VIEWER'), false)
+  assert.equal(canChangeInboundAuthSetting('ADMIN'), false)
+  assert.equal(canChangeInboundAuthSetting('OWNER'), true)
 })

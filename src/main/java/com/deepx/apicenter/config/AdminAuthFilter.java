@@ -36,6 +36,9 @@ import java.util.Set;
  *   <li>`VIEWER`（只读）执行**非 GET** 管理面请求 → 403 `40302`（`/api/admin/auth/**` 除外：
  *       改自己口令、退出登录属于个人操作，任何角色都该能做）；</li>
  *   <li>`/api/admin/users/**` 要求 `OWNER` / `ADMIN` → 否则 403 `40303`（VIEWER 连入口都不可达）。</li>
+ *   <li>`/api/admin/inbound-auth/**` 与 `/api/admin/inbound-credentials/**`（入站鉴权管理）**读写都**要求
+ *       `OWNER`/`ADMIN` → 否则 403 `40305`（VIEWER 连页面都进不去）；
+ *       其中 `PUT /api/admin/inbound-auth/settings`（**平台设置**）再收紧到 `OWNER` → 403 `40304`。</li>
  * </ul>
  *
  * <p><b>失败语义</b>：统一信封 `{code:40104,...}` + HTTP 401（前端据此清 token 并跳登录页）；
@@ -101,6 +104,22 @@ public class AdminAuthFilter extends OncePerRequestFilter {
         if (path.startsWith(PREFIX + "/users") && !RoleRules.canManageAccounts(role)) {
             rejectRole(response, BizException.NO_ACCOUNT_ADMIN,
                     "当前角色（" + role + "）无账号管理权限（需要 ADMIN 或 OWNER）");
+            return;
+        }
+        // 规则 3：入站鉴权管理**读写都要求 OWNER/ADMIN**（2026-09-24 决策 B：VIEWER 连页面与接口都不可达）
+        //         理由：平台设置与凭证池台账是"安全配置面"（平台默认方式 / 有哪些密钥 / 指纹）
+        if ((path.startsWith(PREFIX + "/inbound-auth") || path.startsWith(PREFIX + "/inbound-credentials"))
+                && !RoleRules.canManageInboundAuth(role)) {
+            rejectRole(response, BizException.NO_INBOUND_AUTH_ADMIN,
+                    "当前角色（" + role + "）无入站鉴权管理权限（需要 ADMIN 或 OWNER）");
+            return;
+        }
+        // 规则 4：其中**修改平台设置**再收紧到 OWNER（安全策略类写操作：一改就是全平台放宽/收紧）
+        if (path.equals(PREFIX + "/inbound-auth/settings") && !isReadMethod(request)
+                && !RoleRules.canChangeInboundAuthSetting(role)) {
+            rejectRole(response, BizException.OWNER_ONLY,
+                    "当前角色（" + role + "）不能修改入站鉴权的平台设置（仅 OWNER；"
+                            + "凭证发放/吊销等日常操作仍可由 ADMIN 执行）");
             return;
         }
         request.setAttribute(ATTR_USER, me);

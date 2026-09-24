@@ -37,6 +37,16 @@ export function canManageAccounts(role) {
   return level(role) >= 2
 }
 
+/** 能否管理入站鉴权（**读写都算**：平台设置 + 凭证池）—— 服务端 40305；前端据此隐藏菜单与路由 */
+export function canManageInboundAuth(role) {
+  return level(role) >= 2
+}
+
+/** 能否修改入站鉴权的**平台设置**（安全策略类）—— 仅 OWNER，服务端 40304 */
+export function canChangeInboundAuthSetting(role) {
+  return role === OWNER
+}
+
 export function canDeleteAccount(role) {
   return role === OWNER
 }

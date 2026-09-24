@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import com.deepx.apicenter.exception.BizException;
 
 /**
  * 管理面账号登录集成测试（2026-09-18）：登录 / 注册 / 退出 / 改密 + 令牌守卫 + 锁定。
@@ -266,6 +267,53 @@ class AuthIntegrationTest {
         return json(resp).get("data").get("token").asString();
     }
 
+    /**
+     * 入站鉴权**权限矩阵**（2026-09-24 决策 B+C）：
+     * VIEWER 连**读**都不可达（40305，页面也进不去）；ADMIN 可读、可管凭证池，但**改不了平台设置**（40304）；
+     * OWNER 全可。平台设置是"安全策略类"配置（一改就是全平台放宽/收紧）。
+     */
+    @Test
+    void 入站鉴权_权限矩阵_VIEWER不可达_ADMIN可管凭证但改不了平台设置_OWNER全可() {
+        String viewer = register("it_ia_view_" + SUFFIX, PASSWORD, "入站鉴权-只读");
+        String admin = register("it_ia_admin_" + SUFFIX, PASSWORD, "入站鉴权-管理");
+        String owner = register("it_ia_owner_" + SUFFIX, PASSWORD, "入站鉴权-拥有者");
+        // 注册默认是 VIEWER ⇒ 直接改库升级角色（过滤器每请求从库读角色，故立即生效、无需重新登录）。
+        // 用 `/auth/me` 拿到的 **id** 定位账号（不依赖用户名的存储形态）。
+        long adminId = json(get("/api/admin/auth/me", admin)).get("data").get("id").asLong();
+        long ownerId = json(get("/api/admin/auth/me", owner)).get("data").get("id").asLong();
+        assertThat(jdbcTemplate.update("UPDATE admin_user SET role = 'ADMIN' WHERE id = ?", adminId)).isEqualTo(1);
+        assertThat(jdbcTemplate.update("UPDATE admin_user SET role = 'OWNER' WHERE id = ?", ownerId)).isEqualTo(1);
+
+        // ① VIEWER：读也不可达（403 / 40305）
+        ResponseEntity<String> viewerRead = get("/api/admin/inbound-auth/settings", viewer);
+        assertThat(viewerRead.getStatusCode().value()).isEqualTo(403);
+        assertThat(json(viewerRead).get("code").asInt()).isEqualTo(BizException.NO_INBOUND_AUTH_ADMIN);
+        assertThat(get("/api/admin/inbound-credentials?ownerType=PLATFORM", viewer).getStatusCode().value())
+                .as("凭证池台账（含密钥备注/指纹）对只读角色也不可见").isEqualTo(403);
+
+        // ② ADMIN：可读；凭证池写**通过过滤器**（这里用空体触发参数校验失败 ⇒ 40001，证明未被权限拦且无副作用）
+        ResponseEntity<String> adminRead = get("/api/admin/inbound-auth/settings", admin);
+        assertThat(adminRead.getStatusCode().value()).as("ADMIN 读设置 body=%s", adminRead.getBody())
+                .isEqualTo(200);
+        ResponseEntity<String> adminPost = post("/api/admin/inbound-credentials", admin, Map.of());
+        assertThat(adminPost.getStatusCode().value()).isEqualTo(400);
+        assertThat(json(adminPost).get("code").asInt()).isEqualTo(BizException.FIELD_INVALID);
+
+        // ③ ADMIN：**改不了平台设置**（403 / 40304）
+        ResponseEntity<String> adminPut = put("/api/admin/inbound-auth/settings", admin,
+                Map.of("requireClientId", true));
+        assertThat(adminPut.getStatusCode().value()).isEqualTo(403);
+        assertThat(json(adminPut).get("code").asInt()).isEqualTo(BizException.OWNER_ONLY);
+
+        // ④ OWNER：可改（**幂等写回当前值**，避免破坏开发库既有设置）
+        JsonNode before = json(get("/api/admin/inbound-auth/settings", owner)).get("data");
+        Map<String, Object> same = new java.util.HashMap<>();
+        same.put("defaultAdapterId", before.get("defaultAdapterId").isNull()
+                ? null : before.get("defaultAdapterId").asString());
+        same.put("requireClientId", before.get("requireClientId").asBoolean());
+        assertThat(put("/api/admin/inbound-auth/settings", owner, same).getStatusCode().value()).isEqualTo(200);
+    }
+
     private JsonNode json(ResponseEntity<String> resp) {
         return mapper.readTree(resp.getBody());
     }
@@ -284,6 +332,14 @@ class AuthIntegrationTest {
             spec = spec.header("Authorization", "Bearer " + token);
         }
         return spec.body(body).retrieve().toEntity(String.class);
+    }
+
+    private ResponseEntity<String> put(String path, String token, Map<String, ?> body) {
+        RestClient.RequestBodySpec spec = rest.put().uri(url(path)).contentType(MediaType.APPLICATION_JSON);
+        if (token != null) {
+            spec = spec.header("Authorization", "Bearer " + token);
+        }
+        return spec.body(body == null ? Map.of() : body).retrieve().toEntity(String.class);
     }
 
     private String url(String path) {
