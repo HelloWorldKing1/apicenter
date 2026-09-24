@@ -47,10 +47,19 @@
           </el-form-item>
         </template>
 
-        <!-- 「记住用户名」只在登录态显示：**只记用户名，不记口令**（口令交给浏览器密码管理器加密保管） -->
+        <!-- 勾选项（仅登录态）：
+             · 记住用户名 —— 默认开，只存用户名
+             · 记住密码 —— **默认关**，加密存本机（WebCrypto 不可导出密钥 + IndexedDB）；勾选前强制风险确认 -->
         <div v-if="mode === 'login'" class="remember-row">
-          <el-checkbox v-model="remember" :disabled="authDisabled">记住用户名</el-checkbox>
-          <span class="hint">密码请交给浏览器密码管理器（登录时弹出「保存密码」点保存即可）</span>
+          <div class="remember-left">
+            <el-checkbox v-model="remember" :disabled="authDisabled">记住用户名</el-checkbox>
+            <el-checkbox v-model="rememberPassword" :disabled="authDisabled || !pwSupported"
+                         @change="onRememberPasswordChange">记住密码（本机加密）</el-checkbox>
+          </div>
+          <span class="hint">
+            <template v-if="!pwSupported">当前浏览器不支持安全保存口令（需 WebCrypto + IndexedDB），已禁用它</template>
+            <template v-else>密码加密保存在本机；也可交给浏览器密码管理器（登录时点「保存密码」）</template>
+          </span>
         </div>
 
         <el-button type="primary" class="submit" :loading="loading" native-type="submit">
@@ -75,11 +84,14 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '@/api/http'
 import { authStore, redirectTarget, registerIssue } from '@/utils/auth.mjs'
 import {
-  loadRememberedUsername, loadRememberFlag, saveRememberedUsername
+  loadRememberedUsername, loadRememberFlag, saveRememberedUsername,
+  loadRememberPasswordFlag, saveRememberPasswordFlag, loadRememberedPassword,
+  saveRememberedPassword, clearRememberedPassword, isPasswordRememberSupported,
+  REMEMBER_PASSWORD_RISK
 } from '@/utils/loginPrefs.mjs'
 
 // 登录 / 注册页（2026-09-18）：只做认证（无权限）；成功后写入令牌并跳到来源页。
@@ -92,10 +104,23 @@ const authDisabled = ref(false)
 const form = reactive({ username: '', password: '', confirm: '', displayName: '' })
 // 「记住用户名」（2026-09-24）：只持久化用户名；口令一律不落本地存储（见 utils/loginPrefs.mjs 注释）
 const remember = ref(loadRememberFlag())
+// 「记住密码」（默认关）：**加密**保存在本机（可导出密钥不放，见 utils/loginPrefs.mjs 的威胁模型）
+const pwSupported = ref(isPasswordRememberSupported())
+const rememberPassword = ref(pwSupported.value && loadRememberPasswordFlag())
 
 onMounted(async () => {
   // 回填上次记住的用户名（只读 storage，无网络）
   form.username = loadRememberedUsername()
+  // 若开启了「记住密码」，回填口令（解密失败/环境不支持 ⇒ 留空并关掉开关，避免每次都白试）
+  if (rememberPassword.value) {
+    const saved = await loadRememberedPassword()
+    if (saved) {
+      form.password = saved
+    } else {
+      rememberPassword.value = false
+      saveRememberPasswordFlag(undefined, false)
+    }
+  }
   try {
     // 免鉴权端点：用于「首次初始化」引导与 auth.enabled=false 的放行
     const status = await http.get('/auth/status')
@@ -118,6 +143,31 @@ function switchMode(next) {
 
 function enterAnyway() {
   router?.replace(redirectTarget(route?.query?.redirect))
+}
+
+/**
+ * 「记住密码」勾选前**强制风险确认**（2026-09-24）：这是显式知情同意 —— 取消勾选会回退。
+ * 理由：加密存储能防「离线读存储 / 只读扩展」，但**防不住同源脚本（XSS）**与已在本机操作的人。
+ */
+async function onRememberPasswordChange(checked) {
+  if (!checked) {
+    await clearRememberedPassword()
+    saveRememberPasswordFlag(undefined, false)
+    form.password = ''
+    return
+  }
+  try {
+    await ElMessageBox.confirm(REMEMBER_PASSWORD_RISK, '开启「记住密码」的风险提示', {
+      type: 'warning',
+      confirmButtonText: '我已了解，开启',
+      cancelButtonText: '取消'
+    })
+  } catch (e) {
+    // 未确认 ⇒ 回退勾选（并把已存的清掉，避免"看起来没勾其实还记着"）
+    rememberPassword.value = false
+    saveRememberPasswordFlag(undefined, false)
+    await clearRememberedPassword()
+  }
 }
 
 async function submit() {
@@ -150,6 +200,17 @@ async function submit() {
     authStore.setUser(data && data.user)
     if (mode.value === 'login') {
       saveRememberedUsername(undefined, username, remember.value)
+      if (rememberPassword.value) {
+        const ok = await saveRememberedPassword(form.password)
+        saveRememberPasswordFlag(undefined, ok)
+        if (!ok) {
+          rememberPassword.value = false
+          ElMessage.warning('当前环境无法安全保存口令，本次未记住密码')
+        }
+      } else {
+        await clearRememberedPassword()
+        saveRememberPasswordFlag(undefined, false)
+      }
     }
     ElMessage.success(mode.value === 'login' ? '登录成功' : '注册成功，已自动登录')
     router?.replace(redirectTarget(route?.query?.redirect))
@@ -194,7 +255,8 @@ async function submit() {
   gap: 8px;
   margin: 2px 0 10px;
 }
-.remember-row .hint { font-size: 12px; color: #9ca3af; text-align: right; line-height: 1.4; }
+.remember-row .remember-left { display: flex; align-items: center; gap: 12px; }
+.remember-row .hint { font-size: 12px; color: #9ca3af; text-align: right; line-height: 1.4; max-width: 46%; }
 .submit { width: 100%; }
 .foot { margin-top: 14px; font-size: 12px; color: #6b7280; text-align: center; }
 .foot a { color: #2f54eb; cursor: pointer; }

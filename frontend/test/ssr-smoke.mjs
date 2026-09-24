@@ -146,7 +146,8 @@ const CASES = [
     { __component: 'Login' },
     { text: ['API 中心', '管理控制台', '登录', '注册', '用户名', '密码', '登 录', '还没有账号？',
              // 2026-09-24「记住用户名」：只记用户名，口令交给浏览器密码管理器
-             '记住用户名', '浏览器密码管理器'],
+             // 记住密码（默认关；SSR 环境无 WebCrypto/IndexedDB ⇒ 渲染「不支持」分支并禁用，这是 fail-closed 的体现）
+             '记住用户名', '记住密码（本机加密）', '不支持安全保存口令'],
       // name + autocomplete 是浏览器/密码管理器识别登录表单的关键（缺了就不会提示"保存密码"）
       html: ['name="username"', 'name="password"', 'autocomplete="username"', 'autocomplete="current-password"'] }],
   // 注意：placeholder 是**属性**，不进文本 → 用 html 断言；「无权限分级」是 el-alert 的默认插槽

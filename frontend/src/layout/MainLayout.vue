@@ -70,6 +70,7 @@ import { computed, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '@/api/http'
+import { clearRememberedPassword } from '@/utils/loginPrefs.mjs'
 import { authStore, passwordIssue } from '@/utils/auth.mjs'
 import { canManageAccounts, roleLabel } from '@/utils/roles.mjs'
 
@@ -130,6 +131,8 @@ async function submitPassword() {
   pwd.loading = true
   try {
     await http.post('/auth/password', { oldPassword: pwd.oldPassword, newPassword: pwd.newPassword })
+    // 改密成功 ⇒ 清掉「记住密码」里存的旧口令（已失效，留着只会导致下次预填失败/困惑）
+    await clearRememberedPassword()
     ElMessage.success('密码已修改（其他设备的登录已失效）')
     pwd.visible = false
   } catch (e) {

@@ -176,7 +176,13 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 - **角色（RBAC 第一层，2026-09-18）**：`OWNER` > `ADMIN` > `VIEWER`（默认 VIEWER = 最小权限；首个账号自动 OWNER）。**强制只写两处**：`AdminAuthFilter`（VIEWER 非 GET 管理面请求 → 40302；`/api/admin/users/**` 需 OWNER/ADMIN → 40303）与 `AdminUserService`（语义级：ADMIN 不能删账号/改角色/操作 OWNER，不能改自己角色，不能降级或删除最后一个 OWNER）。新增管理面写端点**不用改任何权限代码**；但要新增「角色相关入口」时，务必同步三处：`RoleRules`（判定源）、`utils/roles.mjs`（前端镜像）、路由 `meta.roles` + 菜单 `v-if`（否则界面露出「点了必 403」的入口）。**角色变更会吊销该账号会话**（避免旧权限残留）。
 - **账号管理（2026-09-18）的三条安全底线**：① 不能停用/删除**最后一个可用账号**（`countEnabled()<=1`）② **不能动自己**（停用/删除/重置口令；改显示名允许）③ 不能降级/删除**最后一个 OWNER**、不能改自己角色。①②判定顺序固定「先①后②」（单账号环境下提示更贴切）。新增账号管理类端点时：守卫写进 `AdminUserService`（服务端权威），前端 `utils/users.mjs#accountGuard(row, meId, meRole)` 只做按钮禁用镜像。
 - **`AdminUserService.guardLockout(operatorId, target, action)` 的第一个参数是操作者**（真 bug 曾被抓到）：调用处一度把 **target id** 当 operatorId → 判成「操作自己」→ 停用他人永远被拒。两个参数都是 `long`、极易传反，改动时务必连带复核审计日志里的 operator（回归：`AdminUserServiceTest#停用他人_改状态并吊销其全部会话`）。
-- **登录页「记住密码」的正确做法（2026-09-24，别改成存口令）**：前端**只存用户名**（`localStorage['apicenter.rememberUsername']`，`utils/loginPrefs.mjs`，默认勾选、取消即清）；**口令一律不落本地存储**，靠**浏览器密码管理器**（表单必须是真实 `<form>` + `@submit.prevent` + `name`/`autocomplete` + `native-type="submit"`，缺一项浏览器就不提示"保存密码"）。理由：明文口令进 `localStorage` ⇒ 一次 XSS/同机他人即全量泄露，与「口令只存 PBKDF2 摘要、令牌只存 SHA-256」的纪律冲突；也**不**提供「记住我 N 天」长会话（已由 12h TTL + 惰性续期覆盖）。
+- **登录页「记住密码」的硬约束（2026-09-24，改前必读）**：`utils/loginPrefs.mjs` 提供两种记忆 ——
+  ① **记住用户名**（默认开，`localStorage` 只存用户名，取消勾选**真删**）；
+  ② **记住密码**（**默认关**，勾选前**强制风险确认**）：口令**不得**明文/可逆混淆落盘，必须走
+  **WebCrypto AES-GCM + 密钥 `extractable=false` 存 IndexedDB**（密钥与密文分离；拷走密文解不开）；
+  **环境不支持（无 WebCrypto/IndexedDB）⇒ 一律不记住**（fail-closed，绝不降级为明文）；**改密成功后必须清除**已记住口令。
+  威胁模型已如实写进 UI 与《账号登录设计方案.md》§15（**能防**离线读存储/只读扩展；**不能防**同源 XSS 与已在本机操作的人 ⇒ 仅个人设备）。
+  另外：**浏览器密码管理器仍是推荐方式** —— 表单四要素（真实 `<form>` + `@submit.prevent` + `name`/`autocomplete` + `native-type="submit"`）缺一项浏览器就不提示「保存密码」；也**不**提供「记住我 N 天」长会话（已由 12h TTL + 惰性续期覆盖）。
 - **账号登录的存储与令牌口径**：口令只存 PBKDF2 摘要（`pbkdf2$120000$salt$hash`，`PasswordHasher`），**禁**任何接口/日志回显；令牌 32 字节随机、**库内只存 SHA-256 摘要**（`admin_session.token_hash`），明文只在登录/注册响应出现一次；改密吊销该账号其他会话（当前会话保留）、登出即删行。前端令牌在 `localStorage`（`utils/auth.mjs`，storage 可注入便于单测、**顶层必须做 `typeof localStorage` 守卫**否则 SSR 冒烟直接抛），`api/http.js` 遇 401/40104 清令牌并整页跳 `/login?redirect=…`。
 - **中文注释**：全库代码注释、README、设计文档均为简体中文，新代码保持中文注释。
 - **MapStruct + Lombok**：通过 `maven-compiler-plugin` 的 `annotationProcessorPaths` 显式配置（compile 与 test-compile 两个 execution）。MapStruct 只用于固定结构映射（统一信封组装、实体 ↔ DTO），动态映射走规则解释器（M0-02）。
