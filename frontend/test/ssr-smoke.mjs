@@ -60,7 +60,7 @@ const ElStub = {
 const EL_COMPONENTS = ['el-tag', 'el-button', 'el-radio-group', 'el-radio-button',
   'el-dropdown', 'el-dropdown-menu', 'el-dropdown-item', 'el-dialog', 'el-input',
   'el-table', 'el-table-column', 'el-switch', 'el-select', 'el-option', 'el-input-number', 'el-alert',
-  'el-form', 'el-form-item', 'el-card',
+  'el-form', 'el-form-item', 'el-card', 'el-checkbox',
   // 2026-09-23（B4）：调用方管理页用到抽屉/分页/空态，补进替身清单（替身渲染默认插槽，断言才能看到文案）
   'el-drawer', 'el-pagination', 'el-descriptions', 'el-descriptions-item', 'el-empty']
 
@@ -144,7 +144,11 @@ const CASES = [
   // 登录 / 注册页（2026-09-18 账号登录）：无 router 环境下也必须能渲染（SSR 只跑 setup，不跑 onMounted）
   ['登录页（默认登录态）',
     { __component: 'Login' },
-    { text: ['API 中心', '管理控制台', '登录', '注册', '用户名', '密码', '登 录', '还没有账号？'] }],
+    { text: ['API 中心', '管理控制台', '登录', '注册', '用户名', '密码', '登 录', '还没有账号？',
+             // 2026-09-24「记住用户名」：只记用户名，口令交给浏览器密码管理器
+             '记住用户名', '浏览器密码管理器'],
+      // name + autocomplete 是浏览器/密码管理器识别登录表单的关键（缺了就不会提示"保存密码"）
+      html: ['name="username"', 'name="password"', 'autocomplete="username"', 'autocomplete="current-password"'] }],
   // 注意：placeholder 是**属性**，不进文本 → 用 html 断言；「无权限分级」是 el-alert 的默认插槽
   ['账号管理（空态）', { __component: 'Users' },
     { text: ['新建账号', '刷新', '角色模型（OWNER / ADMIN / VIEWER）', '没有匹配的账号',
