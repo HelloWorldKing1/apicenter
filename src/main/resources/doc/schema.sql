@@ -340,6 +340,10 @@ CREATE TABLE interface_step (
     interface_id        BIGINT       NOT NULL COMMENT '宿主接口（仅 OUTBOUND）',
     seq                 INT          NOT NULL DEFAULT 0 COMMENT '执行顺序（升序；顺序敏感）',
     step_code           VARCHAR(32)  NOT NULL COMMENT '步骤名（同接口内唯一；= steps.<步骤名> 命名空间与日志标识）',
+    -- 2026-09-24（令牌步骤，方案 B）：HTTP 普通前置 / TOKEN 令牌步骤（命中缓存跳过 HTTP、提前刷新）
+    --   ⚠ 已应用到开发库；schema 与《表结构设计.html》同步
+    step_kind           VARCHAR(16)  NOT NULL DEFAULT 'HTTP' COMMENT 'HTTP 普通前置 / TOKEN 令牌步骤（换 token 并缓存）',
+    token_config        LONGTEXT     COMMENT '令牌步骤参数 JSON（仅 TOKEN）：tokenPath/ttlPath/ttlMode/ttlFallbackSeconds/refreshAheadSeconds',
     target_interface_id BIGINT       NOT NULL COMMENT '前置接口（必须 OUTBOUND；存数字主键，防上游改 code 断链）',
     failure_policy      VARCHAR(16)  NOT NULL DEFAULT 'ABORT' COMMENT '一期仅 ABORT；CONTINUE/FALLBACK 二期',
     enabled             TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '停用 = 保留配置不执行',
