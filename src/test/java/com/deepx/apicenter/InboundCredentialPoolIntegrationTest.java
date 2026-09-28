@@ -130,7 +130,7 @@ class InboundCredentialPoolIntegrationTest {
         jdbcTemplate.update("DELETE FROM client_credential WHERE label LIKE '单测·%'");
         jdbcTemplate.update("DELETE FROM client_credential WHERE owner_type = 'INTERFACE' "
                 + "AND owner_id IN (SELECT CAST(id AS CHAR) FROM interface WHERE code = 'TEST-POOL-IF')");
-        jdbcTemplate.update("DELETE FROM interface WHERE code = 'TEST-POOL-IF'");
+        jdbcTemplate.update("DELETE FROM interface WHERE code IN ('TEST-POOL-IF', 'TEST-POOL-IF2')");
     }
 
     // ---------- 平台池（L1 默认路径：不登记调用方也能接入） ----------
@@ -223,6 +223,7 @@ class InboundCredentialPoolIntegrationTest {
 
     @Test
     void 接口池_ownerId必须是真实存在的接口数字id() {
+        // 传了 ownerId 就必须合法（留空**不再报错** —— 那是"列全部"，见下一个用例）
         assertThatThrownBy(() -> poolService.prepare("INTERFACE", "not-a-number", "API_KEY", null))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("必须是接口数字 id");
@@ -303,7 +304,40 @@ class InboundCredentialPoolIntegrationTest {
         assertThat(platformView.ownerId()).isNull();                                  // 平台池无 ownerId
     }
 
+    /**
+     * **留空 = 列出该属主类型的全部**（2026-09-24 使用反馈）：接口池天然是"多个接口各有一份"，
+     * 默认就应跨接口一次列出，并且**每行**带自己的「接口 ID + 接口名称」（不是只带查询用那一个）。
+     */
+    @Test
+    void 接口池_留空ownerId_跨接口列出全部且每行带自己的接口信息() {
+        long ifaceA = newFixtureInterface();                      // 夹具接口（凭证池夹具接口）
+        long ifaceB = newFixtureInterface2();                     // 第二个接口（用于证明"跨接口"）
+        String kind = freePlatformKind();
+        poolService.prepare("INTERFACE", String.valueOf(ifaceA), kind, "单测·接口A的密钥");
+        poolService.prepare("INTERFACE", String.valueOf(ifaceB), kind, "单测·接口B的密钥");
+
+        List<CredentialView> all = poolService.list("INTERFACE", null).stream()
+                .filter(v -> v.label() != null && v.label().startsWith("单测·接口"))
+                .toList();
+
+        assertThat(all).hasSize(2);                               // ★ 一次拿到两个接口的凭证
+        assertThat(all).extracting(CredentialView::ownerName)
+                .containsExactlyInAnyOrder("凭证池夹具接口", "凭证池夹具接口二");   // ★ 各自的接口名称
+        assertThat(all).extracting(CredentialView::ownerId)
+                .containsExactlyInAnyOrder(String.valueOf(ifaceA), String.valueOf(ifaceB));  // ★ 各自的接口 ID
+    }
+
     // ---------- 夹具 ----------
+
+    /** 第二个夹具接口（用于证明"接口池留空 = 跨接口列出"） */
+    private long newFixtureInterface2() {
+        jdbcTemplate.update("INSERT INTO interface (code, name, if_type, method, path, protocol_in, protocol_out, "
+                        + "app_id, group_id, status) "
+                        + "SELECT 'TEST-POOL-IF2', '凭证池夹具接口二', 'OUTBOUND', 'POST', '/test-pool-fixture-2', "
+                        + "'JSON', 'JSON', a.app_id, g.id, 'PUBLISHED' "
+                        + "FROM app a JOIN app_group g ON g.app_id = a.app_id LIMIT 1");
+        return jdbcTemplate.queryForObject("SELECT id FROM interface WHERE code = 'TEST-POOL-IF2'", Long.class);
+    }
 
     /** 建一个最小可用的出站中转接口（接口池需要真实 interface 行；不动 seed 资产） */
     private long newFixtureInterface() {

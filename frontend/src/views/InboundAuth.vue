@@ -54,13 +54,28 @@
         <el-select v-model="ownerType" style="width: 170px" @change="onOwnerChange">
           <el-option v-for="t in OWNER_TYPES" :key="t.value" :label="t.label" :value="t.value" />
         </el-select>
-        <el-input v-if="ownerIdRequired(ownerType)" v-model="ownerId" style="width: 220px"
-                  :placeholder="ownerType === 'INTERFACE' ? '接口数字 id（如 12）' : '调用方标识（如 ERP-PROD）'"
-                  @keyup.enter="loadPool" />
-        <el-button @click="loadPool">查询</el-button>
+        <!-- 属主筛选（2026-09-24 使用反馈）：**不再手输 id** —— 接口/调用方都从下拉选，
+             且「全部」= 跨属主一次列出（接口池尤其需要：它天然是"多个接口各有一份"） -->
+        <el-select v-if="ownerType === 'INTERFACE'" v-model="ownerId" style="width: 280px" clearable filterable
+                   placeholder="全部接口（选一个可只看它）" @change="loadPool">
+          <el-option label="全部接口" value="" />
+          <el-option v-for="i in interfaces" :key="i.id" :value="String(i.id)"
+                     :label="`#${i.id} ${i.name}（${i.code}）${i.status === 'PUBLISHED' ? '' : ' · ' + statusLabel(i.status)}`" />
+        </el-select>
+        <el-select v-else-if="ownerType === 'CLIENT'" v-model="ownerId" style="width: 260px" clearable filterable
+                   placeholder="全部调用方（选一个可只看它）" @change="loadPool">
+          <el-option label="全部调用方" value="" />
+          <el-option v-for="c in clients" :key="c.clientId" :value="c.clientId"
+                     :label="`${c.name}（${c.clientId}）`" />
+        </el-select>
+        <el-button @click="loadPool">刷新</el-button>
         <el-button type="primary" :disabled="readOnly" @click="openIssue">＋ 发放新凭证</el-button>
       </div>
-      <div class="hint">{{ ownerHint }}</div>
+      <div class="hint">
+        {{ ownerHint }}
+        <span v-if="ownerType === 'INTERFACE'">｜默认列出<b>全部接口</b>的凭证（每行带接口 ID 与名称）；选一个接口可只看它</span>
+        <span v-else-if="ownerType === 'CLIENT'">｜默认列出<b>全部调用方</b>的凭证；选一个调用方可只看它</span>
+      </div>
 
       <el-table :data="pool" v-loading="poolLoading" size="small" border style="margin-top: 10px">
         <el-table-column prop="id" label="ID" width="70" />
@@ -168,6 +183,13 @@ const setting = reactive({ ...EMPTY_SETTING })
 const form = reactive({ defaultAdapterId: null, requireClientId: true })
 const impact = reactive({ affectedInterfaces: 0, hint: '' })
 const adapters = ref([])
+const interfaces = ref([])
+const clients = ref([])
+
+/** 列表页的接口状态文案（与接口管理页口径一致） */
+function statusLabel(s) {
+  return { DRAFT: '草稿', PUBLISHED: '已发布', OFFLINE: '已下线' }[s] || s
+}
 const clientAuthAdapters = computed(() =>
   adapters.value.filter((a) => a.type === 'auth' && a.enabled && adapterMatchesRole(a.impl, 'CLIENT_AUTH')))
 
@@ -206,12 +228,9 @@ const poolLoading = ref(false)
 const ownerHint = computed(() => OWNER_TYPES.find((t) => t.value === ownerType.value)?.hint || '')
 
 async function loadPool() {
-  if (ownerIdRequired(ownerType.value) && !ownerId.value) {
-    ElMessage.warning(ownerType.value === 'INTERFACE' ? '请填接口数字 id' : '请填调用方标识')
-    return
-  }
   poolLoading.value = true
   try {
+    // ownerId 留空 = 列出该属主类型的**全部**（接口池默认跨接口列出 —— 2026-09-24）
     pool.value = await http.get('/inbound-credentials', {
       params: { ownerType: ownerType.value, ownerId: ownerId.value || undefined }
     })
@@ -221,7 +240,7 @@ async function loadPool() {
 }
 
 function onOwnerChange() {
-  ownerId.value = ''
+  ownerId.value = ''          // 切属主类型 ⇒ 回到「全部」
   pool.value = []
   loadPool()
 }
@@ -235,7 +254,8 @@ const issue = reactive({ visible: false, kind: 'API_KEY', label: '', plaintext: 
 
 function openIssue() {
   if (ownerIdRequired(ownerType.value) && !ownerId.value) {
-    ElMessage.warning(ownerType.value === 'INTERFACE' ? '请先填接口数字 id' : '请先填调用方标识')
+    // 发放必须有明确属主（不能往"全部"里发 ⇒ 不知道该挂到哪个接口/调用方）
+    ElMessage.warning(ownerType.value === 'INTERFACE' ? '请先在左侧选中一个接口' : '请先选中一个调用方')
     return
   }
   issue.kind = 'API_KEY'
@@ -297,6 +317,17 @@ async function remove(row) {
 // ---------- 初始化 ----------
 async function loadAll() {
   adapters.value = await http.get('/adapters')
+  // 属主下拉字典（接口池按接口选、档案池按调用方选）——失败不阻塞页面
+  try {
+    interfaces.value = await http.get('/interfaces')
+  } catch (e) {
+    interfaces.value = []
+  }
+  try {
+    clients.value = await http.get('/clients')
+  } catch (e) {
+    clients.value = []
+  }
   await loadSetting()
   await loadPool()
 }

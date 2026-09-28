@@ -30,6 +30,18 @@ public class ClientAppRepository {
         this.jdbc = jdbc;
     }
 
+    /** 批量取调用方名称（凭证池列表按属主显示「调用方」用） */
+    public java.util.Map<String, String> findNamesByIds(java.util.Collection<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return java.util.Map.of();
+        }
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        java.util.Map<String, String> out = new java.util.HashMap<>();
+        jdbc.query("SELECT client_id, name FROM client_app WHERE client_id IN (" + placeholders + ")",
+                rs -> { out.put(rs.getString("client_id"), rs.getString("name")); }, ids.toArray());
+        return out;
+    }
+
     public List<ClientAppRow> findAll(String keyword, String status) {
         StringBuilder sql = new StringBuilder("SELECT * FROM client_app");
         List<Object> args = new ArrayList<>();

@@ -42,6 +42,18 @@ public class InterfaceRepository {
 
     // ---------- 主表 ----------
 
+    /** 批量取接口名称（凭证池列表按属主显示「接口名称」用；一次 IN 查询避免 N+1） */
+    public java.util.Map<Long, String> findNamesByIds(java.util.Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return java.util.Map.of();
+        }
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        java.util.Map<Long, String> out = new java.util.HashMap<>();
+        jdbc.query("SELECT id, name FROM interface WHERE id IN (" + placeholders + ")",
+                rs -> { out.put(rs.getLong("id"), rs.getString("name")); }, ids.toArray());
+        return out;
+    }
+
     public List<InterfaceRow> findAll(String appId, Long groupId, String ifType, String status, String keyword) {
         StringBuilder sql = new StringBuilder(SELECT_SQL + " WHERE 1 = 1 ");
         List<Object> args = new java.util.ArrayList<>();

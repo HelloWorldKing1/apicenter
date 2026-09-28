@@ -52,6 +52,24 @@ public class CredentialStore {
     }
 
     /**
+     * **列某属主类型的全部凭证**（2026-09-24 使用反馈）：接口专属池/档案池默认要"一次看全部"，
+     * 而不是一次只能查一个 ownerId。口径与 {@link #listViews} 完全一致（含指纹 / 过期惰性判定），
+     * 只是不限属主；`ownerName` 留空由语义层按行填充（机制层不认识接口/调用方名称）。
+     */
+    public List<CredentialView> listViewsAll(CredentialOwner owner) {
+        if (!owner.pooled()) {
+            throw new IllegalStateException("仅凭证池支持按属主类型列表：" + owner);
+        }
+        LocalDateTime now = LocalDateTime.now();
+        return credentialRepository.findByOwnerType(owner).stream()
+                .map(r -> new CredentialView(r.id(), r.kind(), r.status(), fingerprintOf(r.credential()),
+                        r.activatedAt(), r.retiredAt(), r.rotatingUntil(),
+                        "ROTATING".equals(r.status()) && r.rotatingUntil() != null && r.rotatingUntil().isBefore(now),
+                        r.label(), owner.name(), r.ownerId(), null))
+                .toList();
+    }
+
+    /**
      * 生成新凭证（平台生成随机值），`status=ROTATING` 待激活（M0-04 流程①）：
      * 先到对端配置新凭证，确认后调 {@link #activate}。明文仅本次回显，此后不可再读。
      *

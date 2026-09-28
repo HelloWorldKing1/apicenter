@@ -98,8 +98,25 @@ public class CredentialRepository {
 
     // ---------- 属主通用实现 ----------
 
+    private org.springframework.jdbc.core.RowMapper<CredentialRow> rowMapperOf(CredentialOwner owner) {
+        return owner.rowMapper();
+    }
+
     public List<CredentialRow> findByOwner(CredentialOwner owner, String ownerId) {
         return jdbc.query("SELECT * FROM " + owner.table() + " WHERE " + owner.ownerPredicate() + " ORDER BY kind, created_at DESC", owner.rowMapper(), ownerId);
+    }
+
+    /**
+     * 列**某属主类型的全部凭证**（2026-09-24，使用反馈）：接口专属池/档案池默认要能"一次看全部"，
+     * 而不是一次只能查一个 ownerId。`PLATFORM` 等价于 `findByOwner(PLATFORM, null)`。
+     */
+    public List<CredentialRow> findByOwnerType(CredentialOwner owner) {
+        if (!owner.pooled()) {
+            throw new IllegalStateException("仅凭证池支持按属主类型列表：" + owner);
+        }
+        return jdbc.query("SELECT * FROM " + owner.table() + " WHERE owner_type = '" + owner.ownerType()
+                        + "' ORDER BY owner_id, kind, created_at DESC",
+                rowMapperOf(owner));
     }
 
     public Optional<CredentialRow> findById(CredentialOwner owner, long id) {
