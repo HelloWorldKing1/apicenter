@@ -45,7 +45,11 @@ public class AdapterImplCatalog {
                     f("secretKey", "SecretKey", "secret", false, null, "凭证值在「应用管理 → 新建/编辑应用 → 凭证卡片」中维护"),
                     f("service", "服务名", "text", true, null, "如 cvm / sts"),
                     f("region", "地域", "text", false, null, "如 ap-guangzhou / us-east-1"),
-                    f("signedHeaders", "签名 Header 列表", "text", false, null, "逗号分隔，如 content-type;host"))),
+                    f("signedHeaders", "签名 Header 列表", "text", false, null, "逗号分隔，如 content-type;host（各家必选头已自动纳入）"),
+                    f("headers", "附加业务头(JSON)", "text", false, null,
+                            "如 {\"X-TC-Action\":\"DescribeInstances\",\"X-TC-Version\":\"2017-03-12\"}；腾讯云 API 3.0 的 Action/Version 走头部，配了会自动参与签名"),
+                    f("token", "临时凭证 Token", "secret", false, null,
+                            "仅临时凭证(STS)需要；留空=用永久 AK/SK 直签。可用编排的「令牌步骤」取值注入"))),
             new ImplMeta("CloudCallbackSignatureAdapter", "auth", "云厂商回调验签", List.of(
                     f("scheme", "回调验签规范", "select", true, List.of("TENCENT-EVENT", "AWS-SNS", "ALIYUN-CALLBACK"), null),
                     f("token", "回调 Token", "secret", false, null, "凭证值在「应用管理 → 新建/编辑应用 → 凭证卡片」中维护"),

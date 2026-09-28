@@ -26,6 +26,23 @@ public final class HmacSigner {
         }
     }
 
+    /**
+     * **原始字节 HMAC**（2026-09-24 增）：云厂商签名的**密钥派生链**（如 TC3 的
+     * `HMAC(HMAC(HMAC(HMAC("TC3"+sk, date), service), "tc3_request"), stringToSign)`）逐级需要
+     * "上一段的原始字节"作为下一段的 key，不能经 hex 字符串中转。
+     *
+     * <p>放在这里是为了**保持单一密码学出口**（与 `sign/verify` 同一处、同一 JCA 命名约定）。
+     */
+    public static byte[] raw(byte[] key, String algorithm, String data) {
+        try {
+            Mac mac = Mac.getInstance(jcaName(algorithm));
+            mac.init(new SecretKeySpec(key, jcaName(algorithm)));
+            return mac.doFinal(data.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            throw new IllegalStateException("HMAC 计算失败：" + e.getMessage(), e);
+        }
+    }
+
     /** 常量时间比对（防时序侧信道；signature 为空恒 false） */
     public static boolean verify(String algorithm, String secret, String timestamp, byte[] rawBody, String signature) {
         if (signature == null || signature.isBlank()) {

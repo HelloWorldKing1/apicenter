@@ -49,3 +49,10 @@ test('入站鉴权的 4 个实现仍可绑回调验签，但不能当出站签�
 test('角色提示文案覆盖入站鉴权侧', () => {
   assert.equal(adapterRoleHint('ClientApiKeyVerifyAdapter'), '入站鉴权 / 回调验签')
 })
+
+test('云厂商签名（AK/SK 直签）只应出现在出站签名侧，不能当回调验签', () => {
+  assert.equal(adapterMatchesRole('CloudSignatureAdapter', 'OUTBOUND'), true)
+  assert.equal(adapterMatchesRole('CloudSignatureAdapter', 'CALLBACK'), false)
+  assert.equal(adapterMatchesRole('CloudSignatureAdapter', 'CLIENT_AUTH'), false)
+  assert.equal(adapterRoleHint('CloudSignatureAdapter'), '仅出站签名')
+})

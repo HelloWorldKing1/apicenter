@@ -14,7 +14,9 @@
 const CALLBACK_ONLY = new Set(['HmacCallbackVerifyAdapter'])
 
 /** 只该出现在「供应商签名（出站）」侧 */
-const OUTBOUND_ONLY = new Set(['BearerTokenAuthAdapter', 'ApiKeyAuthAdapter'])
+const OUTBOUND_ONLY = new Set(['BearerTokenAuthAdapter', 'ApiKeyAuthAdapter',
+  // 云厂商签名（AK/SK 直签，2026-09-24）：出站专用 —— 它签的是**出站请求**，绝不能当回调验签用
+  'CloudSignatureAdapter', 'HmacAuthAdapter'])
 
 /**
  * 只该出现在「**入站鉴权方式**（接口级 CLIENT_AUTH）」侧的 4 个实现（2026-09-24 v1.2）。

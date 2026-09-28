@@ -141,7 +141,21 @@
 3. **方案 C1（入站云风格验签）** —— 让第三方也能用云方式调平台，且**天然可实时吊销**；
 4. **P3**：共享令牌缓存 / 401 自动重取 / RSA·ECDSA 签名（微信支付/支付宝类）。
 
-## 7. 需要你确认的三件事
+## 7. 落地记录（2026-09-24 首批）
+
+需求方确认：**①国内优先 ②两种都给（界面上可选）③暂不做"平台对外签发 token"**。据此：
+
+| 项 | 状态 |
+|---|---|
+| **发现并修复一个既有缺口** | `AdapterImplCatalog` **早已声明** `CloudSignatureAdapter`（"云厂商签名"，scheme = TC3 / AWS4 / **ACS3**）与 `CloudCallbackSignatureAdapter` —— 但**两者实现类都不存在** ✗。绑定后的表现是 `ChainEngine#bean` fail-loud 抛 **40001「适配器实现未注册」**（不会静默不签名 ✓，但仍属"目录承诺了能力、代码没有"的缺口） |
+| **方案 A（直签）首批 ✅ 已落地** | 新增 `adapter/auth/CloudSignatureAdapter`：`TC3-HMAC-SHA256`（腾讯）+ `ACS3-HMAC-SHA256`（阿里 V3）+ `AWS4-HMAC-SHA256`（AWS）；配套 `HmacSigner.raw`（密钥派生链需要**原始字节** HMAC，保持单一密码学出口）；凭证=复合 JSON `{secretId, secretKey, token?}`；新增 `headers`(JSON) 参数承载云 API 3.0 的**头部业务参数**（`X-TC-Action`/`X-TC-Version` 等，**自动参与签名**）；临时凭证自动加 `X-TC-Token` / `x-acs-security-token` / `x-amz-security-token` |
+| **回归** | `CloudSignatureAdapterTest` **9 例**：官方可验证常量（**空 body 的 SHA-256 = `e3b0c442…`** —— 阿里/AWS 文档示例同值；腾讯示例报文的要素与秒级时间戳）+ 三家 Authorization 拼法 + SignedHeaders 含 host + 临时凭证头 + **拒绝路径**（未支持 scheme / 缺 AK / 缺 service·region ⇒ 显式 40001，**绝不猜算法**） |
+| 前端 | `adapterUsage.mjs` 把 `CloudSignatureAdapter`（及 `HmacAuthAdapter`）归入「仅出站签名」侧（**不能**当回调验签选） |
+| **方案 B（换 Token）⏳ 未做（下一批）** | 令牌步骤（`tokenPath`/`ttlPath`/提前刷新）+ 内存缓存 + single-flight + 适配器 `tokenSource` 注入 + 可观测。**暂不要在限频的换 token 接口上使用**（当前用编排换 token 会**每次调用都换一次**） |
+| 方案 C | C1（入站云风格验签）未排期；**C2（平台对外签发 token）明确不做**（需求方 2026-09-24 决策） |
+| 仍缺（backlog） | `CloudCallbackSignatureAdapter`（云厂商回调验签：腾讯事件 / AWS SNS / 阿里回调）；华为 `SDK-HMAC-SHA256` 与更多 scheme（**显式 40001 挡住**，不会错签） |
+
+## 8. 需要你确认的三件事
 
 1. **优先哪家签名风格？**（决定方案 A 的 `style` 首批实现；只要能给一份对方文档/联调账号，我可以照签名测试向量做）
 2. **供应商有没有"换 token 接口"？** 有 ⇒ **直接做方案 B**（方案 A 可不做）；只有 AK/SK ⇒ 先做方案 A。

@@ -454,6 +454,20 @@ curl -X POST http://localhost:8080/<平台侧路径> -H 'Content-Type: applicati
 - `kind = RESP`：出站响应字段（仅 OUTBOUND）；
 - `kind = ACK`：ack 回执字段（仅 INBOUND）。
 
+**出站鉴权怎么选：AK/SK 直签 vs 换 Token（2026-09-24）**
+
+供应商给的凭证形态决定用哪条路 —— **两种都在平台上可选**：
+
+| 供应商给的是什么 | 用平台哪个能力 | 怎么配 |
+|---|---|---|
+| **只有 AK/SK**（每请求要签名，云厂商风格） | **「云厂商签名」适配器**（`CloudSignatureAdapter`） | 「应用管理」或接口详情的**供应商签名**里选「云厂商签名」；`scheme` 选 `TC3-HMAC-SHA256`（腾讯云）/ `ACS3-HMAC-SHA256`（阿里云 V3）/ `AWS4-HMAC-SHA256`（AWS）；`service`、`region` 按对方要求填；**凭证**（应用 → 凭证卡片）填 JSON：`{"secretId":"…","secretKey":"…"}`（临时凭证再加 `"token":"…"`） |
+| **有「换 Token」接口**（STS / OAuth2 client_credentials：先拿 token 再调业务） | **前置接口编排**（先用一个前置接口换 token，再调业务） | 在业务接口加一个前置步骤指向「换 token 接口」；把返回的 token 用**字段映射**引用到出站请求所需位置。⚠️ 令牌缓存/过期刷新属**下一批**（见《记录/AK-SK与临时令牌鉴权适配分析.md》方案 B），当前每次调用都会换一次 token ⇒ 若对方换 token 接口有限频，请先不要用这条 |
+
+> **云厂商签名的三个易错点**（适配器已按各家文档实现，但配错仍会 401）：
+> ① 参与签名的头名与**实际发送的头**必须完全一致（含 `Content-Type` 的内容，如 `application/json; charset=utf-8`）；
+> ② 腾讯云 API 3.0 的 **`X-TC-Action` / `X-TC-Version` 是放在请求头**的 ⇒ 请填在「附加业务头(JSON)」里（会**自动参与签名**）；
+> ③ 临时凭证（STS）除了 AK/SK **还要带 token** ⇒ 凭证 JSON 里加 `"token"` 字段（会按各家规范自动加 `X-TC-Token` / `x-acs-security-token` / `x-amz-security-token`）。
+
 **XML 协议参数（2026-09-21）** —— 位置：接口弹窗 → **高级** → 「XML 协议参数」（**仅「出站协议」= XML 时显示**；
 入站不给入口，因为入站请求方向**不解包**——`入站XML/出站JSON` 时这些参数永不生效，不给“配了不生效”的口子）
 
