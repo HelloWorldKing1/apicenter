@@ -21,6 +21,8 @@ import Users from '../src/views/Users.vue'
 // 调用方管理页（B4 入站鉴权）
 import Clients from '../src/views/Clients.vue'
 import InboundAuth from '../src/views/InboundAuth.vue'
+// 布局层（2026-09-24 加入）：它曾因「模板调用未导入的 helper」导致**整站白屏** —— 必须纳入冒烟
+import MainLayout from '../src/layout/MainLayout.vue'
 
 function decode(html) {
   return html
@@ -62,7 +64,13 @@ const EL_COMPONENTS = ['el-tag', 'el-button', 'el-radio-group', 'el-radio-button
   'el-table', 'el-table-column', 'el-switch', 'el-select', 'el-option', 'el-input-number', 'el-alert',
   'el-form', 'el-form-item', 'el-card', 'el-checkbox',
   // 2026-09-23（B4）：调用方管理页用到抽屉/分页/空态，补进替身清单（替身渲染默认插槽，断言才能看到文案）
-  'el-drawer', 'el-pagination', 'el-descriptions', 'el-descriptions-item', 'el-empty']
+  'el-drawer', 'el-pagination', 'el-descriptions', 'el-descriptions-item', 'el-empty',
+  // 2026-09-24：布局层（el-container/aside/main/header）与其它页面用到的组件 ——
+  //   注意：**未登记的组件在 SSR 里解析不到 ⇒ 整棵子树被丢弃、渲染出空文本**（冒烟会静默变绿/变空），
+  //   所以这份清单要覆盖全库实际用到的 el-*（用 `grep -rho '<el-[a-z-]*' src/**/*.vue | sort -u` 核对）
+  'el-container', 'el-aside', 'el-main', 'el-header', 'el-menu', 'el-menu-item',
+  'el-row', 'el-col', 'el-radio', 'el-option-group', 'el-tabs', 'el-tab-pane',
+  'el-timeline', 'el-timeline-item', 'el-tooltip', 'el-date-picker']
 
 const longJson = '{"items":[' + Array.from({ length: 80 }, (_, i) => `{"id":${i}}`).join(',') + ']}'
 const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/wFvpM0AAAAASUVORK5CYII='
@@ -112,6 +120,11 @@ const CASES = [
     { text: ['新建调用方', '调用方标识', '鉴权方式', 'IP 名单', 'QPS / 日配额', '状态',
              // v1.2 降级说明（防「页面还是老口径」）
              '不登记也能调', '入站鉴权'] }],
+  // 主框架布局：侧边栏菜单 + 顶栏文案（布局层白屏 → 整站空白，必须有覆盖）
+  ['主框架布局（侧边栏 + 顶栏）',
+    { __component: 'MainLayout' },
+    { text: ['API 中心', '概览', '应用管理', '分组管理', '调用方管理', '接口管理', '接口监控', '适配器',
+             '管理面', '概览'] }],
   // 入站鉴权页（v1.2 C3）：平台设置（页面可改、改即生效）+ 凭证池（三级属主）
   ['入站鉴权页（平台设置 + 凭证池）',
     { __component: 'InboundAuth' },
@@ -173,9 +186,11 @@ const CASES = [
 async function main() {
   let failed = 0
   for (const [label, props, expect] of CASES) {
-    const COMPONENTS = { ParamImportDialog, InterfaceParamsTab, InterfaceStepsTab, RequestBodyEditor, Login, Users, Clients, InboundAuth }
+    const COMPONENTS = { ParamImportDialog, InterfaceParamsTab, InterfaceStepsTab, RequestBodyEditor, Login, Users, Clients, InboundAuth, MainLayout }
     const component = COMPONENTS[props.__component] || PayloadViewer
     const app = createSSRApp({ render: () => h(component, props) })
+    // 布局组件通过全局属性使用 $route（真实环境由 vue-router 注入）；冒烟里补一个最小替身
+    app.config.globalProperties.$route = { path: '/dashboard', meta: { title: '概览' } }
     EL_COMPONENTS.forEach((name) => app.component(name, ElStub))
     // 指令替身：`v-loading` 仅 Element Plus 运行时有实现，SSR 冒烟里注册空指令即可
     // （不注册会在 render 阶段抛 `Cannot read properties of undefined (reading 'getSSRProps')`）

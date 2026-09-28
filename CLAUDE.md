@@ -263,6 +263,13 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 - **「死信编号」语义（2026-09-18 修正）**：`insertDeadLetter` 现回填**真实 `dead_letter.id`**，响应 msg 里的编号可直接用于 `POST /monitor/dead-letters/{id}/replay`（此前是 `outbound_request.id`，会打错记录）。
 - **`deleteByApp` 必须带 `biz_type` 过滤（2026-09-18）**：`dead_letter.ref_id` 是多态引用（OUTBOUND→`outbound_request.id`，INBOUND→`inbound_delivery.id`），两表自增 id 空间重叠，裸 `ref_id IN (…)` 删会误删另一方向的死信。两处 `deleteByApp` 已各加 `AND biz_type='OUTBOUND'|'INBOUND'`。
 - **调用日志列表已瘦身（2026-09-12）**：`/monitor/call-logs` 不含 `req_headers`/`req_body`/`resp_body`，详情走 `GET /monitor/call-logs/{id}`（前端抽屉打开时按 id 拉）；`keyword` 走 `url LIKE`，服务端强制时间窗 ≤7 天（未传按近 24h）。
+- **模板里调用「未定义/未导入的 helper」= 整站白屏（2026-09-24 真实事故，改布局前必读）**：`MainLayout.vue` 的菜单写了
+  `canManageInboundAuth(meRole)`，但该函数**没导入**（且变量名写错，文件里是 `currentRole`）⇒ 渲染期抛
+  `TypeError: _ctx.canManageInboundAuth is not a function` ⇒ **整个应用挂不上、页面一片空白**（无错误边界，错在哪只能看控制台）。
+  **两道防线（都已验证能拦住，含反证）**：① ESLint 新开 **`vue/no-undef-properties: error`**（模板引用未定义的属性直接在 lint 报错，
+  精确定位到行列）；② **SSR 冒烟新增「主框架布局」用例**（布局层此前**零覆盖** ⇒ 它白屏没人发现）。改布局/菜单/模板时：
+  **新调用的每个 helper 都要 import**；加 `el-*` 组件时**记得同步冒烟的替身清单** `EL_COMPONENTS` ——
+  **未登记的组件在 SSR 里解析不到 ⇒ 整棵子树被丢弃、渲染成空文本**（冒烟会"变空"而不是报错，别误判成通过）。
 - **侧边栏 / 顶部栏视觉口径（2026-09-12）**：`layout/MainLayout.vue` 全量对齐 `API中心原型.html`——侧边栏 200px、底色 `#1d2129`、logo = 主色圆点 `#2f54eb` + 「API 中心」（原型**无 SVG 图形 logo**）、菜单几何字形 `◧▤▦⇄◎⚙`（勿用 emoji）、菜单项 hover `rgba(255,255,255,.06)` / active 主色底、底部脚注；顶部栏 56px 白底 + `管理面 / 页面标题`；内容区 padding 24px；全局背景 `#f5f6f8`。菜单顺序按原型（接口监控在适配器之前）。
 - **列表列口径与应用数字 ID（2026-09-12）**：`app` 表新增 `id BIGINT AUTO_INCREMENT UNIQUE`（DDL 已应用到开发库；`schema.sql` 有迁移块），应用列表两列并存：「ID」= 数字 id、「应用标识」= `app_id`；凭证角标列已移除。**对外契约一律仍用 `app_id`**（URL `/apps/{appId}`、凭证归属、分组/接口引用、监控过滤、groupCount 子查询），`id` 仅作列表展示/运维引用——新增代码不要拿 `id` 当业务键。接口列表新增「ID」列（数字主键，普通表头不带 tooltip），「应用」列保持只显示应用名称。
 - **内存态清理钩子（2026-09-12）**：删接口/删应用/删告警规则时要清 `CircuitBreakerRegistry.evict` / `GatewayGuard.evict` / `AlertService.evictApp|evictRule`，新增「删除」入口请照此补。

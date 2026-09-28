@@ -21,7 +21,10 @@ export default [
     rules: {
       'no-unused-vars': ['warn', { args: 'none', caughtErrors: 'none', varsIgnorePattern: '^_' }],
       'no-empty': ['warn', { allowEmptyCatch: true }],
-      'vue/multi-word-component-names': 'off'
+      'vue/multi-word-component-names': 'off',
+      // 2026-09-24 加入：模板引用「未在 setup 中定义/导入」的属性 → 运行期渲染报错（白屏）。
+      // 真实事故：MainLayout 模板调 canManageInboundAuth(...) 但未导入 ⇒ 整站白屏。
+      'vue/no-undef-properties': 'error'
     }
   },
   {
