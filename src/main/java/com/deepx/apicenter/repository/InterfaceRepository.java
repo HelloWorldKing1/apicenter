@@ -324,9 +324,12 @@ public class InterfaceRepository {
     public void insertSteps(long interfaceId, List<InterfaceRow.StepRow> rows) {
         for (InterfaceRow.StepRow r : rows) {
             jdbc.update("""
-                    INSERT INTO interface_step (interface_id, seq, step_code, target_interface_id, failure_policy, enabled)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """, interfaceId, r.seq(), r.stepCode(), r.targetInterfaceId(), r.failurePolicy(), r.enabled());
+                    INSERT INTO interface_step (interface_id, seq, step_code, step_kind, token_config,
+                                                target_interface_id, failure_policy, enabled)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, interfaceId, r.seq(), r.stepCode(),
+                    r.stepKind() == null ? "HTTP" : r.stepKind(), r.tokenConfig(),
+                    r.targetInterfaceId(), r.failurePolicy(), r.enabled());
         }
     }
 }

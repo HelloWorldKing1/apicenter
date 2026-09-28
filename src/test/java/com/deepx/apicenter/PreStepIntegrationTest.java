@@ -83,6 +83,7 @@ class PreStepIntegrationTest {
     @Autowired private CompensationWorker compensationWorker;
     @Autowired private CircuitBreakerRegistry circuitBreakerRegistry;
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private com.deepx.apicenter.engine.TokenCache tokenCache;
 
     private long groupId;
 
@@ -531,6 +532,91 @@ class PreStepIntegrationTest {
     }
 
     // ---------- helpers ----------
+
+    // ---------- 令牌步骤（2026-09-24 方案 B：AK/SK 换 Token 且带缓存） ----------
+
+    private static final String TOKEN_STEP_CONFIG =
+            "{\"tokenPath\":\"access_token\",\"ttlPath\":\"expires_in\",\"ttlMode\":\"SECONDS\","
+                    + "\"ttlFallbackSeconds\":300,\"refreshAheadSeconds\":60}";
+
+    /** 令牌步骤 + 缓存：第一次换发、第二次**命中缓存不再发起 HTTP**，且 token 以规范化字段进入 steps */
+    @Test
+    void 令牌步骤_命中缓存不重复换发_且token进入steps规范化字段() {
+        long auth = createIface("IF-TOK-AUTH", "/ps/tok-auth", "/up-token", 0, 3000, List.of());
+        long main = createIface("IF-TOK-MAIN", "/ps/tok-main", "/up-token-main", 0, 3000,
+                List.of(new StepDto(0, "auth", auth, "ABORT", true, null, null, "TOKEN", TOKEN_STEP_CONFIG)),
+                List.of(new MappingDto("steps.auth.access_token", "rename", "api_token", null, "KEEP", 0)));
+
+        stubFor(post("/up-token").willReturn(okJson(
+                "{\"access_token\":\"TOK-1\",\"expires_in\":300,\"code\":0}")));
+        stubFor(post("/up-token-main").willReturn(okJson("{\"ok\":true}")));
+
+        // 第一次：真换发
+        assertThat(outboundEngine.dispatch("/ps/tok-main", "POST",
+                IN_BODY.getBytes(StandardCharsets.UTF_8), "biz-tok-1", "trace-tok-1").code()).isZero();
+        wireMock.verify(1, postRequestedFor(urlEqualTo("/up-token")));
+
+        // 第二次：**命中缓存** ⇒ 换发次数仍是 1，但 token 仍被注入宿主报文
+        assertThat(outboundEngine.dispatch("/ps/tok-main", "POST",
+                IN_BODY.getBytes(StandardCharsets.UTF_8), "biz-tok-2", "trace-tok-2").code()).isZero();
+        wireMock.verify(1, postRequestedFor(urlEqualTo("/up-token")));   // ★ 仍为 1 次（缓存生效）
+        wireMock.verify(postRequestedFor(urlEqualTo("/up-token-main"))
+                .withRequestBody(containing("TOK-1")));
+
+        // 缓存键 = interfaceId#stepCode；接口配置变更会按 interfaceId 整体失效（见 TokenCacheTest）
+        assertThat(cacheKeyExists(main, "auth")).isTrue();
+    }
+
+    /** 令牌步骤取不到 token（配置/响应不匹配）⇒ 链失败（40001），不静默继续 */
+    @Test
+    void 令牌步骤_响应里取不到token_链失败() {
+        long auth = createIface("IF-TOK-BAD", "/ps/tok-bad", "/up-token-bad", 0, 3000, List.of());
+        createIface("IF-TOK-BAD-MAIN", "/ps/tok-bad-main", "/up-token-bad-main", 0, 3000,
+                List.of(new StepDto(0, "auth", auth, "ABORT", true, null, null, "TOKEN", TOKEN_STEP_CONFIG)),
+                List.of());
+
+        stubFor(post("/up-token-bad").willReturn(okJson("{\"code\":0,\"msg\":\"ok\"}")));
+        stubFor(post("/up-token-bad-main").willReturn(okJson("{\"ok\":true}")));
+
+        assertThatThrownBy(() -> outboundEngine.dispatch("/ps/tok-bad-main", "POST",
+                IN_BODY.getBytes(StandardCharsets.UTF_8), "biz-tok-bad", "trace-tok-bad"))
+                .hasMessageContaining("取不到 token")
+                .hasMessageContaining("access_token");
+
+        // 链失败 ⇒ 未触达宿主上游
+        wireMock.verify(0, postRequestedFor(urlEqualTo("/up-token-bad-main")));
+    }
+
+    /** 令牌步骤的换发响应里有 token 明文 ⇒ 落 call_log 时必须**已脱敏**（SensitiveDataMasker 兜底） */
+    @Test
+    void 令牌步骤_换发响应落call_log时_token明文被脱敏() {
+        long auth = createIface("IF-TOK-MASK", "/ps/tok-mask", "/up-token-mask", 0, 3000, List.of());
+        createIface("IF-TOK-MASK-MAIN", "/ps/tok-mask-main", "/up-token-mask-main", 0, 3000,
+                List.of(new StepDto(0, "auth", auth, "ABORT", true, null, null, "TOKEN", TOKEN_STEP_CONFIG)),
+                List.of());
+
+        // 注意：本测试类把 pre-step.max-response-bytes 调成 64（用于响应体上限用例）⇒ 这里的换发响应要够短
+        stubFor(post("/up-token-mask").willReturn(okJson("{\"access_token\":\"SECRET-TOKEN-9\",\"code\":0}")));
+        stubFor(post("/up-token-mask-main").willReturn(okJson("{\"ok\":true}")));
+
+        assertThat(outboundEngine.dispatch("/ps/tok-mask-main", "POST",
+                IN_BODY.getBytes(StandardCharsets.UTF_8), "biz-tok-mask", "trace-tok-mask").code()).isZero();
+
+        // 只看本用例的 trace（同类里 step_code='auth' 的行很多；且其他用例的 resp_body 可能为 null）
+        List<String> bodies = jdbcTemplate.queryForList(
+                "SELECT resp_body FROM call_log WHERE direction = 'OUT' AND step_code = 'auth' "
+                        + "AND resp_body IS NOT NULL AND trace_id = ?", String.class, "trace-tok-mask");
+        assertThat(bodies).isNotEmpty();
+        assertThat(bodies).allSatisfy(body -> {
+            assertThat(body).as("令牌不得以明文落入调用日志").doesNotContain("SECRET-TOKEN-9");
+            assertThat(body).as("应当能看到脱敏后的痕迹（说明是掩码而不是没记）").contains("****");
+        });
+    }
+
+    /** 令牌缓存里是否存在该接口某步骤的键（断言缓存确实写入） */
+    private boolean cacheKeyExists(long interfaceId, String stepCode) {
+        return tokenCache.get(com.deepx.apicenter.engine.TokenCache.key(interfaceId, stepCode), 0) != null;
+    }
 
     private long createIface(String code, String path, String upstream, int maxRetries, int timeoutMs,
                              List<StepDto> steps) {

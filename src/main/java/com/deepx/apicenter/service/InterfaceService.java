@@ -581,6 +581,21 @@ public class InterfaceService {
             if (!"ABORT".equals(policy)) {
                 throw BizException.fieldInvalid("失败策略仅支持 ABORT（CONTINUE / FALLBACK 为二期能力）：" + s.failurePolicy());
             }
+            // v1.2（2026-09-24）令牌步骤：类型白名单 + TOKEN 必须有合法 tokenConfig（复用运行时同一解析，防"保存得过、运行期炸"）
+            String stepKind = s.stepKind() == null || s.stepKind().isBlank()
+                    ? "HTTP" : s.stepKind().trim().toUpperCase();
+            if (!Set.of("HTTP", "TOKEN").contains(stepKind)) {
+                throw BizException.fieldInvalid("步骤类型仅支持 HTTP / TOKEN（令牌步骤）：" + s.stepKind());
+            }
+            if ("TOKEN".equals(stepKind)) {
+                try {
+                    com.deepx.apicenter.engine.TokenStepConfig.parse(objectMapper, s.tokenConfig());
+                } catch (BizException e) {
+                    throw BizException.fieldInvalid("前置步骤 " + code + "（令牌步骤）配置非法：" + e.getMessage());
+                }
+            } else if (s.tokenConfig() != null && !s.tokenConfig().isBlank()) {
+                throw BizException.fieldInvalid("普通步骤（HTTP）不允许配置令牌参数 tokenConfig：" + code);
+            }
             if (s.targetInterfaceId() == null || s.targetInterfaceId() <= 0) {
                 throw BizException.fieldInvalid("前置步骤 " + code + " 未选择前置接口");
             }
@@ -681,7 +696,9 @@ public class InterfaceService {
                     target == null ? s.targetCode() : target.code(),
                     target == null ? null : target.name(),
                     target == null ? null : target.status(),
-                    target == null ? null : target.ifType()));
+                    target == null ? null : target.ifType(),
+                    s.stepKind() == null || s.stepKind().isBlank() ? "HTTP" : s.stepKind(),
+                    s.tokenConfig()));
         }
         return out;
     }
@@ -715,8 +732,11 @@ public class InterfaceService {
             StepDto s = sorted.get(i);
             String policy = s.failurePolicy() == null || s.failurePolicy().isBlank()
                     ? "ABORT" : s.failurePolicy().trim().toUpperCase();
+            String stepKind = s.stepKind() == null || s.stepKind().isBlank()
+                    ? "HTTP" : s.stepKind().trim().toUpperCase();
             rows.add(new InterfaceRow.StepRow(0, 0, i, s.stepCode().trim(), s.targetInterfaceId(),
-                    policy, s.enabled() == null || s.enabled()));
+                    policy, s.enabled() == null || s.enabled(), stepKind,
+                    s.tokenConfig() == null || s.tokenConfig().isBlank() ? null : s.tokenConfig().trim()));
         }
         return rows;
     }

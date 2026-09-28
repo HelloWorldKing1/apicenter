@@ -45,12 +45,24 @@ public final class InterfaceDtos {
      * <p>`targetCode` / `targetName` 为**响应侧展示字段**（detail 时 join 出来），请求侧忽略；
      * 快照回滚场景下由 `SnapshotSerializer` 按 `targetCode` 解析回 id。
      */
+    /**
+     * 前置步骤。2026-09-24 增 {@code stepKind}（HTTP / **TOKEN** 令牌步骤）与 {@code tokenConfig}
+     * （TOKEN 专用参数 JSON：`tokenPath` / `ttlPath` / `ttlMode` / `ttlFallbackSeconds` / `refreshAheadSeconds`）。
+     */
     public record StepDto(Integer seq, String stepCode, Long targetInterfaceId, String failurePolicy,
-                          Boolean enabled, String targetCode, String targetName) {
-        /** 兼容构造：请求侧（无展示字段） */
+                          Boolean enabled, String targetCode, String targetName,
+                          String stepKind, String tokenConfig) {
+
+        /** 兼容构造：请求侧（无展示字段，普通步骤） */
         public StepDto(Integer seq, String stepCode, Long targetInterfaceId,
                        String failurePolicy, Boolean enabled) {
-            this(seq, stepCode, targetInterfaceId, failurePolicy, enabled, null, null);
+            this(seq, stepCode, targetInterfaceId, failurePolicy, enabled, null, null, "HTTP", null);
+        }
+
+        /** 兼容构造：展示侧（无 step 类型，按普通步骤） */
+        public StepDto(Integer seq, String stepCode, Long targetInterfaceId, String failurePolicy,
+                       Boolean enabled, String targetCode, String targetName) {
+            this(seq, stepCode, targetInterfaceId, failurePolicy, enabled, targetCode, targetName, "HTTP", null);
         }
     }
 

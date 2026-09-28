@@ -38,7 +38,9 @@ public class AdapterImplCatalog {
             new ImplMeta("BearerTokenAuthAdapter", "auth", "Bearer Token", List.of(
                     f("token", "Token", "secret", false, null, "凭证值在「应用管理 → 新建/编辑应用 → 凭证卡片」中维护"),
                     f("headerName", "Token Header 名", "select", true, List.of("Authorization", "X-Auth-Token", "X-Access-Token"), null),
-                    f("prefix", "前缀", "select", true, List.of("Bearer", "Token"), null))),
+                    f("prefix", "前缀", "select", true, List.of("Bearer", "Token"), null),
+                    f("tokenSource", "Token 取值(模型路径)", "text", false, null,
+                            "可选：从模型点路径取 token（如 steps.auth.access_token）—— 用于「先换 Token 再调业务」；填了优先于凭证"))),
             new ImplMeta("CloudSignatureAdapter", "auth", "云厂商签名", List.of(
                     f("scheme", "签名规范", "select", true, List.of("TC3-HMAC-SHA256", "AWS4-HMAC-SHA256", "ACS3-HMAC-SHA256"), null),
                     f("secretId", "SecretId", "secret", false, null, "凭证值在「应用管理 → 新建/编辑应用 → 凭证卡片」中维护"),
@@ -49,7 +51,9 @@ public class AdapterImplCatalog {
                     f("headers", "附加业务头(JSON)", "text", false, null,
                             "如 {\"X-TC-Action\":\"DescribeInstances\",\"X-TC-Version\":\"2017-03-12\"}；腾讯云 API 3.0 的 Action/Version 走头部，配了会自动参与签名"),
                     f("token", "临时凭证 Token", "secret", false, null,
-                            "仅临时凭证(STS)需要；留空=用永久 AK/SK 直签。可用编排的「令牌步骤」取值注入"))),
+                            "仅临时凭证(STS)需要；留空=用永久 AK/SK 直签。可用编排的「令牌步骤」取值注入"),
+                    f("tokenSource", "Token 取值(模型路径)", "text", false, null,
+                            "可选：从模型点路径取动态会话令牌（如 steps.auth.access_token），优先于凭证里的 token"))),
             new ImplMeta("CloudCallbackSignatureAdapter", "auth", "云厂商回调验签", List.of(
                     f("scheme", "回调验签规范", "select", true, List.of("TENCENT-EVENT", "AWS-SNS", "ALIYUN-CALLBACK"), null),
                     f("token", "回调 Token", "secret", false, null, "凭证值在「应用管理 → 新建/编辑应用 → 凭证卡片」中维护"),

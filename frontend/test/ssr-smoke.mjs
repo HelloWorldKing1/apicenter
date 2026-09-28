@@ -141,6 +141,16 @@ const CASES = [
       selfId: 99 },
     { text: ['阻断后续', '可用字段', '添加前置步骤', '编辑',
              '本接口的入站报文原样', '不参与取值', 'rename: seller_id → filter.seller_id'] }],
+  // 令牌步骤（2026-09-24 方案 B：AK/SK 换 Token 且带缓存）—— 类型列 + 弹窗里的令牌参数都要能渲染
+  ['前置步骤 Tab（含令牌步骤）',
+    { __component: 'InterfaceStepsTab',
+      form: { ifType: 'OUTBOUND', steps: [
+        { seq: 0, stepCode: 'auth', targetInterfaceId: 7, failurePolicy: 'ABORT', enabled: true,
+          stepKind: 'TOKEN', tokenConfig: '{"tokenPath":"data.access_token","ttlMode":"ISO8601"}' }
+      ] },
+      ifaces: [{ id: 7, code: 'IF-AUTH', name: '换 token', ifType: 'OUTBOUND', status: 'PUBLISHED' }],
+      selfId: 99 },
+    { text: ['令牌'] }],
   // 登录 / 注册页（2026-09-18 账号登录）：无 router 环境下也必须能渲染（SSR 只跑 setup，不跑 onMounted）
   ['登录页（默认登录态）',
     { __component: 'Login' },

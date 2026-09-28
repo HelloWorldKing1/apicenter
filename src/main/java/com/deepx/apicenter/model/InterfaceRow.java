@@ -98,7 +98,17 @@ public record InterfaceRow(
 
     /** 前置步骤写入行（interface_step 本表字段；无 join 展示列） */
     public record StepRow(long id, long interfaceId, int seq, String stepCode,
-                          long targetInterfaceId, String failurePolicy, boolean enabled) {
+                          long targetInterfaceId, String failurePolicy, boolean enabled,
+                          /** 2026-09-24 令牌步骤：HTTP 普通前置 / TOKEN 令牌步骤（命中缓存跳过 HTTP、提前刷新） */
+                          String stepKind,
+                          /** TOKEN 专用参数 JSON：tokenPath/ttlPath/ttlMode/ttlFallbackSeconds/refreshAheadSeconds */
+                          String tokenConfig) {
+
+        /** 兼容构造（默认普通步骤） */
+        public StepRow(long id, long interfaceId, int seq, String stepCode, long targetInterfaceId,
+                       String failurePolicy, boolean enabled) {
+            this(id, interfaceId, seq, stepCode, targetInterfaceId, failurePolicy, enabled, "HTTP", null);
+        }
     }
 
     /**
@@ -108,12 +118,30 @@ public record InterfaceRow(
      */
     public record StepView(long id, long interfaceId, int seq, String stepCode,
                            long targetInterfaceId, String failurePolicy, boolean enabled,
-                           String targetCode, String targetName, String targetStatus, String targetIfType) {
+                           String targetCode, String targetName, String targetStatus, String targetIfType,
+                           /** 2026-09-24：HTTP / TOKEN（令牌步骤） */
+                           String stepKind,
+                           /** TOKEN 参数 JSON（仅令牌步骤非空） */
+                           String tokenConfig) {
         public static final RowMapper<StepView> MAPPER = (rs, i) -> new StepView(
                 rs.getLong("id"), rs.getLong("interface_id"), rs.getInt("seq"), rs.getString("step_code"),
                 rs.getLong("target_interface_id"), rs.getString("failure_policy"), rs.getBoolean("enabled"),
                 rs.getString("target_code"), rs.getString("target_name"),
-                rs.getString("target_status"), rs.getString("target_if_type"));
+                rs.getString("target_status"), rs.getString("target_if_type"),
+                rs.getString("step_kind"), rs.getString("token_config"));
+
+        /** 兼容构造（默认普通步骤）：既有调用点与测试无需改动 */
+        public StepView(long id, long interfaceId, int seq, String stepCode, long targetInterfaceId,
+                        String failurePolicy, boolean enabled, String targetCode, String targetName,
+                        String targetStatus, String targetIfType) {
+            this(id, interfaceId, seq, stepCode, targetInterfaceId, failurePolicy, enabled,
+                    targetCode, targetName, targetStatus, targetIfType, "HTTP", null);
+        }
+
+        /** 是否令牌步骤（命中缓存可跳过 HTTP） */
+        public boolean tokenStep() {
+            return "TOKEN".equalsIgnoreCase(stepKind);
+        }
     }
 
     /** 前置步骤引用者（删除守卫提示用）：宿主 code + 步骤名 */

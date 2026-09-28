@@ -117,6 +117,10 @@ public class SnapshotSerializer {
             n.put("targetCode", s.targetCode());
             n.put("failurePolicy", nz(s.failurePolicy()));
             n.put("enabled", s.enabled());
+            n.put("stepKind", s.stepKind() == null ? "HTTP" : s.stepKind());
+            if (s.tokenConfig() != null) {
+                n.put("tokenConfig", s.tokenConfig());
+            }
         }
         return root.toString();
     }
@@ -208,7 +212,9 @@ public class SnapshotSerializer {
                 targetId = resolver.resolve(targetCode);
             }
             out.add(new StepDto(intOrNull(n, "seq"), text(n, "stepCode"), targetId,
-                    text(n, "failurePolicy"), n.path("enabled").asBoolean(true), targetCode, null));
+                    text(n, "failurePolicy"), n.path("enabled").asBoolean(true), targetCode, null,
+                    text(n, "stepKind") == null ? "HTTP" : text(n, "stepKind"),
+                    nullable(n, "tokenConfig")));
         }
         return out;
     }

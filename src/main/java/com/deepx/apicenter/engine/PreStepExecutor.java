@@ -50,6 +50,9 @@ public class PreStepExecutor {
     private final UpstreamInvoker upstreamInvoker;
     private final CircuitBreakerRegistry circuitBreakerRegistry;
     private final ResponseJudger responseJudger;
+    private final TokenCache tokenCache;
+    /** 解析令牌步骤参数（TokenStepConfig）：与 InterfaceService 的保存期校验同一处实现 */
+    private final tools.jackson.databind.ObjectMapper objectMapper;
 
     /**
      * 前置响应体上限（默认 256KB）：前置结果会整块挂进宿主模型（进而可能落 out_payload / 进日志），
@@ -63,13 +66,17 @@ public class PreStepExecutor {
                            ChainEngine chainEngine,
                            UpstreamInvoker upstreamInvoker,
                            CircuitBreakerRegistry circuitBreakerRegistry,
-                           ResponseJudger responseJudger) {
+                           ResponseJudger responseJudger,
+                           TokenCache tokenCache,
+                           tools.jackson.databind.ObjectMapper objectMapper) {
         this.interfaceRepository = interfaceRepository;
         this.appRepository = appRepository;
         this.chainEngine = chainEngine;
         this.upstreamInvoker = upstreamInvoker;
         this.circuitBreakerRegistry = circuitBreakerRegistry;
         this.responseJudger = responseJudger;
+        this.tokenCache = tokenCache;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -99,6 +106,26 @@ public class PreStepExecutor {
 
     private void executeOne(AdapterContext parent, InterfaceRow.StepView step, String traceId,
                             int depth, int attempt) {
+        // 0. 令牌步骤（2026-09-24 方案 B）：**命中缓存就跳过整个 HTTP 调用** ——
+        //    换发接口普遍有限频（腾讯云文档明确提醒），每个业务请求都去换 token 在真实流量下不可用。
+        TokenStepConfig tokenConfig = null;
+        String tokenKey = null;
+        if (step.tokenStep()) {
+            tokenConfig = TokenStepConfig.parse(objectMapper, step.tokenConfig());
+            tokenKey = TokenCache.key(parent.iface().id(), step.stepCode());
+            if (!tokenConfig.cacheDisabled()) {
+                TokenCache.Cached cached = tokenCache.get(tokenKey, tokenConfig.refreshAheadMillis());
+                if (cached != null) {
+                    writeTokenStep(parent, step, cached.token(), cached.expiresAtMillis(), true);
+                    PreStepTrace.add(traceId, new PreStepTrace.Item(step.stepCode(), step.targetCode(),
+                            step.failurePolicy(), 0, 0, "SUCCESS(缓存命中)"));
+                    log.info("令牌步骤 {}.{} 命中缓存（剩余 {}s，未发起换发）", parent.iface().code(),
+                            step.stepCode(), cached.remainingSeconds());
+                    return;
+                }
+            }
+        }
+
         // 1. 目标可用性（保存期已校验；此处兜底拦截「保存后被下线/删除/改类型」）
         InterfaceRow target = interfaceRepository.findById(step.targetInterfaceId()).orElse(null);
         if (target == null) {
@@ -206,6 +233,24 @@ public class PreStepExecutor {
                             + "：" + snippet(judged.msg()) + "）", elapsedMs, httpStatus);
         }
 
+        // 7.5 令牌步骤：从响应里抽出 token 并按配置缓存（换发失败/取不到 token ⇒ 按链失败处理，不静默）
+        if (tokenConfig != null) {
+            String token = readPath(judged.data(), tokenConfig.tokenPath());
+            if (token == null || token.isBlank()) {
+                tokenCache.countRefresh(tokenKey, false);
+                throw fail(step, traceId, attempt, PreStepFailure.Kind.CONFIG_ERROR, BizException.FIELD_INVALID,
+                        "令牌步骤在响应里取不到 token（tokenPath=" + tokenConfig.tokenPath()
+                                + "）：请核对该换发接口的响应结构", elapsedMs, httpStatus);
+            }
+            Object rawTtl = tokenConfig.ttlPath() == null ? null : readPath(judged.data(), tokenConfig.ttlPath());
+            long ttlMillis = tokenConfig.ttlMillisFrom(rawTtl);
+            tokenCache.put(tokenKey, token, ttlMillis);
+            tokenCache.countRefresh(tokenKey, true);
+            augmentTokenFields(judged.data(), token, ttlMillis);
+            log.info("令牌步骤 {}.{} 换发成功（有效期 {}s，ttlMode={}）", parent.iface().code(), step.stepCode(),
+                    ttlMillis / 1000, tokenConfig.ttlMode());
+        }
+
         // 8. 合入宿主模型命名空间（字面量键，绝不做点路径解析）+ 步骤留痕 + 调试留痕
         ReservedKeys.putStep(parent.payload(), step.stepCode(), judged.data());
         appendNode(attempt, errorCodeOf(null),
@@ -214,6 +259,41 @@ public class PreStepExecutor {
                 step.failurePolicy(), httpStatus, elapsedMs, "SUCCESS"));
         log.info("前置步骤 {}.{} → {} HTTP {} {}ms（结果合入 steps.{}）", parent.iface().code(),
                 step.stepCode(), target.code(), httpStatus, elapsedMs, step.stepCode());
+    }
+
+    // ---------- 令牌步骤支撑 ----------
+
+    /** 按点路径从步骤响应里取值（统一走 UnifiedModel 路径语义：只支持点路径，与映射口径一致） */
+    private String readPath(UnifiedModel.UNode data, String path) {
+        if (!(data instanceof UnifiedModel.ObjectNode obj) || path == null || path.isBlank()) {
+            return null;
+        }
+        return UnifiedModel.of(obj).get(path)
+                .filter(node -> node instanceof UnifiedModel.ScalarNode)
+                .map(node -> String.valueOf(((UnifiedModel.ScalarNode) node).value()))
+                .orElse(null);
+    }
+
+    /** 在步骤输出对象上补**规范化字段**（`access_token` / `expires_at` / `expires_in`），便于宿主用统一路径引用 */
+    private void augmentTokenFields(UnifiedModel.UNode data, String token, long ttlMillis) {
+        if (!(data instanceof UnifiedModel.ObjectNode obj)) {
+            return;   // 响应不是对象（数组/标量）⇒ 无可补充字段；token 仍已缓存可用
+        }
+        java.time.Instant expiresAt = java.time.Instant.ofEpochMilli(System.currentTimeMillis() + ttlMillis);
+        obj.fields().put("access_token", UnifiedModel.ScalarNode.str(token));
+        obj.fields().put("expires_at", UnifiedModel.ScalarNode.str(expiresAt.toString()));
+        obj.fields().put("expires_in", UnifiedModel.ScalarNode.num(ttlMillis / 1000));
+    }
+
+    /** 缓存命中时的步骤输出（无原始响应体，只有规范化字段 + 命中标记） */
+    private void writeTokenStep(AdapterContext parent, InterfaceRow.StepView step, String token,
+                                long expiresAtMillis, boolean cacheHit) {
+        UnifiedModel.ObjectNode node = UnifiedModel.ObjectNode.of();
+        node.fields().put("access_token", UnifiedModel.ScalarNode.str(token));
+        node.fields().put("expires_at",
+                UnifiedModel.ScalarNode.str(java.time.Instant.ofEpochMilli(expiresAtMillis).toString()));
+        node.fields().put("cache_hit", UnifiedModel.ScalarNode.bool(cacheHit));
+        ReservedKeys.putStep(parent.payload(), step.stepCode(), node);
     }
 
     // ---------- 私有 ----------

@@ -173,6 +173,17 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
   影响三处写法：① **curl / 文档示例**必须先登录取 token（《使用教程》§8.3）；② **集成测试**里直连管理面 HTTP 的类（`HttpErrorSemanticsTest` / M3 / M4 / M5 / `MonitorStatsIntegrationTest`）在 `@SpringBootTest(properties=...)` 中置 `app.api-center.auth.enabled=false`（它们不测认证），认证本身由 `AuthIntegrationTest` 用默认值覆盖；③ **新增管理面端点无需改任何东西**（过滤器按前缀统一拦），但新增**豁免**路径要显式加到 `AdminAuthFilter.EXEMPT`（且要想清楚：豁免 = 匿名可访问）。
   `auth.enabled=false` 是唯一总开关（应急回退/本地调试）；`allow-register=false` 时仍允许「首个账号」初始化。设计见《账号登录设计方案.md》。
 - **`AuthService.login()` 刻意不加 `@Transactional`（真坑，别加回去）**：登录失败要抛 `BizException`，同一事务会把「失败计数 +1」一起回滚 → 连续失败次数永远停在 1，**锁定形同虚设**（被 `AuthIntegrationTest#连续失败达阈值_锁定且正确密码也被拒` 抓到）。同类通用结论：**「先写库、再抛异常」的流程不要挂事务**（或把写库放 `REQUIRES_NEW`）。
+- **令牌步骤（`interface_step.step_kind=TOKEN`，2026-09-24 方案 B）**：把「先用 AK/SK 换 token，再调业务」里的**换发那一步**做成可缓存步骤
+  —— **缓存是硬要求**（换发接口普遍限频：腾讯云文档明确提醒"建议在有效期内重复使用，避免…被限频"），
+  `PreStepExecutor` 命中缓存时**跳过整个 HTTP**（含**提前刷新窗口**，避免临界过期 401）。改动前必读：
+  ① `token_config` 的 **`ttlMode` 有四种语义**（`SECONDS` 剩余秒 / `ISO8601`·`EPOCH_S`·`EPOCH_MS` 到期时刻）——
+  腾讯·阿里 STS 返回 **ISO8601 到期时刻**、OAuth2 返回**剩余秒**，只支持一种就会"到期靠猜"；
+  ② **保存期校验与运行时解析同源**（都走 `TokenStepConfig.parse`），避免"保存得过、运行期炸"；
+  ③ 缓存键 = **`interfaceId#stepCode`（不是 stepId）** —— 保存配置会整表重建步骤、id 会变 ⇒
+  因此 `TokenCache` 监听 `ConfigChangedEvent(INTERFACE)` 按 interfaceId **整体失效**（漏了会用到旧 token）；
+  ④ **已知限制**：冷启动并发可能各换发一次（TTL 内不再重复；真 single-flight 需把 HTTP 流程重构为可锁定 supplier，记 P2），
+  用指标 `apicenter.token.cache{result=hit|stale|store|refresh_ok|refresh_fail|uncached|overflow}` 观测；
+  ⑤ token **只在内存**，落 `call_log` 时由 `SensitiveDataMasker` 按 `*token*|*secret*` 键**自动脱敏**（集成用例有正反断言）。
 - **云厂商签名 `CloudSignatureAdapter`（AK/SK 直签，2026-09-24）**：`AdapterImplCatalog` **早已声明它但实现类不存在**（catalog 促销三种 scheme、代码没有 ⇒ 用户绑定后必然 40001「适配器实现未注册」，因为 `ChainEngine#bean` 是 fail-loud）——已补齐并按各家文档实现 `TC3-HMAC-SHA256`（腾讯）/ `ACS3-HMAC-SHA256`（阿里 V3）/ `AWS4-HMAC-SHA256`。**改动前必读的三个易错点**：① 三家的 CanonicalRequest **第 6 段都是 body 哈希**（`x-acs-content-sha256`/`x-amz-content-sha256` 只是"也作为已签名头"，**不能**把第 6 段置空）；② **密钥派生链三家不同**（TC3：`HMAC("TC3"+sk, date)→service→tc3_request`；AWS4：`HMAC("AWS4"+sk, date)→region→service→aws4_request`；ACS3：**直接** `HMAC(sk, stringToSign)`，**不拼 `&`**——阿里 POP/v2 才拼）；③ TC3 时间戳是**秒**、ACS3 是 ISO8601、AWS4 是 `yyyyMMdd'T'HHmmss'Z'`。凭证为**复合 JSON** `{"secretId","secretKey","token"(可选)}`；**未支持的 scheme 显式 40001**（禁止"猜算法"，错签只会全线 401）。回归：`CloudSignatureAdapterTest`（含官方可验证常量：空 body SHA-256 `e3b0c442…`）。
   另：`CloudCallbackSignatureAdapter`（云厂商回调验签）**同样只有声明没有实现** —— 仍为缺口（backlog）。
 - **入站鉴权管理面的角色（2026-09-24 决策 B+C）**：`/api/admin/inbound-auth/**` 与 `/api/admin/inbound-credentials/**`

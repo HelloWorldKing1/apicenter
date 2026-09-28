@@ -84,6 +84,18 @@ public class CloudSignatureAdapter implements Adapter {
             throw BizException.fieldInvalid("云厂商签名：未配置 scheme（可选 TC3-HMAC-SHA256 / ACS3-HMAC-SHA256 / AWS4-HMAC-SHA256）");
         }
         Cred cred = credential(ctx, params);
+        // v1.2（2026-09-24）tokenSource：动态会话令牌（STS）从**模型点路径**取（如 steps.auth.access_token）
+        //    —— 换发由前置「令牌步骤」完成（带缓存与提前刷新）；填了即覆盖凭证 JSON 里的静态 token。
+        String tokenSource = text(params, "tokenSource", "");
+        if (!tokenSource.isBlank() && ctx.payload() != null) {
+            String fromModel = ctx.payload().get(tokenSource)
+                    .map(node -> node instanceof com.deepx.apicenter.engine.UnifiedModel.ScalarNode s
+                            ? String.valueOf(s.value()) : node.toString())
+                    .orElse(null);
+            if (fromModel != null && !fromModel.isBlank()) {
+                cred = new Cred(cred.secretId(), cred.secretKey(), fromModel);
+            }
+        }
         applyConfiguredHeaders(ctx, params);      // 业务头（如 TC3 的 X-TC-Action/X-TC-Version）
         String service = text(params, "service", "");
         String region = text(params, "region", "");

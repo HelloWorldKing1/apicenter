@@ -39,6 +39,13 @@
                     size="small" type="warning" effect="plain">未发布</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="类型" width="86">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.stepKind === 'TOKEN' ? 'warning' : 'info'" effect="plain">
+              {{ row.stepKind === 'TOKEN' ? '令牌' : '普通' }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="失败策略" width="96">
           <template #default>阻断后续</template>
         </el-table-column>
@@ -79,6 +86,47 @@
                      :label="`${i.name}（${i.code}）${i.status === 'PUBLISHED' ? '' : ' · ' + statusLabel(i.status)}`" />
         </el-select>
       </div>
+      <div class="step-item">
+        <span class="basic-label">步骤类型</span>
+        <el-radio-group v-model="edit.stepKind">
+          <el-radio-button value="HTTP">普通步骤</el-radio-button>
+          <el-radio-button value="TOKEN">令牌步骤</el-radio-button>
+        </el-radio-group>
+        <div class="steps-tip" style="margin-top: 4px">
+          令牌步骤 = 「先用 AK/SK 换 token、再调业务」里的换发那一步：<b>命中缓存就跳过 HTTP</b>
+          （换发接口普遍限频，必须缓存）；返回的 token 以
+          <span class="mono">steps.{{ edit.stepCode || '&lt;步骤名&gt;' }}.access_token</span> 供映射 / 出站鉴权引用。
+        </div>
+      </div>
+      <template v-if="edit.stepKind === 'TOKEN'">
+        <div class="step-item">
+          <span class="basic-label">Token 在响应里的位置</span>
+          <el-input v-model="edit.tokenPath" placeholder="点路径，如 data.access_token" />
+        </div>
+        <div class="step-item">
+          <span class="basic-label">有效期字段（可选）</span>
+          <el-input v-model="edit.ttlPath" placeholder="如 data.expires_in / data.ExpiredTime；留空则用兜底有效期" />
+        </div>
+        <div class="step-item">
+          <span class="basic-label">有效期语义</span>
+          <el-select v-model="edit.ttlMode" style="width: 100%">
+            <el-option label="剩余秒数（OAuth2 常见，如 expires_in）" value="SECONDS" />
+            <el-option label="到期时刻 · ISO8601（阿里/腾讯 STS 常见）" value="ISO8601" />
+            <el-option label="到期时刻 · 秒级时间戳" value="EPOCH_S" />
+            <el-option label="到期时刻 · 毫秒时间戳" value="EPOCH_MS" />
+          </el-select>
+        </div>
+        <div class="step-item">
+          <span class="basic-label">兜底有效期（秒）</span>
+          <el-input-number v-model="edit.ttlFallbackSeconds" :min="0" :max="86400" :step="30" />
+          <span class="steps-tip">0 = 不缓存（每次换发；调试用）</span>
+        </div>
+        <div class="step-item">
+          <span class="basic-label">提前刷新（秒）</span>
+          <el-input-number v-model="edit.refreshAheadSeconds" :min="0" :max="3600" :step="10" />
+          <span class="steps-tip">必须小于兜底有效期；进入该窗口即视为需刷新，避免临界过期 401</span>
+        </div>
+      </template>
       <div class="step-item">
         <span class="basic-label">失败策略</span>
         <el-radio-group v-model="edit.failurePolicy">
@@ -145,6 +193,8 @@ const candidates = computed(() =>
 
 const edit = reactive({
   visible: false, index: -1, stepCode: '', targetInterfaceId: null,
+  stepKind: 'HTTP', tokenPath: '', ttlPath: '', ttlMode: 'SECONDS',
+  ttlFallbackSeconds: 300, refreshAheadSeconds: 60,
   failurePolicy: 'ABORT', enabled: true, error: ''
 })
 const fields = reactive({ visible: false, loading: false, items: [], stepCode: '' })
@@ -166,14 +216,26 @@ function targetOf(row) {
 function openCreateStep() {
   Object.assign(edit, {
     visible: true, index: -1, stepCode: 'step' + (steps.value.length + 1),
-    targetInterfaceId: null, failurePolicy: 'ABORT', enabled: true, error: ''
+    targetInterfaceId: null, stepKind: 'HTTP', tokenPath: '', ttlPath: '', ttlMode: 'SECONDS',
+    ttlFallbackSeconds: 300, refreshAheadSeconds: 60,
+    failurePolicy: 'ABORT', enabled: true, error: ''
   })
 }
 
 function openEditStep(index) {
   const row = steps.value[index]
+  // 回填令牌参数（解析既有 tokenConfig JSON；解析失败则不阻塞编辑）
+  let tokenCfg = {}
+  if (row.stepKind === 'TOKEN' && row.tokenConfig) {
+    try { tokenCfg = JSON.parse(row.tokenConfig) } catch (e) { tokenCfg = {} }
+  }
   Object.assign(edit, {
     visible: true, index, stepCode: row.stepCode, targetInterfaceId: row.targetInterfaceId,
+    stepKind: row.stepKind === 'TOKEN' ? 'TOKEN' : 'HTTP',
+    tokenPath: tokenCfg.tokenPath || '', ttlPath: tokenCfg.ttlPath || '',
+    ttlMode: tokenCfg.ttlMode || 'SECONDS',
+    ttlFallbackSeconds: tokenCfg.ttlFallbackSeconds ?? 300,
+    refreshAheadSeconds: tokenCfg.refreshAheadSeconds ?? 60,
     failurePolicy: row.failurePolicy || 'ABORT', enabled: row.enabled !== false, error: ''
   })
 }
@@ -187,6 +249,25 @@ function confirmEdit() {
   if (dup) return (edit.error = '步骤名重复：' + code)
   if (!edit.targetInterfaceId) return (edit.error = '请选择前置接口')
 
+  // 令牌步骤：保存期校验（与后端 TokenStepConfig.parse 同口径，避免"保存得过、运行期炸"）
+  let tokenConfig = null
+  if (edit.stepKind === 'TOKEN') {
+    const tokenPath = (edit.tokenPath || '').trim()
+    if (!tokenPath) return (edit.error = '令牌步骤必填「Token 在响应里的位置」')
+    const fallback = Number(edit.ttlFallbackSeconds ?? 300)
+    const ahead = Number(edit.refreshAheadSeconds ?? 60)
+    if (fallback < 0 || fallback > 86400) return (edit.error = '兜底有效期取值 0~86400')
+    if (ahead < 0 || ahead > 3600) return (edit.error = '提前刷新取值 0~3600')
+    if (fallback > 0 && ahead >= fallback) return (edit.error = '提前刷新必须小于兜底有效期')
+    tokenConfig = JSON.stringify({
+      tokenPath,
+      ttlPath: (edit.ttlPath || '').trim() || undefined,
+      ttlMode: edit.ttlMode || 'SECONDS',
+      ttlFallbackSeconds: fallback,
+      refreshAheadSeconds: ahead
+    })
+  }
+
   const row = {
     seq: edit.index < 0 ? steps.value.length : steps.value[edit.index].seq ?? edit.index,
     stepCode: code,
@@ -195,7 +276,9 @@ function confirmEdit() {
     targetCode: candidates.value.find((i) => i.id === edit.targetInterfaceId)?.code || null,
     targetName: candidates.value.find((i) => i.id === edit.targetInterfaceId)?.name || null,
     failurePolicy: edit.failurePolicy || 'ABORT',
-    enabled: edit.enabled !== false
+    enabled: edit.enabled !== false,
+    stepKind: edit.stepKind === 'TOKEN' ? 'TOKEN' : 'HTTP',
+    tokenConfig
   }
   if (edit.index < 0) steps.value.push(row)
   else steps.value.splice(edit.index, 1, row)

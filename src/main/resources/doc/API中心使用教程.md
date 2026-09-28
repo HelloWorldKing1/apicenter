@@ -461,7 +461,11 @@ curl -X POST http://localhost:8080/<平台侧路径> -H 'Content-Type: applicati
 | 供应商给的是什么 | 用平台哪个能力 | 怎么配 |
 |---|---|---|
 | **只有 AK/SK**（每请求要签名，云厂商风格） | **「云厂商签名」适配器**（`CloudSignatureAdapter`） | 「应用管理」或接口详情的**供应商签名**里选「云厂商签名」；`scheme` 选 `TC3-HMAC-SHA256`（腾讯云）/ `ACS3-HMAC-SHA256`（阿里云 V3）/ `AWS4-HMAC-SHA256`（AWS）；`service`、`region` 按对方要求填；**凭证**（应用 → 凭证卡片）填 JSON：`{"secretId":"…","secretKey":"…"}`（临时凭证再加 `"token":"…"`） |
-| **有「换 Token」接口**（STS / OAuth2 client_credentials：先拿 token 再调业务） | **前置接口编排**（先用一个前置接口换 token，再调业务） | 在业务接口加一个前置步骤指向「换 token 接口」；把返回的 token 用**字段映射**引用到出站请求所需位置。⚠️ 令牌缓存/过期刷新属**下一批**（见《记录/AK-SK与临时令牌鉴权适配分析.md》方案 B），当前每次调用都会换一次 token ⇒ 若对方换 token 接口有限频，请先不要用这条 |
+| **有「换 Token」接口**（STS / OAuth2 client_credentials：先拿 token 再调业务） | **「令牌步骤」**（前置步骤的类型选 `TOKEN`，2026-09-24 落地） | 在业务接口加一个前置步骤：**步骤类型=令牌步骤**、前置接口=那个换 token 接口；再填四项 —— `Token 在响应里的位置`（如 `data.access_token`）、`有效期字段`（如 `data.expires_in` / 阿里腾讯 STS 的 `data.Expiration`）、**有效期语义**（剩余秒 / ISO8601 到期时刻 / 秒·毫秒时间戳）、`兜底有效期`与`提前刷新`。换回的 token 以 **`steps.<步骤名>.access_token`** 暴露，供字段映射或出站鉴权适配器的 **`Token 取值(模型路径)`** 引用 |
+
+> **令牌步骤为什么必须缓存**：换发接口普遍限频（腾讯云文档原话「建议在有效期内重复使用，避免请求该接口频率达到上限被限频」）。
+> 平台的做法：**命中缓存直接跳过 HTTP**（含提前刷新窗口，避免临界过期 401）；换发失败或**响应里取不到 token** ⇒ 按**链失败**处理（不静默）。
+> 已知限制：冷启动瞬间的并发请求可能各换发一次（TTL 内不再重复），可用指标 `apicenter.token.cache{result=…}` 观测。
 
 > **云厂商签名的三个易错点**（适配器已按各家文档实现，但配错仍会 401）：
 > ① 参与签名的头名与**实际发送的头**必须完全一致（含 `Content-Type` 的内容，如 `application/json; charset=utf-8`）；
