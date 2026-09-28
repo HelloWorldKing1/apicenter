@@ -156,7 +156,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 
 前端 `frontend/`（Vue3 + Vite + Element Plus，M1 设计 §4）：`src/views/` **九页面**（Dashboard / Apps / Groups / **Clients 调用方管理** / Interfaces / **InboundAuth 入站鉴权（v1.2）** / Adapters / Monitor / Users 账号管理）+ `views/Login.vue`（登录/注册）+ `components/ParamTable` 参数编辑 + `components/CredentialEntry` 凭证卡片 + `components/PayloadViewer` 报文美化展示 + `components/ParamImportDialog` 参数快速导入 + `components/InterfaceStepsTab` 前置步骤编排（编排落地） + `components/PlaintextOnce.vue`（**一次性明文展示块**：复制按钮 + 长凭证滚动 + 「仅此一次」提示；调用方管理 / 入站鉴权共用，2026-09-25）
  + `utils/clipboard.mjs`（复制到剪贴板：`navigator.clipboard` → 临时 textarea + `execCommand` 降级，非安全上下文也能用）
- + `utils/payload.mjs`（JSON/XML/form/头串扫描式缩进与 tokenizer，只增删空白）+ `utils/paramImport.mjs`（JSON→参数行推断，示例值取 token 原始切片）+ `utils/stepFields.mjs`（前置步骤输出 → 字段映射 source 分组）+ `utils/inboundAuth.mjs`（入站鉴权界面口径：设置差异/放松判定/确认文案/属主与状态标签，v1.2） + `utils/auth.mjs`（登录态：令牌存取/校验/防开放重定向）+ `utils/users.mjs`（账号管理操作许可镜像）+ `utils/prefs.mjs`（行号·折行·抽屉宽度记忆）+ `workers/payloadFormat.worker.mjs`（>256KB 后台格式化）+ `api/http.js` 统一信封解包；前端 `npm test` = 单测（Node 内置 test runner：`src/utils/**/*.test.mjs` 160 例 + `test/**/*.test.mjs` 1 例）+ 组件 SSR 冒烟（`test/ssr-smoke.mjs`，26 例）；其中 `test/template-structure.test.mjs` 按**嵌套顺序**检查所有 SFC 的 `el-tab-pane`（防「漏闭合 ⇒ 该 Tab 内容区永久空白」，2026-09-25）；`npm run lint` = ESLint（flat config，`--max-warnings 0`）。原型交互平移自 `doc/API中心原型.html`。管理面 REST 前缀 `/api/admin`（controller/admin 八个 Controller：应用 / 分组 / 接口 / 适配器 / 凭证 / 监控 / 认证 / 账号管理），统一信封 `{code, msg, data}`。Monitor 页 M4 已接真数据（统计卡 / 调用日志 / 对账 UNKNOWN / 死信 / 告警五区块）。
+ + `utils/payload.mjs`（JSON/XML/form/头串扫描式缩进与 tokenizer，只增删空白）+ `utils/paramImport.mjs`（JSON→参数行推断，示例值取 token 原始切片）+ `utils/stepFields.mjs`（前置步骤输出 → 字段映射 source 分组）+ `utils/inboundAuth.mjs`（入站鉴权界面口径：设置差异/放松判定/确认文案/属主与状态标签，v1.2） + `utils/auth.mjs`（登录态：令牌存取/校验/防开放重定向）+ `utils/users.mjs`（账号管理操作许可镜像）+ `utils/prefs.mjs`（行号·折行·抽屉宽度记忆）+ `workers/payloadFormat.worker.mjs`（>256KB 后台格式化）+ `api/http.js` 统一信封解包；前端 `npm test` = 单测（Node 内置 test runner：`src/utils/**/*.test.mjs` 162 例 + `test/**/*.test.mjs` 1 例）+ 组件 SSR 冒烟（`test/ssr-smoke.mjs`，27 例，含**适配器页**与**一次性明文块**）；其中 `test/template-structure.test.mjs` 按**嵌套顺序**检查所有 SFC 的 `el-tab-pane`（防「漏闭合 ⇒ 该 Tab 内容区永久空白」，2026-09-25）；`npm run lint` = ESLint（flat config，`--max-warnings 0`）。原型交互平移自 `doc/API中心原型.html`。管理面 REST 前缀 `/api/admin`（controller/admin 八个 Controller：应用 / 分组 / 接口 / 适配器 / 凭证 / 监控 / 认证 / 账号管理），统一信封 `{code, msg, data}`。Monitor 页 M4 已接真数据（统计卡 / 调用日志 / 对账 UNKNOWN / 死信 / 告警五区块）。
 
 ## 核心状态机与容错（设计 §6）
 
@@ -292,6 +292,11 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
   ⇒ 「Monitor 接入鉴权 Tab 空白」从 B4（`cc4d7dc`）一直藏到 2026-09-25。
   **防线**：`frontend/test/template-structure.test.mjs` 按**嵌套顺序**查所有 SFC 的 `el-tab-pane`（**计数平衡 6/6 查不出来**，必须查「下一个 pane 开始前是否已闭合」；反证已做，报错带行号）。
   **排查「数据有、页面空」的顺序**：DB 直查 → curl 直打接口（带令牌）→ **F12 看该元素的祖先是不是 `display:none`** → 才怀疑后端。
+- **入站鉴权适配器的「两个 HMAC」（2026-09-25 实战踩坑，改这块前必读）**：「调用方 **HMAC** 验签」= `ClientHmacVerifyAdapter`（入站鉴权）；
+  「HMAC **回调**验签」= `HmacCallbackVerifyAdapter`（只服务入站回调，**不实现 `InboundAuthAdapter`**）。选错的报错是 `40108 … 实现不支持入站鉴权`，
+  看起来像「签名/凭证错了」，实际是**方式配错了**（签名根本没被看到）。已三处收紧：① **保存期校验**（`ClientService` / `InboundAuthSettingService`
+  都要求 `InboundAuthAdapter.supports(impl, adapterBeans)`，判据与闸门同一份）；② 「调用方管理」下拉按角色过滤（`adapterMatchesRole(impl,'CLIENT_AUTH')`）；
+  ③ 40108 文案改成可处置。种子补 **`ADP-402` 调用方 HMAC 验签**。⚠️ **新增入站鉴权 impl 时必须同步四处**：`AdapterImplCatalog`（元数据）+ 前端 `adapterUsage.mjs` 的 `CLIENT_AUTH_ONLY` + 种子（如果验收要用）+ 本 Gotcha 的清单。
 - **来源 IP 归一化（2026-09-25，改 IP 相关代码前必读）**：`IpText`（`service/`）是**唯一口径**：
   IPv6 压成 RFC 5952（`0:0:0:0:0:0:0:1` → `::1`）、`::ffff:a.b.c.d` → `a.b.c.d`、`%scope` 保留、解析失败原样返回不抛。
   它在**唯一解析点** `GatewayGuard.resolveClientIp` 出口生效 ⇒ 落库 / 展示 / 比较全统一；三处名单匹配

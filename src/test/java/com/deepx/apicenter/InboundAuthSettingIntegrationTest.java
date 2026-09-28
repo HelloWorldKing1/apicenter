@@ -31,6 +31,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class InboundAuthSettingIntegrationTest {
 
     private static final String TEMP_DISABLED_ADAPTER = "ADP-TST-DISABLED";
+    /** 临时「可用于入站鉴权」的启用实例（干净库/未导种子时用；@AfterEach 清理） */
+    private static final String TEMP_CLIENT_AUTH_ADAPTER = "ADP-TST-CLIENTAUTH";
+    /** 临时「回调验签专用」实例（用于验证保存期语义校验；@AfterEach 清理） */
+    private static final String TEMP_CALLBACK_ADAPTER = "ADP-TST-CALLBACK";
 
     @Autowired
     private InboundAuthSettingService settingService;
@@ -41,7 +45,8 @@ class InboundAuthSettingIntegrationTest {
     @AfterEach
     void restore() {
         settingService.save(null, true, "test-cleanup");
-        jdbcTemplate.update("DELETE FROM adapter WHERE id = ?", TEMP_DISABLED_ADAPTER);
+        jdbcTemplate.update("DELETE FROM adapter WHERE id IN (?, ?, ?)",
+                TEMP_DISABLED_ADAPTER, TEMP_CLIENT_AUTH_ADAPTER, TEMP_CALLBACK_ADAPTER);
     }
 
     @Test
@@ -87,6 +92,20 @@ class InboundAuthSettingIntegrationTest {
                 .hasMessageContaining("已停用");
     }
 
+    /**
+     * 2026-09-25 新增：**平台默认不能是「回调验签专用」实现** —— 否则闸门必然 fail-closed 40108
+     * （真实案例：验收 S3.12 把「HMAC 回调验签」当成了调用方方式），必须在保存期就拦住并说清原因。
+     */
+    @Test
+    void 平台默认不能是回调验签专用实现_保存期即拒() {
+        jdbcTemplate.update("INSERT INTO adapter (id, name, type, impl, enabled, version, params) "
+                + "VALUES (?, '测试回调验签', 'auth', 'HmacCallbackVerifyAdapter', 1, 'v1', '{}')",
+                TEMP_CALLBACK_ADAPTER);
+        assertThatThrownBy(() -> settingService.save(TEMP_CALLBACK_ADAPTER, true, "test"))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("不支持入站鉴权");
+    }
+
     @Test
     void 放松类变更落告警事件_供追溯谁放宽了鉴权() {
         String authAdapterId = enabledAuthAdapterId();
@@ -118,9 +137,24 @@ class InboundAuthSettingIntegrationTest {
         assertThat(affected).isLessThanOrEqualTo(outbound);
     }
 
-    /** 语义化取一个「启用的鉴权适配器」id（不写死 seed 资产，避免库态变化变红） */
+    /**
+     * 语义化取一个「**可用于入站鉴权**的启用适配器」id：优先库里已有的 `Client*VerifyAdapter`（种子 ADP-401/402），
+     * 没有就临时建一个（干净库 / 未导种子也稳）—— 不写死 seed 资产，避免库态变化变红。
+     *
+     * <p>为什么必须挑 `Client*VerifyAdapter`（2026-09-25）：保存期新增了「实现真的支持入站鉴权」的语义校验
+     * （`HmacCallbackVerifyAdapter` / `NoopAuthAdapter` 等会 `40001`）—— 与闸门运行期的 `instanceof` 判定同一口径。
+     */
     private String enabledAuthAdapterId() {
-        return jdbcTemplate.queryForObject(
-                "SELECT id FROM adapter WHERE type = 'auth' AND enabled = 1 ORDER BY id LIMIT 1", String.class);
+        String existing = jdbcTemplate.query(
+                "SELECT id FROM adapter WHERE type = 'auth' AND enabled = 1 "
+                        + "AND impl LIKE 'Client%VerifyAdapter' ORDER BY id LIMIT 1",
+                rs -> rs.next() ? rs.getString(1) : null);
+        if (existing != null) {
+            return existing;
+        }
+        jdbcTemplate.update("INSERT INTO adapter (id, name, type, impl, enabled, version, params) "
+                + "VALUES (?, '测试入站鉴权适配器', 'auth', 'ClientApiKeyVerifyAdapter', 1, 'v1', '{}')",
+                TEMP_CLIENT_AUTH_ADAPTER);
+        return TEMP_CLIENT_AUTH_ADAPTER;
     }
 }

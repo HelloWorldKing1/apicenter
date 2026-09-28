@@ -195,8 +195,14 @@ public class SeedDataInitializer implements ApplicationRunner {
     /**
      * 演示调用方（调用方鉴权用）：adapter `ADP-401`（调用方 API Key 验签）+ `DEMO-CLIENT` + 一个 `API_KEY` 凭证。
      * 密钥是**固定的演示值**（同 fastmoss 的占位 token 口径），真实接入请用管理面「凭证」轮换。
+     *
+     * <p>同时补一个 **`ADP-402` 调用方 HMAC 验签** 实例（2026-09-25）：验收方案 S3.12（可选：HMAC 时间戳+签名）
+     * 要求有这么一个可选适配器，而之前只有「HMAC **回调**验签」——名字很像、但不是入站鉴权实现，选中必然 40108。
+     * 该实例**不与任何调用方/接口绑定**，纯属可选项，不影响既有行为（幂等：已存在即跳过）。
      */
     private void seedDemoClientIfAbsent() {
+        // ADP-402 与 DEMO-CLIENT 解耦：即使档案已存在（增量导入场景）也要补齐这个适配器
+        insertAdapter("ADP-402", "调用方 HMAC 验签", "auth", "ClientHmacVerifyAdapter", "{}");
         if (clientAppRepository.existsById(DEMO_CLIENT)) {
             return;
         }

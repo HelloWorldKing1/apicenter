@@ -54,8 +54,13 @@ class ClientAuthIntegrationTest {
     private ClientAppRepository clientAppRepository;
     @Autowired
     private CredentialRepository credentialRepository;
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
-    /** 清理本类造数（客户端 + 级联凭证）；不写死断言，避免与其他用例/种子冲突 */
+    /** 「回调验签专用」临时实例（验证保存期语义校验；@AfterEach 清理） */
+    private static final String TEMP_CALLBACK_ONLY_ADAPTER = "ADP-TST-CBCLIENT";
+
+    /** 清理本类造数（客户端 + 级联凭证 + 临时适配器）；不写死断言，避免与其他用例/种子冲突 */
     @AfterEach
     void cleanup() {
         for (String id : List.of(CLIENT, OTHER)) {
@@ -63,6 +68,24 @@ class ClientAuthIntegrationTest {
                 clientAppRepository.deleteCascade(id);
             }
         }
+        jdbcTemplate.update("DELETE FROM adapter WHERE id = ?", TEMP_CALLBACK_ONLY_ADAPTER);
+    }
+
+    /**
+     * 语义化取一个「**可用于入站鉴权**的启用适配器」id（不与种子/库态耦合）：
+     * 优先复用已有的 `Client*VerifyAdapter`；没有则临时建一个（干净库也能跑）。
+     */
+    private String enabledInboundAuthAdapterId() {
+        String existing = jdbcTemplate.query(
+                "SELECT id FROM adapter WHERE type = 'auth' AND enabled = 1 "
+                        + "AND impl LIKE 'Client%VerifyAdapter' ORDER BY id LIMIT 1",
+                rs -> rs.next() ? rs.getString(1) : null);
+        if (existing != null) {
+            return existing;
+        }
+        jdbcTemplate.update("INSERT INTO adapter (id, name, type, impl, enabled, version, params) "
+                + "VALUES ('ADP-TST-INBOUND', '测试入站鉴权适配器', 'auth', 'ClientApiKeyVerifyAdapter', 1, 'v1', '{}')");
+        return "ADP-TST-INBOUND";
     }
 
     private ClientRequest req(String clientId, String name, String adapterId) {
@@ -82,10 +105,11 @@ class ClientAuthIntegrationTest {
         assertThat(clientService.list("TEST-CLIENT-B1", null))
                 .extracting(ClientResponse::clientId).contains(CLIENT);
 
-        // 更新（标识不可改；换名 + 绑鉴权适配器）
-        ClientResponse updated = clientService.update(CLIENT, req(CLIENT, "B1 改名", "ADP-000"));
+        // 更新（标识不可改；换名 + 绑鉴权适配器）—— 必须是**可用于入站鉴权**的实现（2026-09-25 起保存期校验）
+        String inboundAuthAdapter = enabledInboundAuthAdapterId();
+        ClientResponse updated = clientService.update(CLIENT, req(CLIENT, "B1 改名", inboundAuthAdapter));
         assertThat(updated.name()).isEqualTo("B1 改名");
-        assertThat(updated.authAdapterId()).isEqualTo("ADP-000");
+        assertThat(updated.authAdapterId()).isEqualTo(inboundAuthAdapter);
 
         // 标识格式非法（小写 / 太短 / 特殊字符）
         assertThatThrownBy(() -> clientService.create(req("bad-lower", "x", null)))
@@ -100,6 +124,13 @@ class ClientAuthIntegrationTest {
         // 适配器不存在
         assertThatThrownBy(() -> clientService.create(req(OTHER, "x", "ADP-NOT-EXIST")))
                 .isInstanceOf(BizException.class).hasMessageContaining("鉴权适配器不存在");
+
+        // 2026-09-25：适配器存在但**实现不支持入站鉴权** ⇒ 保存期即拒（否则运行期必然 40108）
+        jdbcTemplate.update("INSERT INTO adapter (id, name, type, impl, enabled, version, params) "
+                + "VALUES (?, '测试回调验签', 'auth', 'HmacCallbackVerifyAdapter', 1, 'v1', '{}')",
+                TEMP_CALLBACK_ONLY_ADAPTER);
+        assertThatThrownBy(() -> clientService.create(req(OTHER, "x", TEMP_CALLBACK_ONLY_ADAPTER)))
+                .isInstanceOf(BizException.class).hasMessageContaining("不支持入站鉴权");
     }
 
     @Test

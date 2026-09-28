@@ -230,7 +230,12 @@ public class ClientAuthVerifier {
         }
         Adapter bean = adapterBeans.get(adapterRow.impl());
         if (!(bean instanceof InboundAuthAdapter inbound)) {
-            return reject(iface, traceId, 40108, "鉴权失败：适配器实现不支持入站鉴权：" + adapterRow.impl(),
+            // 报错必须**可处置**（2026-09-25 实战：验收把「HMAC 回调验签」选成了调用方方式，
+            // 只看到「实现不支持」看不出是选错了）：说清「哪个适配器、为什么不支持、该换什么」
+            return reject(iface, traceId, 40108,
+                    "鉴权失败：适配器 " + adapterRow.id() + "（实现 " + adapterRow.impl()
+                            + "）不支持入站鉴权 —— 该配置无效，请改选「调用方 API Key / HMAC / Bearer / IP 名单验签」类实现"
+                            + "（「HMAC 回调验签」等只用于入站回调 CALLBACK_AUTH）",
                     principalId, principalName, principalType, "NONE", adapterRow.id(),
                     clientIp, xffChain, userAgent, start);
         }

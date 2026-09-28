@@ -37,10 +37,11 @@
         </el-table-column>
       </el-table>
 
-      <!-- 分页（原型每页 5 条） -->
+      <!-- 分页（默认每页 10 条；可切 10/20/50。2026-09-25 按使用反馈：原 5 条一页翻页太碎） -->
       <div class="pager">
-        <el-pagination v-model:current-page="page" :page-size="PAGE_SIZE" :total="adapters.length"
-                       layout="total, prev, pager, next" @current-change="() => {}" />
+        <el-pagination v-model:current-page="page" v-model:page-size="pageSize"
+                       :page-sizes="PAGE_SIZES" :total="adapters.length"
+                       layout="total, sizes, prev, pager, next" @size-change="onSizeChange" />
       </div>
     </el-card>
 
@@ -77,26 +78,41 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '@/api/http'
 import AdapterParamsEditor from '@/components/AdapterParamsEditor.vue'
 
-const PAGE_SIZE = 5 // 原型每页 5 条
+const PAGE_SIZES = [10, 20, 50]
 
 const adapters = ref([])
 const impls = ref([])
 const filterType = ref('')
 const loading = ref(false)
 const page = ref(1)
+/** 每页条数（默认 **10**；可选 10/20/50） */
+const pageSize = ref(10)
 const dialog = reactive({ visible: false, isEdit: false, editId: '' })
 const form = reactive({ id: '', name: '', type: 'auth', version: '1.0', enabled: true })
 const paramsModel = ref({ impl: '', params: {} })
 
+const pageCount = computed(() => Math.max(1, Math.ceil(adapters.value.length / pageSize.value)))
+
 const paged = computed(() => {
-  const start = (page.value - 1) * PAGE_SIZE
-  return adapters.value.slice(start, start + PAGE_SIZE)
+  const p = Math.min(Math.max(1, page.value), pageCount.value)
+  return adapters.value.slice((p - 1) * pageSize.value, p * pageSize.value)
 })
+
+// 列表变短（筛选 / 删除）时把页码夹回最后一页，避免停在空白页；改每页条数时回到第 1 页
+watch([() => adapters.value.length, pageSize], () => {
+  if (page.value > pageCount.value) {
+    page.value = pageCount.value
+  }
+})
+
+function onSizeChange() {
+  page.value = 1
+}
 
 async function load() {
   loading.value = true

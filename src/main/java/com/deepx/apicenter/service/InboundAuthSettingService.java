@@ -44,6 +44,8 @@ public class InboundAuthSettingService {
     private final AdapterRepository adapterRepository;
     private final ApplicationEventPublisher events;
     private final AlertService alertService;
+    /** 适配器 Bean（key = impl）：平台默认方式也要做「实现真的能做入站鉴权」的保存期校验（2026-09-25） */
+    private final java.util.Map<String, com.deepx.apicenter.engine.Adapter> adapterBeans;
 
     /** 缓存（可空对象模式：null 值也缓存，避免「未配置」时每请求打库） */
     private volatile Cache cache;
@@ -51,11 +53,13 @@ public class InboundAuthSettingService {
     public InboundAuthSettingService(InboundAuthSettingRepository settingRepository,
                                      AdapterRepository adapterRepository,
                                      ApplicationEventPublisher events,
-                                     AlertService alertService) {
+                                     AlertService alertService,
+                                     java.util.Map<String, com.deepx.apicenter.engine.Adapter> adapterBeans) {
         this.settingRepository = settingRepository;
         this.adapterRepository = adapterRepository;
         this.events = events;
         this.alertService = alertService;
+        this.adapterBeans = adapterBeans;
     }
 
     /**
@@ -142,7 +146,7 @@ public class InboundAuthSettingService {
         return defaultAdapterId == null || defaultAdapterId.isBlank() ? null : defaultAdapterId.trim();
     }
 
-    /** 引用完整性（应用层保证，无外键）+ 语义校验：必须是 auth 类型且启用的适配器 */
+    /** 引用完整性（应用层保证，无外键）+ 语义校验：必须是 auth 类型、启用的适配器，**且实现真的能做入站鉴权** */
     private void validateAdapterRef(String adapterId) {
         if (adapterId == null) {
             return;
@@ -154,6 +158,12 @@ public class InboundAuthSettingService {
         }
         if (!adapter.enabled()) {
             throw BizException.fieldInvalid("鉴权适配器已停用，作为平台默认会导致接口一律拒绝（40108）：" + adapterId);
+        }
+        // 2026-09-25：实现层语义校验（同 ClientService）—— 选到回调验签专用实现必然 40108，别等到运行期才发现
+        if (!com.deepx.apicenter.adapter.auth.InboundAuthAdapter.supports(adapter.impl(), adapterBeans)) {
+            throw BizException.fieldInvalid("该适配器不能作为平台默认入站鉴权方式（实现 " + adapter.impl()
+                    + " 不支持入站鉴权）：请改选「调用方 API Key / HMAC / Bearer / IP 名单验签」类实现；"
+                    + "「HMAC 回调验签」等适配器只用于入站回调（CALLBACK_AUTH）");
         }
     }
 

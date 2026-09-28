@@ -55,3 +55,18 @@ export function adapterRoleHint(impl) {
   if (OUTBOUND_ONLY.has(impl)) return '仅出站签名'
   return '两者皆可'
 }
+
+/**
+ * 「实现」下拉的选项标签（2026-09-25 补）：`名称 · 用途（impl）`。
+ *
+ * 为何要把**用途**写进标签：HMAC 系共有**三个**名字极像的实现 ——
+ * 「HMAC 签名」（`HmacAuthAdapter`，出站签名）/「HMAC 回调验签」（`HmacCallbackVerifyAdapter`，入站回调）/
+ * 「调用方 HMAC 验签」（`ClientHmacVerifyAdapter`，入站鉴权）。验收实战中建成了出站那个，
+ * 结果在「调用方管理」下拉里根本不出现（被角色过滤掉了）—— 标签上写清用途可一眼识破。
+ *
+ * @param {{name?: string, impl?: string}} meta `/adapters/impls` 返回的实现元数据
+ */
+export function implOptionLabel(meta) {
+  if (!meta || !meta.impl) return ''
+  return `${meta.name || meta.impl} · ${adapterRoleHint(meta.impl)}（${meta.impl}）`
+}

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { adapterMatchesRole, adapterRoleHint } from './adapterUsage.mjs'
+import { adapterMatchesRole, adapterRoleHint, implOptionLabel } from './adapterUsage.mjs'
 
 test('HMAC 回调验签：只允许回调验签侧（真实踩坑的那一个）', () => {
   assert.equal(adapterMatchesRole('HmacCallbackVerifyAdapter', 'CALLBACK'), true)
@@ -55,4 +55,22 @@ test('云厂商签名（AK/SK 直签）只应出现在出站签名侧，不能�
   assert.equal(adapterMatchesRole('CloudSignatureAdapter', 'CALLBACK'), false)
   assert.equal(adapterMatchesRole('CloudSignatureAdapter', 'CLIENT_AUTH'), false)
   assert.equal(adapterRoleHint('CloudSignatureAdapter'), '仅出站签名')
+})
+
+// ---------- implOptionLabel（2026-09-25）：把「用途」写进实现下拉标签，专治 HMAC 三兄弟选错 ----------
+
+test('implOptionLabel_标签含用途与 impl', () => {
+  // 同样是 HMAC：出站签名 / 入站回调 / 入站鉴权三个名字极像，标签必须能一眼区分
+  assert.equal(implOptionLabel({ name: 'HMAC 签名', impl: 'HmacAuthAdapter' }),
+    'HMAC 签名 · 仅出站签名（HmacAuthAdapter）')
+  assert.equal(implOptionLabel({ name: 'HMAC 回调验签', impl: 'HmacCallbackVerifyAdapter' }),
+    'HMAC 回调验签 · 仅回调验签（HmacCallbackVerifyAdapter）')
+  assert.equal(implOptionLabel({ name: '调用方 HMAC 验签', impl: 'ClientHmacVerifyAdapter' }),
+    '调用方 HMAC 验签 · 入站鉴权 / 回调验签（ClientHmacVerifyAdapter）')
+})
+
+test('implOptionLabel_缺名称时退化为 impl_空值返回空串', () => {
+  assert.equal(implOptionLabel({ impl: 'ApiKeyAuthAdapter' }), 'ApiKeyAuthAdapter · 仅出站签名（ApiKeyAuthAdapter）')
+  assert.equal(implOptionLabel(null), '')
+  assert.equal(implOptionLabel({}), '')
 })

@@ -25,6 +25,8 @@ import InboundAuth from '../src/views/InboundAuth.vue'
 import MainLayout from '../src/layout/MainLayout.vue'
 // 一次性明文块（2026-09-25）：调用方管理 / 入站鉴权共用（复制按钮 + 长凭证滚动）
 import PlaintextOnce from '../src/components/PlaintextOnce.vue'
+// 适配器页（2026-09-25 加入）：分页默认 10 条一页 —— 页面模板曾多次因「加了 helper 忘 import」白屏，纳入冒烟
+import Adapters from '../src/views/Adapters.vue'
 
 function decode(html) {
   return html
@@ -122,6 +124,10 @@ const CASES = [
     { text: ['新建调用方', '调用方标识', '鉴权方式', 'IP 名单', 'QPS / 日配额', '状态',
              // v1.2 降级说明（防「页面还是老口径」）
              '不登记也能调', '入站鉴权'] }],
+  // 适配器页（2026-09-25）：列表 + 新建入口 + 三类筛选都渲染出来（分页每页条数由 el-pagination 属性给，替身不渲染）
+  ['适配器页（列表 + 新建入口）',
+    { __component: 'Adapters' },
+    { text: ['＋ 新建适配器', '全部', '鉴权', '协议', '报文', '标识', '名称', '实现类', '版本', '启用', '参数(JSON)'] }],
   // 一次性明文块（2026-09-25）：复制按钮 + 长凭证可滚动 + 一次性提示——
   // 「凭证生成后没有复制入口」曾作为使用反馈提出，所以这里钉住「复制按钮与提示语真的渲染出来了」
   ['一次性明文块（复制按钮 + 长凭证滚动）',
@@ -194,7 +200,7 @@ const CASES = [
 async function main() {
   let failed = 0
   for (const [label, props, expect] of CASES) {
-    const COMPONENTS = { ParamImportDialog, InterfaceParamsTab, InterfaceStepsTab, RequestBodyEditor, Login, Users, Clients, InboundAuth, MainLayout, PlaintextOnce }
+    const COMPONENTS = { ParamImportDialog, InterfaceParamsTab, InterfaceStepsTab, RequestBodyEditor, Login, Users, Clients, InboundAuth, MainLayout, PlaintextOnce, Adapters }
     const component = COMPONENTS[props.__component] || PayloadViewer
     const app = createSSRApp({ render: () => h(component, props) })
     // 布局组件通过全局属性使用 $route（真实环境由 vue-router 注入）；冒烟里补一个最小替身

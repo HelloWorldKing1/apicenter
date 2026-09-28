@@ -2,8 +2,11 @@
   <div>
     <el-select :model-value="modelValue.impl" @update:model-value="onImplChange"
                placeholder="选择实现类" style="width: 100%">
-      <el-option v-for="m in options" :key="m.impl" :label="`${m.name}（${m.impl}）`" :value="m.impl" />
+      <!-- 选项标签带**用途**（见 utils/adapterUsage.mjs）：HMAC 系三个实现名字极像
+           （HMAC 签名 / HMAC 回调验签 / 调用方 HMAC 验签），不带用途时极易选错（2026-09-25 验收实战） -->
+      <el-option v-for="m in options" :key="m.impl" :label="implOptionLabel(m)" :value="m.impl" />
     </el-select>
+    <div v-if="currentMeta" class="impl-usage">用途：{{ adapterRoleHint(currentMeta.impl) }}</div>
     <!-- 信封适配器的语义提示：平台统一归化响应为 { code, msg, data } -->
     <div v-if="currentMeta && currentMeta.impl === 'EnvelopeMessageAdapter'" class="impl-hint">
       <b>平台统一归化响应为 { code, msg, data }</b>
@@ -44,6 +47,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { adapterRoleHint, implOptionLabel } from '@/utils/adapterUsage.mjs'
 
 // 适配器参数编辑器（impl 元数据驱动动态表单）：
 // 适配器页与应用弹窗内联创建共用（原型 ADAPTER_FIELDS 模式）。
@@ -64,6 +68,8 @@ function onImplChange(impl) {
 </script>
 
 <style scoped>
+/* 选中实现后的用途一行（与选项标签里的用途一致，避免“选完才想起是哪个方向”） */
+.impl-usage { margin-top: 4px; font-size: 12px; color: #909399; }
 .impl-hint {
   background: #f0f7ff;
   border: 1px solid #d6e4ff;

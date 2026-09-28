@@ -5,6 +5,7 @@ import com.deepx.apicenter.dto.ClientDtos.ClientRequest;
 import com.deepx.apicenter.dto.ClientDtos.ClientResponse;
 import com.deepx.apicenter.exception.BizException;
 import com.deepx.apicenter.model.ClientAppRow;
+import com.deepx.apicenter.model.AdapterRow;
 import com.deepx.apicenter.repository.AdapterRepository;
 import com.deepx.apicenter.repository.ClientAppRepository;
 import com.deepx.apicenter.repository.CredentialOwner;
@@ -35,15 +36,19 @@ public class ClientService {
     private final ClientCredentialService clientCredentialService;
     private final CredentialRepository credentialRepository;
     private final AdapterRepository adapterRepository;
+    /** 适配器 Bean（key = impl）：用于校验「该实现真的能做入站鉴权」（2026-09-25） */
+    private final Map<String, com.deepx.apicenter.engine.Adapter> adapterBeans;
 
     public ClientService(ClientAppRepository clientAppRepository,
                          ClientCredentialService clientCredentialService,
                          CredentialRepository credentialRepository,
-                         AdapterRepository adapterRepository) {
+                         AdapterRepository adapterRepository,
+                         Map<String, com.deepx.apicenter.engine.Adapter> adapterBeans) {
         this.clientAppRepository = clientAppRepository;
         this.clientCredentialService = clientCredentialService;
         this.credentialRepository = credentialRepository;
         this.adapterRepository = adapterRepository;
+        this.adapterBeans = adapterBeans;
     }
 
     /** 列表（含凭证角标：已有 ACTIVE 凭证的类型，一次 IN 查询） */
@@ -122,10 +127,24 @@ public class ClientService {
                 .orElseThrow(() -> BizException.fieldInvalid("调用方不存在：" + clientId));
     }
 
-    /** 鉴权适配器（若填）必须存在（沿用 AppService 的口径） */
+    /**
+     * 鉴权适配器（若填）必须存在 **且真的能做入站鉴权**（沿用 AppService 的存在性口径 + 2026-09-25 新增语义校验）。
+     *
+     * <p>为何要在**保存期**拦：回调验签专用实现（如 `HmacCallbackVerifyAdapter`）不实现
+     * {@link com.deepx.apicenter.adapter.auth.InboundAuthAdapter} ⇒ 闸门必然 fail-closed `40108`，
+     * 而那条报错只报「实现不支持」，用户看不出是**选错了适配器**（真实案例：验收 S3.12 选成了
+     * 「HMAC 回调验签」而不是「调用方 HMAC 验签」）。
+     */
     private void requireAdapterIfPresent(String adapterId) {
-        if (adapterId != null && !adapterId.isBlank() && !adapterRepository.existsById(adapterId)) {
-            throw BizException.fieldInvalid("鉴权适配器不存在：" + adapterId);
+        if (adapterId == null || adapterId.isBlank()) {
+            return;
+        }
+        AdapterRow row = adapterRepository.findById(adapterId)
+                .orElseThrow(() -> BizException.fieldInvalid("鉴权适配器不存在：" + adapterId));
+        if (!com.deepx.apicenter.adapter.auth.InboundAuthAdapter.supports(row.impl(), adapterBeans)) {
+            throw BizException.fieldInvalid("该适配器不能用于调用方鉴权（实现 " + row.impl()
+                    + " 不支持入站鉴权）：请改选「调用方 API Key / HMAC / Bearer / IP 名单验签」类实现；"
+                    + "「HMAC 回调验签」等适配器只用于入站回调（CALLBACK_AUTH）");
         }
     }
 

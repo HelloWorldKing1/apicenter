@@ -82,8 +82,11 @@
         </div>
         <div class="item">
           <span class="label">鉴权适配器</span>
+          <!-- 2026-09-25：只列**真能做入站鉴权**的实现（否则选完必然 40108 —— 验收 S3.12 踩过：
+               把「HMAC 回调验签」选成了调用方方式）。与接口「入站鉴权方式」下拉同一份口径。 -->
           <el-select v-model="form.authAdapterId" clearable placeholder="未配置（启用后 fail-closed 拒绝）" style="width: 100%">
-            <el-option v-for="a in authAdapters" :key="a.id" :label="`${a.name}（${a.impl}）`" :value="a.id" />
+            <el-option v-for="a in inboundAuthAdapters" :key="a.id"
+                       :label="`${a.name}（${a.impl} · ${adapterRoleHint(a.impl)}）`" :value="a.id" />
           </el-select>
         </div>
         <div class="item">
@@ -109,6 +112,7 @@
       </div>
       <div class="hint">
         鉴权方式决定「入站鉴权」怎么验：API Key / HMAC / Bearer 需要凭证（见列表「凭证」），仅 IP 名单方式不需要凭证。
+        下拉**只列可用于入站鉴权的实现**（«调用方 … 验签» 四个）；「HMAC 回调验签」等只用于入站回调，选它请求会 40108。
         <b>未配置鉴权方式时，平台在「调用方鉴权」强制模式下会 fail-closed 拒绝（40108）。</b>
       </div>
       <template #footer>
@@ -173,6 +177,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '@/api/http'
 import PlaintextOnce from '@/components/PlaintextOnce.vue'
 import { isReadOnly } from '@/utils/roles.mjs'
+import { adapterMatchesRole, adapterRoleHint } from '@/utils/adapterUsage.mjs'
 import { authStore } from '@/utils/auth.mjs'
 
 const KINDS = ['API_KEY', 'HMAC_SECRET', 'BEARER_TOKEN', 'BASIC']
@@ -191,7 +196,9 @@ const adapters = ref([])
 const meRole = computed(() => authStore.getUser()?.role)
 
 const readOnly = computed(() => isReadOnly(meRole.value))
-const authAdapters = computed(() => adapters.value.filter((a) => a.type === 'auth' && a.enabled))
+/** 可选方式：**只列可用于入站鉴权**的适配器（「调用方 … 验签」四个实现），与接口级「入站鉴权方式」下拉同口径 */
+const inboundAuthAdapters = computed(() => adapters.value.filter(
+  (a) => a.type === 'auth' && a.enabled && adapterMatchesRole(a.impl, 'CLIENT_AUTH')))
 
 const dialog = reactive({ visible: false, isEdit: false })
 const form = reactive({
