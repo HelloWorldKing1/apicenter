@@ -118,7 +118,8 @@
     </el-dialog>
 
     <!-- 凭证管理 -->
-    <el-drawer v-model="cred.visible" :title="`凭证管理 · ${cred.clientId}`" size="620px">
+    <el-drawer v-model="cred.visible" :title="`凭证管理 · ${cred.clientId}`" size="620px"
+               @closed="cred.issued = ''">
       <div class="hint" style="margin-bottom: 8px">
         凭证在库内 <b>AES-256-GCM 加密</b>存储，管理面<b>永不回显明文</b>（只显示尾 4 位指纹）；
         「新增」时生成的明文<b>仅回显一次</b>，请立即交给调用方配置。
@@ -153,8 +154,7 @@
         <el-button type="primary" :disabled="readOnly" @click="prepare">生成新凭证（平台随机）</el-button>
       </div>
       <div v-if="cred.issued" class="issued">
-        <b>新凭证明文（仅此一次，请立即保存）：</b>
-        <pre>{{ cred.issued }}</pre>
+        <PlaintextOnce :text="cred.issued" />
       </div>
     </el-drawer>
   </div>
@@ -171,6 +171,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '@/api/http'
+import PlaintextOnce from '@/components/PlaintextOnce.vue'
 import { isReadOnly } from '@/utils/roles.mjs'
 import { authStore } from '@/utils/auth.mjs'
 
@@ -341,6 +342,6 @@ onMounted(async () => {
 .label { font-size: 12px; color: #606266; }
 .hint { font-size: 12px; color: #909399; line-height: 1.7; margin-top: 10px; }
 .cred-actions { margin-top: 14px; display: flex; gap: 8px; }
-.issued { margin-top: 12px; padding: 10px; background: #fdf6ec; border: 1px solid #f5dab1; border-radius: 4px; }
-.issued pre { margin: 6px 0 0; font-family: 'SF Mono', Menlo, Consolas, monospace; word-break: break-all; color: #b88230; }
+/* 明文块样式在 components/PlaintextOnce.vue（复制按钮 + 长凭证滚动）；此处只留外边距 */
+.issued { margin: 0; }
 </style>

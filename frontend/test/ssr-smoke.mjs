@@ -23,6 +23,8 @@ import Clients from '../src/views/Clients.vue'
 import InboundAuth from '../src/views/InboundAuth.vue'
 // 布局层（2026-09-24 加入）：它曾因「模板调用未导入的 helper」导致**整站白屏** —— 必须纳入冒烟
 import MainLayout from '../src/layout/MainLayout.vue'
+// 一次性明文块（2026-09-25）：调用方管理 / 入站鉴权共用（复制按钮 + 长凭证滚动）
+import PlaintextOnce from '../src/components/PlaintextOnce.vue'
 
 function decode(html) {
   return html
@@ -120,6 +122,12 @@ const CASES = [
     { text: ['新建调用方', '调用方标识', '鉴权方式', 'IP 名单', 'QPS / 日配额', '状态',
              // v1.2 降级说明（防「页面还是老口径」）
              '不登记也能调', '入站鉴权'] }],
+  // 一次性明文块（2026-09-25）：复制按钮 + 长凭证可滚动 + 一次性提示——
+  // 「凭证生成后没有复制入口」曾作为使用反馈提出，所以这里钉住「复制按钮与提示语真的渲染出来了」
+  ['一次性明文块（复制按钮 + 长凭证滚动）',
+    { __component: 'PlaintextOnce', text: 'sk-live-' + 'a'.repeat(300) },
+    { html: ['plaintext-once', 'class="p-body"', '复制'],
+      text: ['明文仅显示这一次', '关闭后无法再次查看'] }],
   // 主框架布局：侧边栏菜单 + 顶栏文案（布局层白屏 → 整站空白，必须有覆盖）
   ['主框架布局（侧边栏 + 顶栏）',
     { __component: 'MainLayout' },
@@ -186,7 +194,7 @@ const CASES = [
 async function main() {
   let failed = 0
   for (const [label, props, expect] of CASES) {
-    const COMPONENTS = { ParamImportDialog, InterfaceParamsTab, InterfaceStepsTab, RequestBodyEditor, Login, Users, Clients, InboundAuth, MainLayout }
+    const COMPONENTS = { ParamImportDialog, InterfaceParamsTab, InterfaceStepsTab, RequestBodyEditor, Login, Users, Clients, InboundAuth, MainLayout, PlaintextOnce }
     const component = COMPONENTS[props.__component] || PayloadViewer
     const app = createSSRApp({ render: () => h(component, props) })
     // 布局组件通过全局属性使用 $route（真实环境由 vue-router 注入）；冒烟里补一个最小替身

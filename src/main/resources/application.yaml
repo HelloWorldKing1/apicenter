@@ -48,7 +48,7 @@ app:
     client-auth:
       # OFF 不校验 / OPTIONAL 有凭证就验、无凭证放行 / ENFORCED 必须通过；改后必须重启（有意动作）
       # ⚠ 必须加引号：YAML 1.1 把裸 OFF 解析成布尔 false（绑定到 String 会变成 "false" 并触发枚举校验失败）
-      mode: "OFF"
+      mode: "ENFORCED"
       # 自报主体标识头名（v1.2 起它**不参与放行判定**，仅用于审计与「档案池凭证是否参与取值」）
       id-header: X-Client-Id
       # 额外需脱敏的头名（逗号分隔，运维兜底；正常情况下由适配器 params 的头名自动注册，D-CA-13）

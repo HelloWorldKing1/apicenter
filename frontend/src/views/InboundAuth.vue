@@ -106,7 +106,7 @@
     </el-card>
 
     <!-- 发放：平台生成随机值（明文仅回显一次） -->
-    <el-dialog v-model="issue.visible" title="发放新凭证" width="520px">
+    <el-dialog v-model="issue.visible" title="发放新凭证" width="520px" @closed="issue.plaintext = ''">
       <el-form label-width="110px">
         <el-form-item label="属主">
           <span>{{ ownerTypeLabel(ownerType) }}<span v-if="ownerId"> · {{ ownerId }}</span></span>
@@ -124,14 +124,12 @@
                     placeholder="发给谁 / 何时，如「某公司 2026-09-24」" />
         </el-form-item>
       </el-form>
-      <el-alert v-if="issue.plaintext" type="warning" :closable="false" show-icon
-                title="明文仅显示这一次，请立即交付给调用方并妥善保存">
-        <div class="mono" style="word-break: break-all; margin-top: 6px">{{ issue.plaintext }}</div>
-      </el-alert>
+      <!-- 明文展示：复制按钮 + 长凭证滚动（与「调用方管理」同一个组件，2026-09-25 统一） -->
+      <PlaintextOnce v-if="issue.plaintext" :text="issue.plaintext" />
       <template #footer>
         <el-button @click="issue.visible = false">关闭</el-button>
         <el-button v-if="!issue.plaintext" type="primary" :disabled="readOnly" @click="issueOne">生成</el-button>
-        <el-button v-else type="primary" @click="copyPlaintext">复制明文</el-button>
+        <el-button v-else type="primary" @click="issue.visible = false">我已保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -141,6 +139,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '@/api/http'
+import PlaintextOnce from '@/components/PlaintextOnce.vue'
 import { isReadOnly, canChangeInboundAuthSetting } from '@/utils/roles.mjs'
 import { authStore } from '@/utils/auth.mjs'
 import { adapterMatchesRole } from '@/utils/adapterUsage.mjs'
@@ -241,15 +240,6 @@ async function issueOne() {
   })
   issue.plaintext = res.plaintext
   await loadPool()
-}
-
-async function copyPlaintext() {
-  try {
-    await navigator.clipboard.writeText(issue.plaintext)
-    ElMessage.success('已复制')
-  } catch {
-    ElMessage.warning('复制失败，请手动选择复制')
-  }
 }
 
 async function activate(row) {
