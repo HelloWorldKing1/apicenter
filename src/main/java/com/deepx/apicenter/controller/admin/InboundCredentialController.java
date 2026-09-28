@@ -42,9 +42,13 @@ public class InboundCredentialController {
         this.credentialService = credentialService;
     }
 
-    /** 列表（遮显）：`ownerType` 必传（PLATFORM / INTERFACE / CLIENT）；PLATFORM 时 `ownerId` 须留空 */
+    /**
+     * 列表（遮显）：`ownerType` **可留空 = 列出所有属主的全部凭证**（默认台账视图，2026-09-24）；
+     * 传 `INTERFACE` / `CLIENT` 且 `ownerId` 留空 = 列出该**类型**的全部；都传 = 只看那一个属主。
+     * `PLATFORM` 的 `ownerId` 须留空（平台池没有属主标识）。
+     */
     @GetMapping
-    public ApiResult<List<CredentialView>> list(@RequestParam String ownerType,
+    public ApiResult<List<CredentialView>> list(@RequestParam(required = false) String ownerType,
                                                 @RequestParam(required = false) String ownerId) {
         return ApiResult.ok(credentialService.list(ownerType, ownerId));
     }

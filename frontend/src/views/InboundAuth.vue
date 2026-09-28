@@ -51,7 +51,9 @@
         </div>
       </template>
       <div class="toolbar">
-        <el-select v-model="ownerType" style="width: 170px" @change="onOwnerChange">
+        <!-- 属主：**默认「全部属主」**（一张台账看全所有池）—— 2026-09-24 使用反馈 -->
+        <el-select v-model="ownerType" style="width: 190px" @change="onOwnerChange">
+          <el-option label="全部属主（跨池）" value="" />
           <el-option v-for="t in OWNER_TYPES" :key="t.value" :label="t.label" :value="t.value" />
         </el-select>
         <!-- 属主筛选（2026-09-24 使用反馈）：**不再手输 id** —— 接口/调用方都从下拉选，
@@ -69,16 +71,24 @@
                      :label="`${c.name}（${c.clientId}）`" />
         </el-select>
         <el-button @click="loadPool">刷新</el-button>
-        <el-button type="primary" :disabled="readOnly" @click="openIssue">＋ 发放新凭证</el-button>
+        <el-button type="primary" :disabled="readOnly || !ownerType" @click="openIssue">＋ 发放新凭证</el-button>
       </div>
       <div class="hint">
-        {{ ownerHint }}
+        <span v-if="!ownerType">
+          默认列出<b>所有池</b>的凭证（平台共享 / 接口专属 / 调用方档案）。⚠️ 这只影响<b>台账展示</b>：
+          判定时仍按 <b>接口 → 平台 → 档案</b> 逐级短路（某级有可用凭证就只用这一级）。发放凭证请先选中具体属主。
+        </span>
+        {{ ownerType ? ownerHint : '' }}
         <span v-if="ownerType === 'INTERFACE'">｜默认列出<b>全部接口</b>的凭证（每行带接口 ID 与名称）；选一个接口可只看它</span>
         <span v-else-if="ownerType === 'CLIENT'">｜默认列出<b>全部调用方</b>的凭证；选一个调用方可只看它</span>
       </div>
 
       <el-table :data="pool" v-loading="poolLoading" size="small" border style="margin-top: 10px">
         <el-table-column prop="id" label="ID" width="70" />
+        <!-- 全部属主视图：把「哪个池 / 哪个接口 / 哪个调用方」压在一列里（避免列爆炸） -->
+        <el-table-column v-if="!ownerType" label="属主" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">{{ ownerCell(row) }}</template>
+        </el-table-column>
         <!-- 属主列（2026-09-24）：接口池要能看出「这是哪个接口的凭证」⇒ 显示接口 ID 与接口名称 -->
         <el-table-column v-if="ownerType === 'INTERFACE'" prop="ownerId" label="接口 ID" width="86" />
         <el-table-column v-if="ownerType === 'INTERFACE'" label="接口名称" min-width="170" show-overflow-tooltip>
@@ -221,18 +231,35 @@ async function saveSetting() {
 }
 
 // ---------- 凭证池 ----------
-const ownerType = ref('PLATFORM')
+const ownerType = ref('')      // 默认「全部属主」：一次看全所有池（2026-09-24）
 const ownerId = ref('')
 const pool = ref([])
 const poolLoading = ref(false)
 const ownerHint = computed(() => OWNER_TYPES.find((t) => t.value === ownerType.value)?.hint || '')
+
+/** 全部属主视图的「属主」列：平台 / 接口（#id 名称）/ 调用方（名称(clientId)） */
+function ownerCell(row) {
+  if (row.ownerType === 'PLATFORM') {
+    return '平台共享池'
+  }
+  if (row.ownerType === 'INTERFACE') {
+    return `接口 #${row.ownerId} ${row.ownerName || ''}`.trim()
+  }
+  if (row.ownerType === 'CLIENT') {
+    return `调用方 ${row.ownerName || ''}（${row.ownerId}）`
+  }
+  return row.ownerName || row.ownerType || '—'
+}
 
 async function loadPool() {
   poolLoading.value = true
   try {
     // ownerId 留空 = 列出该属主类型的**全部**（接口池默认跨接口列出 —— 2026-09-24）
     pool.value = await http.get('/inbound-credentials', {
-      params: { ownerType: ownerType.value, ownerId: ownerId.value || undefined }
+      params: {
+        ownerType: ownerType.value || undefined,     // 留空 ⇒ 后端返回**所有属主**
+        ownerId: ownerType.value ? (ownerId.value || undefined) : undefined
+      }
     })
   } finally {
     poolLoading.value = false
@@ -253,6 +280,10 @@ function ownerQuery() {
 const issue = reactive({ visible: false, kind: 'API_KEY', label: '', plaintext: '' })
 
 function openIssue() {
+  if (!ownerType.value) {
+    ElMessage.warning('请先选中一个属主（平台 / 接口 / 调用方），再发放凭证')
+    return
+  }
   if (ownerIdRequired(ownerType.value) && !ownerId.value) {
     // 发放必须有明确属主（不能往"全部"里发 ⇒ 不知道该挂到哪个接口/调用方）
     ElMessage.warning(ownerType.value === 'INTERFACE' ? '请先在左侧选中一个接口' : '请先选中一个调用方')

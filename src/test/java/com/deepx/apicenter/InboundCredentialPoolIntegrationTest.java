@@ -327,6 +327,42 @@ class InboundCredentialPoolIntegrationTest {
                 .containsExactlyInAnyOrder(String.valueOf(ifaceA), String.valueOf(ifaceB));  // ★ 各自的接口 ID
     }
 
+    /**
+     * **不传 ownerType = 列出所有属主的全部凭证**（2026-09-24 使用反馈："默认列表展示所有"）：
+     * 一张台账视图里同时能看到平台池 / 接口池 / 档案池的行，且**每行带自己的属主类型与名称**。
+     */
+    @Test
+    void 不传ownerType_列出所有属主的全部凭证_每行带自己的属主信息() {
+        String kind = freePlatformKind();
+        newPlatformCredential(kind, "单测·跨池-平台");
+        long ifaceId = newFixtureInterface();
+        poolService.prepare("INTERFACE", String.valueOf(ifaceId), kind, "单测·跨池-接口");
+        clientService.create(new com.deepx.apicenter.dto.ClientDtos.ClientRequest(
+                CLIENT, "凭证池测试调用方", null, null, null, null, null, null, null));
+        poolService.prepare("CLIENT", CLIENT, kind, "单测·跨池-档案");
+
+        List<CredentialView> all = poolService.list(null, null).stream()
+                .filter(v -> v.label() != null && v.label().startsWith("单测·跨池-"))
+                .toList();
+
+        assertThat(all).as("三个池的行应同时出现在一张表里").hasSize(3);
+        assertThat(all).filteredOn(v -> "PLATFORM".equals(v.ownerType())).singleElement()
+                .satisfies(v -> {
+                    assertThat(v.ownerName()).isEqualTo("平台共享池");
+                    assertThat(v.ownerId()).isNull();
+                });
+        assertThat(all).filteredOn(v -> "INTERFACE".equals(v.ownerType())).singleElement()
+                .satisfies(v -> {
+                    assertThat(v.ownerName()).isEqualTo("凭证池夹具接口");
+                    assertThat(v.ownerId()).isEqualTo(String.valueOf(ifaceId));
+                });
+        assertThat(all).filteredOn(v -> "CLIENT".equals(v.ownerType())).singleElement()
+                .satisfies(v -> {
+                    assertThat(v.ownerName()).isEqualTo("凭证池测试调用方");
+                    assertThat(v.ownerId()).isEqualTo(CLIENT);
+                });
+    }
+
     // ---------- 夹具 ----------
 
     /** 第二个夹具接口（用于证明"接口池留空 = 跨接口列出"） */

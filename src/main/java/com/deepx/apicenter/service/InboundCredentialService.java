@@ -60,6 +60,15 @@ public class InboundCredentialService {
      * 传了 `ownerId` 则退化为"只看这一个属主"（兼容原有用法）。
      */
     public List<CredentialView> list(String ownerType, String ownerId) {
+        // 不带 ownerType（或留空）= **列出所有属主的全部凭证**（2026-09-24 使用反馈：默认看全，一张台账视图）
+        if (ownerType == null || ownerType.isBlank()) {
+            java.util.List<CredentialView> all = new java.util.ArrayList<>();
+            for (CredentialOwner pooled : java.util.List.of(CredentialOwner.PLATFORM,
+                    CredentialOwner.INTERFACE, CredentialOwner.CLIENT)) {
+                all.addAll(withOwnerNames(pooled, store.listViewsAll(pooled)));
+            }
+            return all;
+        }
         CredentialOwner owner = resolveOwner(ownerType);
         String normalized = normalizeOwnerId(owner, ownerId);
         if (normalized != null) {
@@ -72,10 +81,14 @@ public class InboundCredentialService {
                     .toList();
         }
         // ownerId 留空 ⇒ **列出该属主类型的全部**（接口池默认跨接口列出；档案池同理）
-        List<CredentialView> all = store.listViewsAll(owner);
-        Map<String, String> names = resolveOwnerNames(owner, all.stream()
+        return withOwnerNames(owner, store.listViewsAll(owner));
+    }
+
+    /** 给一组 view 贴上**按行**解析的属主展示名（批量：按属主类型一次 IN 查询） */
+    private List<CredentialView> withOwnerNames(CredentialOwner owner, List<CredentialView> views) {
+        Map<String, String> names = resolveOwnerNames(owner, views.stream()
                 .map(CredentialView::ownerId).filter(java.util.Objects::nonNull).distinct().toList());
-        return all.stream()
+        return views.stream()
                 .map(v -> new CredentialView(v.id(), v.kind(), v.status(), v.fingerprint(),
                         v.activatedAt(), v.retiredAt(), v.rotatingUntil(), v.expired(), v.label(),
                         v.ownerType(), v.ownerId(), ownerNameOf(owner, v.ownerId(), names)))
