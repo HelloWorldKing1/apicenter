@@ -60,11 +60,19 @@ public class GatewayGuard {
     }
 
     /** 客户端来源地址解析：默认 remoteAddr；trust-xff=true 取 X-Forwarded-For 首值 */
+    /**
+     * 来源 IP 解析（**单一实现点**：防护 / 闸门 / 审计三处共用）。
+     * 返回前统一做 {@link IpText#canonical} 归一化 —— 否则 IPv6 回环会以 JDK 展开形式
+     * `0:0:0:0:0:0:0:1`（而非运维手写的 `::1`）入审计/入名单比较 ⇒ 精确匹配不命中（2026-09-25）。
+     */
     public String resolveClientIp(String remoteAddr, String xForwardedFor) {
+        String ip;
         if (trustXff && xForwardedFor != null && !xForwardedFor.isBlank()) {
-            return xForwardedFor.split(",")[0].trim();
+            ip = xForwardedFor.split(",")[0].trim();
+        } else {
+            ip = remoteAddr;
         }
-        return remoteAddr;
+        return IpText.canonical(ip);
     }
 
     private void checkQps(AppRow app) {
@@ -115,17 +123,9 @@ public class GatewayGuard {
         }
     }
 
-    /** 逗号分隔精确 IP 匹配（空白容忍；CIDR 不支持，v1.1） */
+    /** 逗号分隔精确 IP 匹配（空白容忍；CIDR 不支持，v1.1）；**经 IpText 归一化**，`::1` 与 `0:0:0:0:0:0:0:1` 视为同一个 */
     private boolean matchesList(String csv, String ip) {
-        if (csv == null || csv.isBlank() || ip == null) {
-            return false;
-        }
-        for (String item : csv.split(",")) {
-            if (ip.equals(item.trim())) {
-                return true;
-            }
-        }
-        return false;
+        return IpText.listContains(csv, ip);
     }
 
     /**

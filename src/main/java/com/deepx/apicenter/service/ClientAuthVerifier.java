@@ -468,26 +468,8 @@ public class ClientAuthVerifier {
     }
 
     private static boolean contains(String list, String ip) {
-        if (isBlank(list)) {
-            return false;
-        }
-        for (String part : split(list)) {
-            if (part.equals(ip)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static List<String> split(String list) {
-        List<String> out = new ArrayList<>();
-        for (String part : list.split(",")) {
-            String v = part.trim();
-            if (!v.isEmpty()) {
-                out.add(v);
-            }
-        }
-        return out;
+        // 经 IpText 归一化（`::1` ≡ `0:0:0:0:0:0:0:1`）—— 与 GatewayGuard / IP 方式参数同口径
+        return IpText.listContains(list, ip);
     }
 
     /** 大小写不敏感取头值（缺失返回 null） */

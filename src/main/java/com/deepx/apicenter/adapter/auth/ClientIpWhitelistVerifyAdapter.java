@@ -1,6 +1,7 @@
 package com.deepx.apicenter.adapter.auth;
 
 import com.deepx.apicenter.engine.AdapterContext;
+import com.deepx.apicenter.service.IpText;
 import org.springframework.stereotype.Component;
 
 /**
@@ -56,13 +57,8 @@ public class ClientIpWhitelistVerifyAdapter extends AbstractClientVerifyAdapter 
         }
     }
 
-    /** 逗号分隔名单的精确匹配（与 GatewayGuard / 档案名单同口径） */
+    /** 逗号分隔名单的精确匹配（与 GatewayGuard / 档案名单同口径）；**经 {@link IpText} 归一化**（`::1` ≡ `0:0:0:0:0:0:0:1`） */
     private static boolean listContains(String list, String ip) {
-        for (String part : list.split(",")) {
-            if (part.trim().equals(ip)) {
-                return true;
-            }
-        }
-        return false;
+        return IpText.listContains(list, ip);
     }
 }

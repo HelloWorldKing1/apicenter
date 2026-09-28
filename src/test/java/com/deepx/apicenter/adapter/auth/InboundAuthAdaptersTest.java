@@ -221,6 +221,19 @@ class InboundAuthAdaptersTest {
                 .isInstanceOf(BizException.class).hasMessageContaining("未配置白名单");
     }
 
+    @Test
+    void 仅IP名单_IPv6回环两种写法等价_名单写压缩形式也能命中() {
+        // 2026-09-25：套接字给的是 JDK 展开形式（0:0:0:0:0:0:0:1），而运维手写 ::1 —— 不做归一化就永远 40103
+        AdapterContext hit = ctx("{\"ipWhitelist\":\"::1, 127.0.0.1\"}", Map.of(), "{}", List.of());
+        hit.attrs().put("clientIp", "0:0:0:0:0:0:0:1");
+        assertThat(ip.process(hit).attrs()).containsEntry("inboundAuthPassed", true);
+
+        AdapterContext black = ctx("{\"ipBlacklist\":\"::1\"}", Map.of(), "{}", List.of());
+        black.attrs().put("clientIp", "0:0:0:0:0:0:0:1");
+        assertThatThrownBy(() -> ip.process(black))
+                .isInstanceOf(BizException.class).hasMessageContaining("黑名单");
+    }
+
     // ---------- 阶段直通 ----------
 
     @Test

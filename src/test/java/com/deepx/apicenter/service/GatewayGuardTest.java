@@ -87,6 +87,21 @@ class GatewayGuardTest {
     }
 
     @Test
+    void 来源地址_IPv6回环归一化_且名单两种写法都能命中() {
+        // 2026-09-25：本机 IPv6 直连时 remoteAddr 是 0:0:0:0:0:0:0:1（JDK 展开形式）——
+        // 若原样入审计/入名单比较，运维写 ::1 永远匹配不上（白名单 40103 / 按 IP 筛查不到）
+        assertThat(guard.resolveClientIp("0:0:0:0:0:0:0:1", null)).isEqualTo("::1");
+        assertThat(guard.resolveClientIp("::1", null)).isEqualTo("::1");
+
+        AppRow whitelist = app(null, null, "::1, 10.0.0.1", null);
+        assertThatCode(() -> guard.check(whitelist, "0:0:0:0:0:0:0:1")).doesNotThrowAnyException();
+        AppRow blacklist = app(null, null, null, "0:0:0:0:0:0:0:1");
+        assertThatThrownBy(() -> guard.check(blacklist, "::1"))
+                .isInstanceOf(BizException.class)
+                .satisfies(e -> assertThat(((BizException) e).getCode()).isEqualTo(40103));
+    }
+
+    @Test
     void 复位_清空限流与配额计数() {
         AppRow app = app(1, 1L, null, null);
         guard.check(app, "1.2.3.4"); // QPS 1 已耗尽

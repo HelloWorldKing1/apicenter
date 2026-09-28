@@ -44,7 +44,14 @@
 >
 > **C5 已落地（2026-09-24）**：**《入站鉴权手动验收测试方案》升 v3.0**（926 行，两条路径：A 兼容档保留 v2.0 十阶段；
 > **B 凭证池新增四阶段 31 步**：平台设置改即生效 / 不登记也能调 / 池逐级短路反证 / 单独吊销 + 开放集与恢复；
-> 附 A 补平台设置与凭证池 curl + 附 B 六项补充 + 附 D 误判 12 → **16 条**）；使用教程 **§4.4 重写为「入站鉴权（凭证池路径）」**
+> 附 A 补平台设置与凭证池 curl + 附 B 六项补充 + 附 D 误判 **23 条**）；**v3.0.1（2026-09-25）**：补 **P1.5 取管理面令牌**
+> （`$TOKEN`）—— 此前 P6 导种子 / 附 A 均未带 `Authorization`，而管理面鉴权默认开 ⇒ 实际会回 `40104`；
+> 又补 **S1.3 空表自查**（监控页各 Tab 只在页面挂载时加载一次，先开页后调接口 ⇒ 看到的是旧结果；
+> 同时前端修为**切 Tab 自动重拉该 Tab**，`Monitor.vue`）——当天定位到**真因**：`Monitor.vue` 的「告警」pane 漏 `</el-tab-pane>`
+> ⇒ 「接入鉴权」pane 被嵌进它（祖先 `display:none`）⇒ **内容区永久空白**（B4 `cc4d7dc` 引入，接口 200 有数据、无报错、lint/SSR 全绿）；
+> 已修 + 新增 `frontend/test/template-structure.test.mjs`（按**嵌套顺序**查 `el-tab-pane`，计数平衡查不出来）；
+> 另修 **摘要「未识别主体」恒 0**（谓词 `interface_code IS NULL` → `principal_type='UNVERIFIED'`，+ `MonitorStatsIntegrationTest` 增量断言）
+> ；使用教程 **§4.4 重写为「入站鉴权（凭证池路径）」**
 > （`调用方管理` 降级为 §4.5「可选：精确管控」）；项目说明 §2 边界与模型口径按 v1.2 修订；
 > 整体测试方案 **A 组 13 → 20 例**（A14–A20）+ R7 对齐 v3.0；前端 `Clients.vue` 加降级说明（"不登记也能调"）。|
 | 里程碑计划 | **M4 手动验收（方案已细化，2026-09-05）待完成；M5.3 压测执行（方案与脚本已就绪，见《M5压测报告.md》，执行后回填数据）+ M5 手动验收待排期**——M5 开发计划已评审定稿（2026-09-04 一轮 + 09-07 二轮），D-M5-1~3 即编码依据，总盘 9 人日 |
@@ -147,7 +154,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 
 入口：`ApicenterApplication.java`（`@SpringBootApplication` + `@EnableScheduling` + `@EnableResilientMethods`，后者启用 Spring 7 `@Retryable`）。
 
-前端 `frontend/`（Vue3 + Vite + Element Plus，M1 设计 §4）：`src/views/` **九页面**（Dashboard / Apps / Groups / **Clients 调用方管理** / Interfaces / **InboundAuth 入站鉴权（v1.2）** / Adapters / Monitor / Users 账号管理）+ `views/Login.vue`（登录/注册）+ `components/ParamTable` 参数编辑 + `components/CredentialEntry` 凭证卡片 + `components/PayloadViewer` 报文美化展示 + `components/ParamImportDialog` 参数快速导入 + `components/InterfaceStepsTab` 前置步骤编排（编排落地） + `utils/payload.mjs`（JSON/XML/form/头串扫描式缩进与 tokenizer，只增删空白）+ `utils/paramImport.mjs`（JSON→参数行推断，示例值取 token 原始切片）+ `utils/stepFields.mjs`（前置步骤输出 → 字段映射 source 分组）+ `utils/inboundAuth.mjs`（入站鉴权界面口径：设置差异/放松判定/确认文案/属主与状态标签，v1.2） + `utils/auth.mjs`（登录态：令牌存取/校验/防开放重定向）+ `utils/users.mjs`（账号管理操作许可镜像）+ `utils/prefs.mjs`（行号·折行·抽屉宽度记忆）+ `workers/payloadFormat.worker.mjs`（>256KB 后台格式化）+ `api/http.js` 统一信封解包；前端 `npm test` = 单测（Node 内置 test runner，83 例）+ 组件 SSR 冒烟（`test/ssr-smoke.mjs`，18 例）；`npm run lint` = ESLint（flat config，`--max-warnings 0`）。原型交互平移自 `doc/API中心原型.html`。管理面 REST 前缀 `/api/admin`（controller/admin 八个 Controller：应用 / 分组 / 接口 / 适配器 / 凭证 / 监控 / 认证 / 账号管理），统一信封 `{code, msg, data}`。Monitor 页 M4 已接真数据（统计卡 / 调用日志 / 对账 UNKNOWN / 死信 / 告警五区块）。
+前端 `frontend/`（Vue3 + Vite + Element Plus，M1 设计 §4）：`src/views/` **九页面**（Dashboard / Apps / Groups / **Clients 调用方管理** / Interfaces / **InboundAuth 入站鉴权（v1.2）** / Adapters / Monitor / Users 账号管理）+ `views/Login.vue`（登录/注册）+ `components/ParamTable` 参数编辑 + `components/CredentialEntry` 凭证卡片 + `components/PayloadViewer` 报文美化展示 + `components/ParamImportDialog` 参数快速导入 + `components/InterfaceStepsTab` 前置步骤编排（编排落地） + `utils/payload.mjs`（JSON/XML/form/头串扫描式缩进与 tokenizer，只增删空白）+ `utils/paramImport.mjs`（JSON→参数行推断，示例值取 token 原始切片）+ `utils/stepFields.mjs`（前置步骤输出 → 字段映射 source 分组）+ `utils/inboundAuth.mjs`（入站鉴权界面口径：设置差异/放松判定/确认文案/属主与状态标签，v1.2） + `utils/auth.mjs`（登录态：令牌存取/校验/防开放重定向）+ `utils/users.mjs`（账号管理操作许可镜像）+ `utils/prefs.mjs`（行号·折行·抽屉宽度记忆）+ `workers/payloadFormat.worker.mjs`（>256KB 后台格式化）+ `api/http.js` 统一信封解包；前端 `npm test` = 单测（Node 内置 test runner：`src/utils/**/*.test.mjs` 154 例 + `test/**/*.test.mjs` 1 例）+ 组件 SSR 冒烟（`test/ssr-smoke.mjs`，25 例）= **共 180 条断言**；其中 `test/template-structure.test.mjs` 按**嵌套顺序**检查所有 SFC 的 `el-tab-pane`（防「漏闭合 ⇒ 该 Tab 内容区永久空白」，2026-09-25）；`npm run lint` = ESLint（flat config，`--max-warnings 0`）。原型交互平移自 `doc/API中心原型.html`。管理面 REST 前缀 `/api/admin`（controller/admin 八个 Controller：应用 / 分组 / 接口 / 适配器 / 凭证 / 监控 / 认证 / 账号管理），统一信封 `{code, msg, data}`。Monitor 页 M4 已接真数据（统计卡 / 调用日志 / 对账 UNKNOWN / 死信 / 告警五区块）。
 
 ## 核心状态机与容错（设计 §6）
 
@@ -170,7 +177,7 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 ## 约定与注意事项（Gotchas）
 
 - **管理面已启用账号登录（2026-09-18）**：`/api/admin/**` 全部需要 `Authorization: Bearer <token>`（豁免 `/api/admin/auth/{login,register,status}`、`OPTIONS` 预检、静态资源与 `/actuator/health`）。
-  影响三处写法：① **curl / 文档示例**必须先登录取 token（《使用教程》§8.3）；② **集成测试**里直连管理面 HTTP 的类（`HttpErrorSemanticsTest` / M3 / M4 / M5 / `MonitorStatsIntegrationTest`）在 `@SpringBootTest(properties=...)` 中置 `app.api-center.auth.enabled=false`（它们不测认证），认证本身由 `AuthIntegrationTest` 用默认值覆盖；③ **新增管理面端点无需改任何东西**（过滤器按前缀统一拦），但新增**豁免**路径要显式加到 `AdminAuthFilter.EXEMPT`（且要想清楚：豁免 = 匿名可访问）。
+  影响三处写法：① **curl / 文档示例**必须先登录取 token（《使用教程》§10.5.3；验收类文档照着 `入站鉴权手动验收测试方案.md` **P1.5** 取 `$TOKEN` —— 漏带就是 `40104`）；② **集成测试**里直连管理面 HTTP 的类（`HttpErrorSemanticsTest` / M3 / M4 / M5 / `MonitorStatsIntegrationTest`）在 `@SpringBootTest(properties=...)` 中置 `app.api-center.auth.enabled=false`（它们不测认证），认证本身由 `AuthIntegrationTest` 用默认值覆盖；③ **新增管理面端点无需改任何东西**（过滤器按前缀统一拦），但新增**豁免**路径要显式加到 `AdminAuthFilter.EXEMPT`（且要想清楚：豁免 = 匿名可访问）。
   `auth.enabled=false` 是唯一总开关（应急回退/本地调试）；`allow-register=false` 时仍允许「首个账号」初始化。设计见《账号登录设计方案.md》。
 - **`AuthService.login()` 刻意不加 `@Transactional`（真坑，别加回去）**：登录失败要抛 `BizException`，同一事务会把「失败计数 +1」一起回滚 → 连续失败次数永远停在 1，**锁定形同虚设**（被 `AuthIntegrationTest#连续失败达阈值_锁定且正确密码也被拒` 抓到）。同类通用结论：**「先写库、再抛异常」的流程不要挂事务**（或把写库放 `REQUIRES_NEW`）。
 - **令牌步骤（`interface_step.step_kind=TOKEN`，2026-09-24 方案 B）**：把「先用 AK/SK 换 token，再调业务」里的**换发那一步**做成可缓存步骤
@@ -274,6 +281,26 @@ npm run build         # 构建产物输出到 src/main/resources/static/（后�
 - **列表列口径与应用数字 ID（2026-09-12）**：`app` 表新增 `id BIGINT AUTO_INCREMENT UNIQUE`（DDL 已应用到开发库；`schema.sql` 有迁移块），应用列表两列并存：「ID」= 数字 id、「应用标识」= `app_id`；凭证角标列已移除。**对外契约一律仍用 `app_id`**（URL `/apps/{appId}`、凭证归属、分组/接口引用、监控过滤、groupCount 子查询），`id` 仅作列表展示/运维引用——新增代码不要拿 `id` 当业务键。接口列表新增「ID」列（数字主键，普通表头不带 tooltip），「应用」列保持只显示应用名称。
 - **内存态清理钩子（2026-09-12）**：删接口/删应用/删告警规则时要清 `CircuitBreakerRegistry.evict` / `GatewayGuard.evict` / `AlertService.evictApp|evictRule`，新增「删除」入口请照此补。
 - **报文展示禁止 parse 重建（v0.3）**：调用日志 / 状态机 / Dashboard 的报文美化走 `utils/payload.mjs` 的**扫描式缩进**（只增删空白）——**不要**改成 `JSON.parse` + `stringify`（19 位数字尾数会被改写、`1.10`→`1.1`、重复键丢失）或 XML `DOMParser`（规范化 CDATA / 实体 / 属性引号）；新增展示点复用 `components/PayloadViewer.vue`，展示取值统一走 `pickPayloadText(analyzed, mode)`；高亮 tokenizer 需保持**无损**（token 拼接 = 输入，单测有断言），Worker 与 localStorage 必须做能力守卫（SSR 冒烟会跑）。**`<script setup>` 里的 computed/watcher 在 JS 中必须 `.value`**（只有模板自动解包）——曾因此让抽屉正文恒显占位符「—」，现由 `npm test`（单测 + 组件 SSR 冒烟）拦住；改格式化逻辑或组件绑定后必须跑 `cd frontend && npm test`。
+- **监控页各 Tab 的数据只在页面挂载时加载一次（2026-09-25 修）**：原先只有顶部总览卡 10s 轮询，其余（调用日志 / 状态机 / 死信 / 告警 / **接入鉴权**）只在 `onMounted` 拉一次 + 手动「查询」。
+  后果：**先开监控页、再去调接口**（验收 S1.3 的标准动作，因为 P4 要先记录基线）⇒ 切过去看到的是**旧结果**，极易误判为「审计没写」。
+  现 `Monitor.vue` 加 `@tab-change="onTabChange"`（按 Tab 名重拉该 Tab 当前页；分页不重置）。新增 Tab / 新增列表时**照此挂钩**，否则又是一个「数据明明是新的、页面却空着」的坑。
+- **`<el-tab-pane>` 漏闭合 = 该 Tab 内容区永久空白（2026-09-25 定位，真 bug）**：Vue 编译器**宽容解析**不报错，缺闭合会让下一个 pane **被嵌进上一个 pane**；
+  点它时自身 `v-show` 为真，但**祖先 pane 是 `display:none`** ⇒ 内容区一片空白。
+  **迷惑性极大**：Tab 可点、**接口 200 且有数据**、控制台无报错、`npm run lint` 与 SSR 冒烟全绿（SSR 会把所有 pane 都渲染出来，跑不出可见性逻辑）
+  ⇒ 「Monitor 接入鉴权 Tab 空白」从 B4（`cc4d7dc`）一直藏到 2026-09-25。
+  **防线**：`frontend/test/template-structure.test.mjs` 按**嵌套顺序**查所有 SFC 的 `el-tab-pane`（**计数平衡 6/6 查不出来**，必须查「下一个 pane 开始前是否已闭合」；反证已做，报错带行号）。
+  **排查「数据有、页面空」的顺序**：DB 直查 → curl 直打接口（带令牌）→ **F12 看该元素的祖先是不是 `display:none`** → 才怀疑后端。
+- **来源 IP 归一化（2026-09-25，改 IP 相关代码前必读）**：`IpText`（`service/`）是**唯一口径**：
+  IPv6 压成 RFC 5952（`0:0:0:0:0:0:0:1` → `::1`）、`::ffff:a.b.c.d` → `a.b.c.d`、`%scope` 保留、解析失败原样返回不抛。
+  它在**唯一解析点** `GatewayGuard.resolveClientIp` 出口生效 ⇒ 落库 / 展示 / 比较全统一；三处名单匹配
+  （`GatewayGuard.matchesList` / `ClientAuthVerifier.contains` / `ClientIpWhitelistVerifyAdapter.listContains`）均走 `IpText.listContains`。
+  **新增任何「人写的 IP 名单 / IP 筛选」都要走它** —— 否则「套接字给展开形式、人写压缩形式」会**静默不命中**（白名单配了却 40103）。
+  `xff_chain` **不归一化**（原始证据）。回归：`IpTextTest`(7) + `GatewayGuardTest` + `InboundAuthAdaptersTest`。
+- **监控摘要「未识别主体」口径（2026-09-25 修）**：原用 `interface_code IS NULL` 统计 ⇒ **恒 0**（能进闸门的请求必然路由命中、必有 code）；
+  现为 `principal_type='UNVERIFIED'`（未带主体标识 / 自报未命中档案；回调 `SUPPLIER` 与已验证 `CLIENT` 不计入）。实测近 24h：旧 0 / 新 56（总 66）。
+  教训：**聚合/卡片字段最容易因「没人断言」而漂掉**，新增聚合字段配一条断言。
+- **路由未命中 = 不写接入鉴权审计（设计如此，不是缺陷）**：调 `/{平台侧路径}` 时若 `interface.path` 没匹配上（拼错 / 类型不对 / 库中不存在），`routed == null` ⇒ 既不进闸门也不落运行表，
+  `access_auth_log` **一条都不会有**。排查 S1.3 空表时**先看 S1.2 的响应是不是 `code:0`** —— 不是就先修路由，别再怀疑鉴权/审计。
 - **更多 Spring 7 / Jackson 3 / WireMock 3 踩坑**：见 `doc/开发文档/记录/技术踩坑记录.md`（写代码前先查）。
 - **术语口径（2026-09-08 定稿）**：用户可见文案与文档用「**供应商**」表被代理的角色（供应商 5xx/拒绝/超时/返回、依赖供应商幂等）、「**供应商接口路径**」表出站路径；`upstreamPath` / `upstream_path` / `UpstreamInvoker` 为稳定契约与内部标识**不改名**；链路方向叙述（调供应商）与代码内部注释可保留「上游」。勿引入「第三方」作主术语（与平台客户歧义）。
 - 旧 demo 实现仅供参考（git 历史 `ed95446` 及之前），不照搬渠道特化逻辑（PARTNER_A/B、订单字段、高水位同步均不适用于新设计）。

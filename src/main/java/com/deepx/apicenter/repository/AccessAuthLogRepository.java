@@ -128,8 +128,14 @@ public class AccessAuthLogRepository {
                 + "AND created_at >= ? AND created_at <= ?", Long.class, from, to);
         Long reject = jdbc.queryForObject("SELECT COUNT(*) FROM access_auth_log WHERE result = 'REJECT' "
                 + "AND created_at >= ? AND created_at <= ?", Long.class, from, to);
-        Long unknown = jdbc.queryForObject("SELECT COUNT(*) FROM access_auth_log WHERE interface_code IS NULL "
-                + "AND created_at >= ? AND created_at <= ?", Long.class, from, to);
+        // 「未识别主体」= **没有可验证/自报主体**的调用方请求（2026-09-25 修正）：
+        //   原谓词是 `interface_code IS NULL` ⇒ 恒为 0（能走到闸门的请求必然路由命中、必然有 interface_code），
+        //   与验收 S1.4「未识别主体 ≥ 1」直接矛盾（观察期最想看的就是这个数）。
+        //   改为看**主体类型**：UNVERIFIED = 未带主体标识 / 自报但未命中档案；
+        //   回调方向（SUPPLIER）与已验证主体（CLIENT）自然不计入。
+        Long unknown = jdbc.queryForObject("SELECT COUNT(*) FROM access_auth_log "
+                + "WHERE principal_type = 'UNVERIFIED' AND created_at >= ? AND created_at <= ?",
+                Long.class, from, to);
         List<String> reasons = jdbc.queryForList("SELECT CONCAT(IFNULL(error_code,'-'), ' × ', COUNT(*)) AS r "
                 + "FROM access_auth_log WHERE result = 'REJECT' AND created_at >= ? AND created_at <= ? "
                 + "GROUP BY error_code ORDER BY COUNT(*) DESC LIMIT 5", String.class, from, to);

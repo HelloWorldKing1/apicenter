@@ -12,7 +12,7 @@
     </el-row>
 
     <el-card shadow="never" style="margin-top: 16px">
-      <el-tabs v-model="tab">
+      <el-tabs v-model="tab" @tab-change="onTabChange">
         <!-- ============ Tab 1 总览 ============ -->
         <el-tab-pane label="总览" name="overview">
           <div class="panel-head">
@@ -233,6 +233,7 @@
             <el-pagination background layout="total, prev, pager, next" :total="alertTotal"
                            :page-size="20" :current-page="alertPage" @current-change="loadAlerts" />
           </div>
+        </el-tab-pane>
         <!-- ============ Tab 6 接入鉴权（B4：调用方鉴权 / 回调验签的判定留痕） ============ -->
         <el-tab-pane label="接入鉴权" name="accessauth">
           <div class="filters">
@@ -296,7 +297,6 @@
             <el-pagination background layout="total, prev, pager, next" :total="accessLogTotal"
                            :page-size="20" :current-page="authFilter.page" @current-change="onAuthPageChange" />
           </div>
-        </el-tab-pane>
         </el-tab-pane>
       </el-tabs>
     </el-card>
@@ -604,6 +604,29 @@ async function loadAccessLogs(page) {
 
 function onAuthPageChange(p) {
   loadAccessLogs(p)
+}
+
+/**
+ * 切 Tab 时刷新**该 Tab 自己的**数据：各区块只在页面打开时加载一次（只有总览卡是 10s 轮询），
+ * 因此「先打开监控页、再去调接口」时切过来会是空表（2026-09-25 入站鉴权验收 S1.3 踩到）。
+ * 分页保持不变，只重新拉当前页。
+ */
+function onTabChange(name) {
+  if (name === 'accessauth') {
+    loadAccessLogs(authFilter.page)
+    loadAuthSummary()
+  } else if (name === 'logs') {
+    loadLogs(logPage.value)
+  } else if (name === 'queue') {
+    loadQueue(queuePage.value)
+  } else if (name === 'dead') {
+    loadDeadLetters(deadPage.value)
+  } else if (name === 'alerts') {
+    loadAlerts(alertPage.value)
+    loadRules()
+  } else if (name === 'overview') {
+    loadOverview()
+  }
 }
 
 async function loadAuthSummary() {

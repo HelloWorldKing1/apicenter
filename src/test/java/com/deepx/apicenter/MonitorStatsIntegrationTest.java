@@ -198,6 +198,38 @@ class MonitorStatsIntegrationTest {
         }
     }
 
+    /**
+     * 摘要「未识别主体」口径回归（2026-09-25 修正）：原谓词 `interface_code IS NULL` 恒为 0
+     * （能进闸门的请求必然路由命中 ⇒ `interface_code` 非空）⇒ 验收 S1.4 永远看到 0。
+     * 现口径 = `principal_type = 'UNVERIFIED'`；本用例用**增量断言**（对共享开发库稳健）：
+     * 插 1 条 UNVERIFIED（带 interface_code，旧口径不会算）+ 1 条 SUPPLIER（不带 interface_code，旧口径会误算），
+     * 期望 unknownPrincipal 只 **+1**（只算前者）。
+     */
+    @Test
+    void 摘要未识别主体口径_只算自报未验证_不含回调方向() {
+        var from = java.time.LocalDateTime.now().minusHours(24);
+        var to = java.time.LocalDateTime.now().plusMinutes(1);
+        long before = accessAuthLogRepository.summary(from, to).unknownPrincipal();
+        String unverified = "s1-unverified-" + System.nanoTime();
+        String supplier = "s1-supplier-" + System.nanoTime();
+        accessAuthLogRepository.insertBatch(List.of(
+                new AccessAuthLogRepository.AccessAuthLogEntry(
+                        unverified, "INBOUND_CALL", "UNVERIFIED", null, null,
+                        ifaceId, "IF-M4-STATS", "NONE", null,
+                        "PASS", null, "未启用调用方鉴权（mode=OFF）", "127.0.0.1", null, "curl/8", 0L, null, null),
+                new AccessAuthLogRepository.AccessAuthLogEntry(
+                        supplier, "CALLBACK", "SUPPLIER", TEST_APP, "监控统计测试",
+                        null, null, "HMAC-SHA256", "ADP-CB",
+                        "PASS", null, "回调方向：结果由链内验签回填", "127.0.0.1", null, "curl/8", null, null, null)));
+        try {
+            assertThat(accessAuthLogRepository.summary(from, to).unknownPrincipal())
+                    .as("未识别主体 = 未带主体标识的调用方请求（UNVERIFIED），回调方向 SUPPLIER 不计入")
+                    .isEqualTo(before + 1);
+        } finally {
+            jdbcTemplate.update("DELETE FROM access_auth_log WHERE trace_id IN (?, ?)", unverified, supplier);
+        }
+    }
+
     private void waitFor(String path, String expectedToken) {
         long deadline = System.currentTimeMillis() + 8000;
         while (System.currentTimeMillis() < deadline) {

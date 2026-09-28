@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "npm run test:unit && npm run test:ssr",
-    "test:unit": "node --test \"src/utils/**/*.test.mjs\"",
+    "test:unit": "node --test \"src/utils/**/*.test.mjs\" \"test/**/*.test.mjs\"",
     "test:ssr": "vite build --ssr test/ssr-smoke.mjs --outDir dist/ssr-smoke --emptyOutDir --logLevel error && node dist/ssr-smoke/ssr-smoke.mjs",
     "lint": "eslint . --max-warnings 0"
   },
