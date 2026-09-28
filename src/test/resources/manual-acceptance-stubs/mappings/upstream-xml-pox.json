@@ -1,0 +1,9 @@
+{
+  "name": "XML(POX) 目标：返回一段 POX 响应（验出站 XML 与响应解包）",
+  "request": { "method": "POST", "url": "/up-xml" },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "text/xml; charset=UTF-8" },
+    "body": "<response><code>0</code><data><id>7</id><items><item><id>1</id></item></item></items></data></response>"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "业务接口：成功 + 回显收到的鉴权头（便于核对签名/token 注入）",
+  "request": { "method": "POST", "url": "/up-business" },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "code": 0,
+      "msg": "ok",
+      "echo": {
+        "authorization": "{{request.headers.Authorization}}",
+        "apiKey": "{{request.headers.X-Api-Key}}",
+        "sdkDate": "{{request.headers.X-Sdk-Date}}",
+        "tcTimestamp": "{{request.headers.X-TC-Timestamp}}",
+        "acsDate": "{{request.headers.x-acs-date}}",
+        "amzDate": "{{request.headers.X-Amz-Date}}"
+      }
+    }
+  }
+}

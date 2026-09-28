@@ -1,0 +1,5 @@
+{
+  "name": "慢响应 5s（读超时 → UNKNOWN；把接口读超时设 < 5000ms 触发）",
+  "request": { "method": "POST", "url": "/up-slow" },
+  "response": { "status": 200, "fixedDelayMilliseconds": 5000, "body": "{\"code\":0}" }
+}

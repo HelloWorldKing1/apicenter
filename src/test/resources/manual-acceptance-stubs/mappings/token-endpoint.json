@@ -1,0 +1,9 @@
+{
+  "name": "换 token 接口：返回 access_token + 有效期（令牌步骤验收用）",
+  "request": { "method": "POST", "url": "/up-token" },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "code": 0, "access_token": "TOK-MANUAL-1234567890", "expires_in": 300 }
+  }
+}
