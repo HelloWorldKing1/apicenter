@@ -64,6 +64,16 @@
 
       <el-table :data="pool" v-loading="poolLoading" size="small" border style="margin-top: 10px">
         <el-table-column prop="id" label="ID" width="70" />
+        <!-- 属主列（2026-09-24）：接口池要能看出「这是哪个接口的凭证」⇒ 显示接口 ID 与接口名称 -->
+        <el-table-column v-if="ownerType === 'INTERFACE'" prop="ownerId" label="接口 ID" width="86" />
+        <el-table-column v-if="ownerType === 'INTERFACE'" label="接口名称" min-width="170" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.ownerName || '—' }}</template>
+        </el-table-column>
+        <el-table-column v-if="ownerType === 'CLIENT'" label="调用方" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.ownerName || '—' }}<span class="muted">（{{ row.ownerId }}）</span>
+          </template>
+        </el-table-column>
         <el-table-column label="类型" width="130">
           <template #default="{ row }">{{ kindLabel(row.kind) }}</template>
         </el-table-column>

@@ -168,6 +168,8 @@ class ClientAuthGateIntegrationTest {
             jdbc.update("DELETE FROM client_credential WHERE id = ?", id);
         }
         createdCredentialIds.clear();
+        // 自愈：清掉本类用例标签的残留（只动自己两条标签，绝不碰人工验收发放的凭证）
+        jdbc.update("DELETE FROM client_credential WHERE label IN ('B3 开放集用例','接口绑定用例')");
     }
 
     // ---------- 用例 ----------

@@ -2,6 +2,8 @@ package com.deepx.apicenter.service;
 
 import com.deepx.apicenter.dto.CredentialDtos.CredentialIssuedView;
 import com.deepx.apicenter.dto.CredentialDtos.CredentialView;
+import com.deepx.apicenter.model.ClientAppRow;
+import com.deepx.apicenter.model.InterfaceRow;
 import com.deepx.apicenter.dto.CredentialDtos.PrepareRequest;
 import com.deepx.apicenter.dto.CredentialDtos.UpdateRequest;
 import com.deepx.apicenter.exception.BizException;
@@ -52,7 +54,27 @@ public class InboundCredentialService {
         CredentialOwner owner = resolveOwner(ownerType);
         String normalized = normalizeOwnerId(owner, ownerId);
         requireOwnerExists(owner, normalized);
-        return store.listViews(owner, normalized);
+        // 凭证池列表要能回答「这是哪个接口 / 哪个调用方的凭证」⇒ 解析属主展示名（一次查询，属主唯一）
+        String ownerName = resolveOwnerName(owner, normalized);
+        return store.listViews(owner, normalized).stream()
+                .map(v -> new CredentialView(v.id(), v.kind(), v.status(), v.fingerprint(),
+                        v.activatedAt(), v.retiredAt(), v.rotatingUntil(), v.expired(), v.label(),
+                        v.ownerType(), v.ownerId(), ownerName))
+                .toList();
+    }
+
+    /** 属主展示名：平台池固定文案；接口池取接口名；档案池取调用方名（属主已删除时给出可读提示） */
+    private String resolveOwnerName(CredentialOwner owner, String ownerId) {
+        return switch (owner) {
+            case PLATFORM -> "平台共享池";
+            case INTERFACE -> interfaceRepository.findById(Long.parseLong(ownerId))
+                    .map(InterfaceRow::name)
+                    .orElse("（接口已删除：id=" + ownerId + "）");
+            case CLIENT -> clientAppRepository.findById(ownerId)
+                    .map(ClientAppRow::name)
+                    .orElse("（调用方已删除：" + ownerId + "）");
+            default -> null;
+        };
     }
 
     /** 新增 / 轮换（平台生成随机值）：入 `ROTATING` 待激活，明文仅响应回显一次 */

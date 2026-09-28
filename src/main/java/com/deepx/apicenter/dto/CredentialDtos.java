@@ -35,7 +35,15 @@ public final class CredentialDtos {
             long id, String kind, String status, String fingerprint,
             LocalDateTime activatedAt, LocalDateTime retiredAt,
             LocalDateTime rotatingUntil, boolean expired,
-            String label
+            String label,
+            /**
+             * 属主信息（2026-09-24 新增，凭证池列表用）：`ownerType` 取 `CredentialOwner` 名
+             * （`PLATFORM` / `INTERFACE` / `CLIENT` / `APP`）、`ownerId` 是属主标识
+             * （接口 = **接口数字 id**、调用方 = client_id、平台 = null）、`ownerName` 是**展示名**
+             * （接口名 / 调用方名 / "平台共享池"；属主已删除时给出可读提示）。
+             * <p>应用凭证路径（`/apps/{appId}/credentials`）这三个字段为 `null`。
+             */
+            String ownerType, String ownerId, String ownerName
     ) {
     }
 

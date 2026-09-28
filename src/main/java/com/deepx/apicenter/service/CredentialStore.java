@@ -46,7 +46,8 @@ public class CredentialStore {
                 .map(r -> new CredentialView(r.id(), r.kind(), r.status(), fingerprintOf(r.credential()),
                         r.activatedAt(), r.retiredAt(), r.rotatingUntil(),
                         "ROTATING".equals(r.status()) && r.rotatingUntil() != null && r.rotatingUntil().isBefore(now),
-                        r.label()))
+                        r.label(),
+                        owner.name(), ownerId, null))   // ownerName 由 InboundCredentialService 解析（机制层不认识接口/调用方）
                 .toList();
     }
 
