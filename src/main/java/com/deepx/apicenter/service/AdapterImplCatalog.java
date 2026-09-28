@@ -42,7 +42,9 @@ public class AdapterImplCatalog {
                     f("tokenSource", "Token 取值(模型路径)", "text", false, null,
                             "可选：从模型点路径取 token（如 steps.auth.access_token）—— 用于「先换 Token 再调业务」；填了优先于凭证"))),
             new ImplMeta("CloudSignatureAdapter", "auth", "云厂商签名", List.of(
-                    f("scheme", "签名规范", "select", true, List.of("TC3-HMAC-SHA256", "AWS4-HMAC-SHA256", "ACS3-HMAC-SHA256"), null),
+                    f("scheme", "签名规范", "select", true,
+                            List.of("TC3-HMAC-SHA256", "ACS3-HMAC-SHA256", "AWS4-HMAC-SHA256", "SDK-HMAC-SHA256"),
+                            "腾讯云 / 阿里云 V3 / AWS SigV4 / 华为云；各家差异已在适配器内处理（URI 结尾、时间戳格式、密钥派生）"),
                     f("secretId", "SecretId", "secret", false, null, "凭证值在「应用管理 → 新建/编辑应用 → 凭证卡片」中维护"),
                     f("secretKey", "SecretKey", "secret", false, null, "凭证值在「应用管理 → 新建/编辑应用 → 凭证卡片」中维护"),
                     f("service", "服务名", "text", true, null, "如 cvm / sts"),

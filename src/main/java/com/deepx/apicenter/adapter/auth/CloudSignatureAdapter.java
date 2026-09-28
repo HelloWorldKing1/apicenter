@@ -40,7 +40,12 @@ import java.util.TreeMap;
  *   <li>{@code ACS3-HMAC-SHA256}（阿里云 V3）：同形六段 + `Authorization: ACS3-HMAC-SHA256 Credential=<AK>,SignedHeaders=…,Signature=…`，
  *       必带 `x-acs-date`（ISO8601 UTC）与 `x-acs-content-sha256`（body 哈希）；</li>
  *   <li>{@code AWS4-HMAC-SHA256}（AWS SigV4）：同形六段 + `Authorization: AWS4-HMAC-SHA256 Credential=<AK>/<date>/<region>/<service>/aws4_request, …`，
- *       必带 `x-amz-date`（`yyyyMMdd'T'HHmmss'Z'`）与 `x-amz-content-sha256`；临时凭证带 `x-amz-security-token`。</li>
+ *       必带 `x-amz-date`（`yyyyMMdd'T'HHmmss'Z'`）与 `x-amz-content-sha256`；临时凭证带 `x-amz-security-token`</li>
+ *   <li>{@code SDK-HMAC-SHA256}（华为云，2026-09-24 第二批）：同形六段 + `Authorization: SDK-HMAC-SHA256 Access=<AK>, SignedHeaders=…, Signature=…`，
+ *       必带 `X-Sdk-Date`（`yyyyMMdd'T'HHmmss'Z'`，**必须参与签名**，网关容差 15 分钟）；
+ *       **两处华为专属差异**：① 计算签名时 **CanonicalURI 必须以 `/` 结尾**（发送时可不带）；② 签名 = **直接** `hex(HMAC-SHA256(SK, StringToSign))`
+ *       （**不做密钥派生、不拼前缀**），StringToSign = `SDK-HMAC-SHA256\nX-Sdk-Date\nhex(sha256(CanonicalRequest))`；
+ *       临时凭证带 `X-Security-Token`。已用官方文档示例的 `HashedCanonicalRequest` 做回归（见 `CloudSignatureAdapterTest`）</li>
  * </ul>
  * 三者的**签名密钥派生不同**（见 {@link #signingKey}），这是最容易写错的地方 —— 已按各自文档实现并回归。
  *
@@ -106,10 +111,11 @@ public class CloudSignatureAdapter implements Adapter {
             case "TC3-HMAC-SHA256" -> signTc3(ctx, cred, service, signNames);
             case "ACS3-HMAC-SHA256" -> signAcs3(ctx, cred, signNames);
             case "AWS4-HMAC-SHA256" -> signAws4(ctx, cred, service, region, signNames);
+            case "SDK-HMAC-SHA256" -> signHuawei(ctx, cred, signNames);
             default -> throw BizException.fieldInvalid(
                     "云厂商签名：暂不支持的 scheme = " + scheme
-                            + "（当前支持 TC3-HMAC-SHA256 / ACS3-HMAC-SHA256 / AWS4-HMAC-SHA256；"
-                            + "华为 SDK-HMAC-SHA256 等列为下一批（避免「猜算法」导致全线 401）");
+                            + "（当前支持 TC3-HMAC-SHA256 / ACS3-HMAC-SHA256 / AWS4-HMAC-SHA256 / SDK-HMAC-SHA256；"
+                            + "其余暂不支持，避免「猜算法」导致全线 401）");
         }
         return ctx;
     }
@@ -216,6 +222,41 @@ public class CloudSignatureAdapter implements Adapter {
         ctx.outbound().header("Authorization", auth);
     }
 
+    /**
+     * 华为云 `SDK-HMAC-SHA256`：与另三家**同形六段**，但有三个华为专属点：
+     * ① **CanonicalURI 必须以 `/` 结尾**（官方原话："计算签名时，URI 必须以 / 结尾。发送请求时，可以不以 / 结尾"）；
+     * ② StringToSign 只有三段（`SDK-HMAC-SHA256\nX-Sdk-Date\nhex(sha256(CanonicalRequest))`），**没有 credential scope**；
+     * ③ 签名 = **直接** `hex(HMAC-SHA256(SK, StringToSign))`（不像 TC3/AWS4 那样派生密钥链）。
+     */
+    private void signHuawei(AdapterContext ctx, Cred cred, List<String> signNames) {
+        long now = Instant.now().getEpochSecond();
+        String sdkDate = isoBasicUtc(now);                    // 20191115T033655Z
+        String payloadHash = sha256Hex(body(ctx));
+
+        Map<String, String> signed = new TreeMap<>();
+        signed.put("content-type", header(ctx, "Content-Type", "application/json"));
+        signed.put("host", hostOf(ctx));
+        signed.put("x-sdk-date", sdkDate);                    // 官方要求：X-Sdk-Date 必须参与签名
+        for (String name : signNames) {
+            signed.put(name.toLowerCase(Locale.ROOT), header(ctx, name, ""));
+        }
+
+        String canonicalRequest = canonicalRequest(ctx.outbound().method(), canonicalUri(ctx, true),
+                canonicalQuery(ctx), signed, payloadHash);
+        String stringToSign = "SDK-HMAC-SHA256\n" + sdkDate + "\n"
+                + sha256Hex(canonicalRequest.getBytes(StandardCharsets.UTF_8));
+        String signature = hex(hmac(cred.secretKey().getBytes(StandardCharsets.UTF_8), stringToSign));
+
+        ctx.outbound().header("X-Sdk-Date", sdkDate);
+        applySignedHeaders(ctx, signed);
+        if (cred.token() != null) {
+            ctx.outbound().header("X-Security-Token", cred.token());   // 临时访问密钥（临时 AK/SK 必须同时带）
+        }
+        // 注意：算法与 Access 之间是**空格**，SignedHeaders/Signature 之前是**逗号**（官方伪代码特别强调）
+        ctx.outbound().header("Authorization", "SDK-HMAC-SHA256 Access=" + cred.secretId()
+                + ", SignedHeaders=" + String.join(";", signed.keySet()) + ", Signature=" + signature);
+    }
+
     // ---------- 规范请求串 ----------
 
     /**
@@ -225,35 +266,73 @@ public class CloudSignatureAdapter implements Adapter {
      * @param payloadHash 显式第 6 段（TC3 用）；传 {@code null} 表示"哈希已作为已签名头承载"（ACS3/AWS4）
      */
     private String canonicalRequest(AdapterContext ctx, Map<String, String> signedHeaders, String payloadHash) {
+        return canonicalRequest(ctx.outbound().method(), canonicalUri(ctx), canonicalQuery(ctx),
+                signedHeaders, payloadHash);
+    }
+
+    /**
+     * 纯函数版规范请求串（**便于用官方示例做回归**：不依赖 AdapterContext）。
+     * 各家的"规范请求串"形状一致，差异只在**如何算 CanonicalURI/CanonicalQuery** 与**密钥派生**（后者在各自 sign* 里）。
+     */
+    static String canonicalRequest(String method, String canonicalUri, String canonicalQuery,
+                                   Map<String, String> signedHeaders, String payloadHash) {
         StringBuilder canonicalHeaders = new StringBuilder();
         for (Map.Entry<String, String> e : signedHeaders.entrySet()) {
             canonicalHeaders.append(e.getKey()).append(':').append(e.getValue().trim()).append('\n');
         }
         String signedNames = String.join(";", signedHeaders.keySet());
-        String sixth = payloadHash != null ? payloadHash : "";
-        return ctx.outbound().method().toUpperCase(Locale.ROOT) + "\n"
-                + canonicalUri(ctx) + "\n"
-                + canonicalQuery(ctx) + "\n"
+        return method.toUpperCase(Locale.ROOT) + "\n"
+                + canonicalUri + "\n"
+                + canonicalQuery + "\n"
                 + canonicalHeaders + "\n"
                 + signedNames + "\n"
-                + sixth;
+                + (payloadHash == null ? "" : payloadHash);
+    }
+
+    /** 纯函数版 sha256（供测试复算官方示例的哈希） */
+    static String sha256HexOf(String text) {
+        return sha256Hex(text.getBytes(StandardCharsets.UTF_8));
     }
 
     /** 规范化 URI：路径原样（云厂商均要求"已编码的路径"，我们不做二次编码，避免把 %2F 变 %252F） */
     private String canonicalUri(AdapterContext ctx) {
-        String path = URI.create(ctx.outbound().url()).getRawPath();
-        return path == null || path.isBlank() ? "/" : path;
+        return canonicalUri(ctx, false);
     }
 
-    /** 规范化查询串：按 key 排序后 `a=1&b=2`（空则空串 ✓ 三家都要求 POST 场景为空串） */
+    /** @param trailingSlash 华为云要求"计算签名时 URI 必须以 / 结尾"（发送请求时可省） */
+    private String canonicalUri(AdapterContext ctx, boolean trailingSlash) {
+        String path = URI.create(ctx.outbound().url()).getRawPath();
+        String normalized = path == null || path.isBlank() ? "/" : path;
+        if (trailingSlash && !normalized.endsWith("/")) {
+            normalized = normalized + "/";
+        }
+        return normalized;
+    }
+
+    /**
+     * 规范化查询串：**按参数名（字符码/ASCII）升序**排序后 `a=1&b=2`；无参数 ⇒ 空串（四家一致）。
+     *
+     * <p>保留调用方已编码的字面值（不做二次编码，避免把 `%2F` 变成 `%252F`）；按 (名, 值) 排序而不是整段排，
+     * 因为名里可能含 `-`/`.` 等字符 —— 整段排序在 `a=1` 与 `a-1=2` 这类组合上与规范要求**顺序不同**。
+     */
     private String canonicalQuery(AdapterContext ctx) {
         String query = URI.create(ctx.outbound().url()).getRawQuery();
         if (query == null || query.isBlank()) {
             return "";
         }
-        List<String> parts = new ArrayList<>(List.of(query.split("&")));
-        parts.sort(String::compareTo);
-        return String.join("&", parts);
+        record Pair(String name, String value, String raw) {
+        }
+        List<Pair> pairs = new ArrayList<>();
+        for (String part : query.split("&")) {
+            if (part.isBlank()) {
+                continue;
+            }
+            int idx = part.indexOf('=');
+            pairs.add(idx < 0 ? new Pair(part, "", part)
+                    : new Pair(part.substring(0, idx), part.substring(idx + 1), part));
+        }
+        pairs.sort(java.util.Comparator.comparing(Pair::name).thenComparing(Pair::value));
+        return String.join("&", pairs.stream().map(Pair::raw).toList());
     }
 
     /** 把参与签名的头（除 Authorization 自身）落回真实请求（`host` 由 HTTP 客户端自动带，不重复加） */

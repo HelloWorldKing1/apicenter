@@ -153,7 +153,8 @@
 | 前端 | `adapterUsage.mjs` 把 `CloudSignatureAdapter`（及 `HmacAuthAdapter`）归入「仅出站签名」侧（**不能**当回调验签选） |
 | **方案 B（换 Token）✅ 已落地（2026-09-24，B1 后端 + 前端）** | `interface_step` 增 `step_kind`（HTTP / **TOKEN**）与 `token_config`（JSON）；`TokenStepConfig`（**保存期校验与运行时同一解析**，`ttlMode` 四种语义）；**`TokenCache`**（内存 + **提前刷新窗口** + 按 interfaceId 失效 + 指标 + 上限）；`PreStepExecutor` 命中缓存**跳过整个 HTTP**；token 以 `steps.<步骤>.access_token` / `expires_at` 规范化暴露；三个出站鉴权适配器新增 **`tokenSource`**（模型点路径优先于凭证）；前端「前置步骤」Tab 可配令牌步骤；**测试 18 例前置编排集成 + 10 例单测**（含"命中缓存不重复换发"与"**token 明文落 call_log 被脱敏**"的正反断言）。**已知限制**：冷启动并发穿透（记 P2） |
 | 方案 C | C1（入站云风格验签）未排期；**C2（平台对外签发 token）明确不做**（需求方 2026-09-24 决策） |
-| 仍缺（backlog） | `CloudCallbackSignatureAdapter`（云厂商回调验签：腾讯事件 / AWS SNS / 阿里回调）；华为 `SDK-HMAC-SHA256` 与更多 scheme（**显式 40001 挡住**，不会错签） |
+| 已补第二批（2026-09-24） | **华为 `SDK-HMAC-SHA256`** 已实现（`CloudSignatureAdapter` 现支持四家：腾讯 TC3 / 阿里 V3 / AWS SigV4 / 华为 SDK）；**用官方文档示例的 `HashedCanonicalRequest`（`b25362e6…`）做了逐字节回归**——即「规范请求串与华为网关完全一致」，这类离线验证比「结构看起来对」强得多。华为专属差异：签名时 **URI 末尾补 `/`**、**直接** `HMAC-SHA256(SK, StringToSign)`（不派生）、临时凭证头 `X-Security-Token`、`X-Sdk-Date` **15 分钟**容差 |
+| 仍缺（backlog） | `CloudCallbackSignatureAdapter`（云厂商回调验签：腾讯事件 / AWS SNS / 阿里回调）；更多 scheme（**显式 40001 挡住**，不会错签） |
 
 ## 8. 需要你确认的三件事
 

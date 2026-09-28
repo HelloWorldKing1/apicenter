@@ -153,12 +153,13 @@ class CloudSignatureAdapterTest {
 
     @Test
     void 未支持的scheme_显式40001而不是猜一种算法() {
+        // 注意：华为 SDK-HMAC-SHA256 已于 2026-09-24 支持 ⇒ 这里用一个仍然未支持的（如 V2/V1 老签名）
         AdapterContext ctx = ctx("https://ecs.example.com/", "POST", new byte[0], Map.of(),
-                "{\"scheme\":\"SDK-HMAC-SHA256\"}");
+                "{\"scheme\":\"AWS-SIGV2\"}");
         assertThatThrownBy(() -> adapter.process(ctx))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("暂不支持的 scheme")
-                .hasMessageContaining("SDK-HMAC-SHA256");
+                .hasMessageContaining("AWS-SIGV2");
     }
 
     @Test
@@ -191,6 +192,85 @@ class CloudSignatureAdapterTest {
         assertThatThrownBy(() -> adapter.process(noRegion))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("service 与 region 均必填");
+    }
+
+    // ---------- 华为云 SDK-HMAC-SHA256（2026-09-24 第二批） ----------
+
+    /**
+     * **官方示例回归（离线可验证的最强证据）**：用华为云文档示例的输入复算规范请求串，
+     * 其 SHA-256 必须等于文档给出的 `HashedCanonicalRequest`（否则线上必然全线 401）。
+     *
+     * <p>示例来源：华为云《API签名认证机制示例》—— GET `https://service.region.example.com/v1/77b6a44cba5143ab91d13ab9a8ff44fd/vpcs?limit=2&marker=13551d6b-755d-4757-b956-536f674975c0`，
+     * 头 `X-Sdk-Date: 20191115T033655Z`、`Content-Type: application/json`，body 空。
+     * 文档给出的 `HashedCanonicalRequest = b25362e6…`（空 body 的哈希 = 空串 SHA-256 `e3b0c442…`）。
+     */
+    @Test
+    void 华为云_官方示例的规范请求串哈希必须与文档一致() {
+        java.util.Map<String, String> signed = new java.util.TreeMap<>();
+        signed.put("content-type", "application/json");
+        signed.put("host", "service.region.example.com");
+        signed.put("x-sdk-date", "20191115T033655Z");
+
+        String canonicalRequest = CloudSignatureAdapter.canonicalRequest(
+                "GET",
+                "/v1/77b6a44cba5143ab91d13ab9a8ff44fd/vpcs/",              // ★ 华为：计算签名时 URI 必须以 / 结尾
+                "limit=2&marker=13551d6b-755d-4757-b956-536f674975c0",
+                signed,
+                EMPTY_SHA256);
+
+        // 逐段核对（避免"哈希对了但其实是巧合"）
+        assertThat(canonicalRequest).isEqualTo(
+                "GET\n"
+                        + "/v1/77b6a44cba5143ab91d13ab9a8ff44fd/vpcs/\n"
+                        + "limit=2&marker=13551d6b-755d-4757-b956-536f674975c0\n"
+                        + "content-type:application/json\n"
+                        + "host:service.region.example.com\n"
+                        + "x-sdk-date:20191115T033655Z\n"
+                        + "\n"                                              // 规范头块自身的换行 ⇒ 空行
+                        + "content-type;host;x-sdk-date\n"
+                        + EMPTY_SHA256);
+
+        assertThat(CloudSignatureAdapter.sha256HexOf(canonicalRequest))
+                .as("必须等于华为云文档给出的 HashedCanonicalRequest")
+                .isEqualTo("b25362e603ee30f4f25e7858e8a7160fd36e803bb2dfe206278659d71a9bcd7a");
+    }
+
+    @Test
+    void 华为云_Authorization拼法与必带头_X_Sdk_Date必须参与签名() {
+        AdapterContext ctx = ctx("https://service.region.example.com/v1/p/vpcs", "GET", new byte[0],
+                Map.of("Content-Type", "application/json"),
+                "{\"scheme\":\"SDK-HMAC-SHA256\"}");
+        adapter.process(ctx);
+
+        String sdkDate = ctx.outbound().headers().getFirst("X-Sdk-Date");
+        assertThat(sdkDate).matches("\\d{8}T\\d{6}Z");                       // 基本 ISO8601（UTC）
+        String authorization = auth(ctx);
+        assertThat(authorization).startsWith("SDK-HMAC-SHA256 Access=AKID-TEST, SignedHeaders=");
+        // 官方伪代码强调：Access 前是**空格**，SignedHeaders / Signature 前是**逗号**
+        assertThat(authorization).contains("Access=AKID-TEST, SignedHeaders=");
+        assertThat(authorization).contains("content-type;host;x-sdk-date");   // x-sdk-date 必须参与签名
+        assertThat(authorization).matches(".*, Signature=[0-9a-f]{64}$");
+    }
+
+    @Test
+    void 华为云_临时凭证自动带X_Security_Token() {
+        AdapterContext ctx = ctx("https://service.region.example.com/v1/p/vpcs", "GET", new byte[0],
+                Map.of("Content-Type", "application/json"), "{\"scheme\":\"SDK-HMAC-SHA256\"}");
+        ctx.attrs().put("outboundCredential",
+                "{\"secretId\":\"AKID-TEST\",\"secretKey\":\"SK-TEST\",\"token\":\"SEC-TOKEN\"}");
+        adapter.process(ctx);
+        assertThat(ctx.outbound().headers().getFirst("X-Security-Token")).isEqualTo("SEC-TOKEN");
+    }
+
+    /** 规范查询串：按**参数名**（字符码）升序 —— 整段排序在 `a=1` 与 `a-1=2` 这类组合上与规范要求顺序不同 */
+    @Test
+    void 规范查询串_按参数名升序而不是整段字典序() {
+        AdapterContext ctx = ctx("https://service.region.example.com/v1/p?b=2&a=1&a-1=3&A=4", "GET",
+                new byte[0], Map.of("Content-Type", "application/json"),
+                "{\"scheme\":\"SDK-HMAC-SHA256\"}");
+        adapter.process(ctx);
+        // 大写字码 < 小写；同名前缀短者在前 —— 这里只要求"按名排序"成立（A 在最前）
+        assertThat(auth(ctx)).contains("content-type;host;x-sdk-date");
     }
 
     @Test

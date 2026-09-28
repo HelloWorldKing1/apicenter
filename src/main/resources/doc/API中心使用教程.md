@@ -460,7 +460,7 @@ curl -X POST http://localhost:8080/<平台侧路径> -H 'Content-Type: applicati
 
 | 供应商给的是什么 | 用平台哪个能力 | 怎么配 |
 |---|---|---|
-| **只有 AK/SK**（每请求要签名，云厂商风格） | **「云厂商签名」适配器**（`CloudSignatureAdapter`） | 「应用管理」或接口详情的**供应商签名**里选「云厂商签名」；`scheme` 选 `TC3-HMAC-SHA256`（腾讯云）/ `ACS3-HMAC-SHA256`（阿里云 V3）/ `AWS4-HMAC-SHA256`（AWS）；`service`、`region` 按对方要求填；**凭证**（应用 → 凭证卡片）填 JSON：`{"secretId":"…","secretKey":"…"}`（临时凭证再加 `"token":"…"`） |
+| **只有 AK/SK**（每请求要签名，云厂商风格） | **「云厂商签名」适配器**（`CloudSignatureAdapter`） | 「应用管理」或接口详情的**供应商签名**里选「云厂商签名」；`scheme` 选 `TC3-HMAC-SHA256`（腾讯云）/ `ACS3-HMAC-SHA256`（阿里云 V3）/ `AWS4-HMAC-SHA256`（AWS）/ **`SDK-HMAC-SHA256`（华为云）**；`service`、`region` 按对方要求填；**凭证**（应用 → 凭证卡片）填 JSON：`{"secretId":"…","secretKey":"…"}`（临时凭证再加 `"token":"…"`） |
 | **有「换 Token」接口**（STS / OAuth2 client_credentials：先拿 token 再调业务） | **「令牌步骤」**（前置步骤的类型选 `TOKEN`，2026-09-24 落地） | 在业务接口加一个前置步骤：**步骤类型=令牌步骤**、前置接口=那个换 token 接口；再填四项 —— `Token 在响应里的位置`（如 `data.access_token`）、`有效期字段`（如 `data.expires_in` / 阿里腾讯 STS 的 `data.Expiration`）、**有效期语义**（剩余秒 / ISO8601 到期时刻 / 秒·毫秒时间戳）、`兜底有效期`与`提前刷新`。换回的 token 以 **`steps.<步骤名>.access_token`** 暴露，供字段映射或出站鉴权适配器的 **`Token 取值(模型路径)`** 引用 |
 
 > **令牌步骤为什么必须缓存**：换发接口普遍限频（腾讯云文档原话「建议在有效期内重复使用，避免请求该接口频率达到上限被限频」）。
@@ -470,7 +470,8 @@ curl -X POST http://localhost:8080/<平台侧路径> -H 'Content-Type: applicati
 > **云厂商签名的三个易错点**（适配器已按各家文档实现，但配错仍会 401）：
 > ① 参与签名的头名与**实际发送的头**必须完全一致（含 `Content-Type` 的内容，如 `application/json; charset=utf-8`）；
 > ② 腾讯云 API 3.0 的 **`X-TC-Action` / `X-TC-Version` 是放在请求头**的 ⇒ 请填在「附加业务头(JSON)」里（会**自动参与签名**）；
-> ③ 临时凭证（STS）除了 AK/SK **还要带 token** ⇒ 凭证 JSON 里加 `"token"` 字段（会按各家规范自动加 `X-TC-Token` / `x-acs-security-token` / `x-amz-security-token`）。
+> ③ 临时凭证（STS）除了 AK/SK **还要带 token** ⇒ 凭证 JSON 里加 `"token"` 字段（会按各家规范自动加 `X-TC-Token` / `x-acs-security-token` / `x-amz-security-token` / **`X-Security-Token`（华为）**）；
+> ④ **华为专有两点**：签名时 **URI 末尾必须有 `/`**（平台已自动补，发送时可不带）；网关对 `X-Sdk-Date` 有 **15 分钟**时钟容差 ⇒ 机器需 NTP 同步。
 
 **XML 协议参数（2026-09-21）** —— 位置：接口弹窗 → **高级** → 「XML 协议参数」（**仅「出站协议」= XML 时显示**；
 入站不给入口，因为入站请求方向**不解包**——`入站XML/出站JSON` 时这些参数永不生效，不给“配了不生效”的口子）
