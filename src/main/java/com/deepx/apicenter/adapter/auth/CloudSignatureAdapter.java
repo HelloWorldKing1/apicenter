@@ -104,14 +104,15 @@ public class CloudSignatureAdapter implements Adapter {
         applyConfiguredHeaders(ctx, params);      // 业务头（如 TC3 的 X-TC-Action/X-TC-Version）
         String service = text(params, "service", "");
         String region = text(params, "region", "");
+        URI uri = uriOf(ctx);                      // 只解析一次（缺失/非法 ⇒ 40001，不 NPE）
         String extraSigned = text(params, "signedHeaders", "");
         List<String> signNames = signedNames(params, extraSigned);   // 显式列出的 + headers 里配的业务头
 
         switch (scheme.trim().toUpperCase(Locale.ROOT)) {
-            case "TC3-HMAC-SHA256" -> signTc3(ctx, cred, service, signNames);
-            case "ACS3-HMAC-SHA256" -> signAcs3(ctx, cred, signNames);
-            case "AWS4-HMAC-SHA256" -> signAws4(ctx, cred, service, region, signNames);
-            case "SDK-HMAC-SHA256" -> signHuawei(ctx, cred, signNames);
+            case "TC3-HMAC-SHA256" -> signTc3(ctx, uri, cred, service, signNames);
+            case "ACS3-HMAC-SHA256" -> signAcs3(ctx, uri, cred, signNames);
+            case "AWS4-HMAC-SHA256" -> signAws4(ctx, uri, cred, service, region, signNames);
+            case "SDK-HMAC-SHA256" -> signHuawei(ctx, uri, cred, signNames);
             default -> throw BizException.fieldInvalid(
                     "云厂商签名：暂不支持的 scheme = " + scheme
                             + "（当前支持 TC3-HMAC-SHA256 / ACS3-HMAC-SHA256 / AWS4-HMAC-SHA256 / SDK-HMAC-SHA256；"
@@ -123,7 +124,25 @@ public class CloudSignatureAdapter implements Adapter {
     // ---------- 三种规范 ----------
 
     /** 腾讯云 TC3-HMAC-SHA256：密钥派生 date → service → tc3_request */
-    private void signTc3(AdapterContext ctx, Cred cred, String service, List<String> signNames) {
+    /**
+     * 出站 URL 的 URI 视图（**只解析一次**）：`host` / canonical URI / query 都从它来。
+     * 缺失或非法 ⇒ **明确 40001**（原实现在这里 NPE ⇒ 500「平台内部错误」，2026-09-24 真机暴露；根因已在
+     * `OutboundEngine` 修正为"链执行前设置 URL"，此处再加一道防御，避免将来新增调用路径时重演）。
+     */
+    private URI uriOf(AdapterContext ctx) {
+        String url = ctx.outbound() == null ? null : ctx.outbound().url();
+        if (url == null || url.isBlank()) {
+            throw BizException.fieldInvalid("云厂商签名：出站 URL 尚未确定，无法计算签名"
+                    + "（内部原因：AUTH 阶段早于 URL 补全；请在链执行前设置 outbound.url）");
+        }
+        try {
+            return URI.create(url);
+        } catch (IllegalArgumentException e) {
+            throw BizException.fieldInvalid("云厂商签名：出站 URL 非法：" + url);
+        }
+    }
+
+    private void signTc3(AdapterContext ctx, URI uri, Cred cred, String service, List<String> signNames) {
         if (service.isBlank()) {
             throw BizException.fieldInvalid("云厂商签名（TC3）：service 必填（如 cvm / sts）");
         }
@@ -133,13 +152,13 @@ public class CloudSignatureAdapter implements Adapter {
 
         Map<String, String> signed = new TreeMap<>();
         signed.put("content-type", header(ctx, "Content-Type", "application/json"));
-        signed.put("host", hostOf(ctx));
+        signed.put("host", hostOf(uri));
         for (String name : signNames) {
             signed.put(name.toLowerCase(Locale.ROOT), header(ctx, name, ""));
         }
         String payloadHash = sha256Hex(body(ctx));
 
-        String canonicalRequest = canonicalRequest(ctx, signed, payloadHash);
+        String canonicalRequest = canonicalRequest(ctx, uri, signed, payloadHash);
         String credentialScope = date + "/" + service + "/tc3_request";
         String stringToSign = "TC3-HMAC-SHA256\n" + timestamp + "\n" + credentialScope + "\n"
                 + sha256Hex(canonicalRequest.getBytes(StandardCharsets.UTF_8));
@@ -160,11 +179,11 @@ public class CloudSignatureAdapter implements Adapter {
     }
 
     /** 阿里云 V3（ACS3-HMAC-SHA256）：签名密钥直接用 SecretKey（**不拼 &**，这是与 POP/v2 的关键区别） */
-    private void signAcs3(AdapterContext ctx, Cred cred, List<String> signNames) {
+    private void signAcs3(AdapterContext ctx, URI uri, Cred cred, List<String> signNames) {
         String date = ISO_EXTENDED_UTC.format(Instant.now());      // 2023-10-26T09:01:01Z
         String payloadHash = sha256Hex(body(ctx));
         Map<String, String> signed = new TreeMap<>();
-        signed.put("host", hostOf(ctx));
+        signed.put("host", hostOf(uri));
         signed.put("x-acs-date", date);
         signed.put("x-acs-content-sha256", payloadHash);
         signed.put("x-acs-signature-nonce", Long.toHexString(System.nanoTime()));
@@ -172,7 +191,7 @@ public class CloudSignatureAdapter implements Adapter {
             signed.put(name.toLowerCase(Locale.ROOT), header(ctx, name, ""));
         }
         // ⚠️ 三家的 CanonicalRequest **第 6 段都是 body 哈希**（x-acs-content-sha256 只是"也作为已签名头"）
-        String canonicalRequest = canonicalRequest(ctx, signed, payloadHash);
+        String canonicalRequest = canonicalRequest(ctx, uri, signed, payloadHash);
         String stringToSign = "ACS3-HMAC-SHA256\n" + sha256Hex(canonicalRequest.getBytes(StandardCharsets.UTF_8));
         String signature = hex(hmac(cred.secretKey().getBytes(StandardCharsets.UTF_8), stringToSign));
 
@@ -185,7 +204,7 @@ public class CloudSignatureAdapter implements Adapter {
     }
 
     /** AWS SigV4：密钥派生 date → region → service → aws4_request */
-    private void signAws4(AdapterContext ctx, Cred cred, String service, String region, List<String> signNames) {
+    private void signAws4(AdapterContext ctx, URI uri, Cred cred, String service, String region, List<String> signNames) {
         if (service.isBlank() || region.isBlank()) {
             throw BizException.fieldInvalid("云厂商签名（AWS4）：service 与 region 均必填（如 s3 / us-east-1）");
         }
@@ -195,14 +214,14 @@ public class CloudSignatureAdapter implements Adapter {
 
         String payloadHash = sha256Hex(body(ctx));
         Map<String, String> signed = new TreeMap<>();
-        signed.put("host", hostOf(ctx));
+        signed.put("host", hostOf(uri));
         signed.put("x-amz-content-sha256", payloadHash);
         signed.put("x-amz-date", dateTime);
         for (String name : signNames) {
             signed.put(name.toLowerCase(Locale.ROOT), header(ctx, name, ""));
         }
         // ⚠️ 同上：第 6 段是 body 哈希（x-amz-content-sha256 只是"也作为已签名头"）
-        String canonicalRequest = canonicalRequest(ctx, signed, payloadHash);
+        String canonicalRequest = canonicalRequest(ctx, uri, signed, payloadHash);
         String scope = date + "/" + region + "/" + service + "/aws4_request";
         String stringToSign = "AWS4-HMAC-SHA256\n" + dateTime + "\n" + scope + "\n"
                 + sha256Hex(canonicalRequest.getBytes(StandardCharsets.UTF_8));
@@ -228,21 +247,21 @@ public class CloudSignatureAdapter implements Adapter {
      * ② StringToSign 只有三段（`SDK-HMAC-SHA256\nX-Sdk-Date\nhex(sha256(CanonicalRequest))`），**没有 credential scope**；
      * ③ 签名 = **直接** `hex(HMAC-SHA256(SK, StringToSign))`（不像 TC3/AWS4 那样派生密钥链）。
      */
-    private void signHuawei(AdapterContext ctx, Cred cred, List<String> signNames) {
+    private void signHuawei(AdapterContext ctx, URI uri, Cred cred, List<String> signNames) {
         long now = Instant.now().getEpochSecond();
         String sdkDate = isoBasicUtc(now);                    // 20191115T033655Z
         String payloadHash = sha256Hex(body(ctx));
 
         Map<String, String> signed = new TreeMap<>();
         signed.put("content-type", header(ctx, "Content-Type", "application/json"));
-        signed.put("host", hostOf(ctx));
+        signed.put("host", hostOf(uri));
         signed.put("x-sdk-date", sdkDate);                    // 官方要求：X-Sdk-Date 必须参与签名
         for (String name : signNames) {
             signed.put(name.toLowerCase(Locale.ROOT), header(ctx, name, ""));
         }
 
-        String canonicalRequest = canonicalRequest(ctx.outbound().method(), canonicalUri(ctx, true),
-                canonicalQuery(ctx), signed, payloadHash);
+        String canonicalRequest = canonicalRequest(ctx.outbound().method(), canonicalUri(uri, true),
+                canonicalQuery(uri), signed, payloadHash);
         String stringToSign = "SDK-HMAC-SHA256\n" + sdkDate + "\n"
                 + sha256Hex(canonicalRequest.getBytes(StandardCharsets.UTF_8));
         String signature = hex(hmac(cred.secretKey().getBytes(StandardCharsets.UTF_8), stringToSign));
@@ -265,8 +284,9 @@ public class CloudSignatureAdapter implements Adapter {
      *
      * @param payloadHash 显式第 6 段（TC3 用）；传 {@code null} 表示"哈希已作为已签名头承载"（ACS3/AWS4）
      */
-    private String canonicalRequest(AdapterContext ctx, Map<String, String> signedHeaders, String payloadHash) {
-        return canonicalRequest(ctx.outbound().method(), canonicalUri(ctx), canonicalQuery(ctx),
+    private String canonicalRequest(AdapterContext ctx, URI uri, Map<String, String> signedHeaders,
+                                    String payloadHash) {
+        return canonicalRequest(ctx.outbound().method(), canonicalUri(uri), canonicalQuery(uri),
                 signedHeaders, payloadHash);
     }
 
@@ -295,13 +315,13 @@ public class CloudSignatureAdapter implements Adapter {
     }
 
     /** 规范化 URI：路径原样（云厂商均要求"已编码的路径"，我们不做二次编码，避免把 %2F 变 %252F） */
-    private String canonicalUri(AdapterContext ctx) {
-        return canonicalUri(ctx, false);
+    private String canonicalUri(URI uri) {
+        return canonicalUri(uri, false);
     }
 
     /** @param trailingSlash 华为云要求"计算签名时 URI 必须以 / 结尾"（发送请求时可省） */
-    private String canonicalUri(AdapterContext ctx, boolean trailingSlash) {
-        String path = URI.create(ctx.outbound().url()).getRawPath();
+    private String canonicalUri(URI uri, boolean trailingSlash) {
+        String path = uri.getRawPath();
         String normalized = path == null || path.isBlank() ? "/" : path;
         if (trailingSlash && !normalized.endsWith("/")) {
             normalized = normalized + "/";
@@ -315,8 +335,8 @@ public class CloudSignatureAdapter implements Adapter {
      * <p>保留调用方已编码的字面值（不做二次编码，避免把 `%2F` 变成 `%252F`）；按 (名, 值) 排序而不是整段排，
      * 因为名里可能含 `-`/`.` 等字符 —— 整段排序在 `a=1` 与 `a-1=2` 这类组合上与规范要求**顺序不同**。
      */
-    private String canonicalQuery(AdapterContext ctx) {
-        String query = URI.create(ctx.outbound().url()).getRawQuery();
+    private String canonicalQuery(URI uri) {
+        String query = uri.getRawQuery();
         if (query == null || query.isBlank()) {
             return "";
         }
@@ -388,12 +408,12 @@ public class CloudSignatureAdapter implements Adapter {
         return new Cred(ak, sk, token);
     }
 
-    private String hostOf(AdapterContext ctx) {
-        String host = URI.create(ctx.outbound().url()).getHost();
+    private String hostOf(URI uri) {
+        String host = uri.getHost();
         if (host == null || host.isBlank()) {
-            throw BizException.fieldInvalid("云厂商签名：无法从出站 URL 取到 host：" + ctx.outbound().url());
+            throw BizException.fieldInvalid("云厂商签名：无法从出站 URL 取到 host：" + uri);
         }
-        int port = URI.create(ctx.outbound().url()).getPort();
+        int port = uri.getPort();
         return port > 0 ? host + ":" + port : host;
     }
 

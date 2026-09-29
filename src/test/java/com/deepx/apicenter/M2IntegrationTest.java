@@ -41,6 +41,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.configureFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
+import static com.github.tomakehurst.wiremock.client.WireMock.matching;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.stubFor;
@@ -200,6 +201,56 @@ class M2IntegrationTest {
         // 凭证头被附加（Bearer 出站鉴权生效）
         wireMock.verify(postRequestedFor(urlEqualTo("/shop/v1/creatorList"))
                 .withHeader("Authorization", equalTo("Bearer m2-golden-token")));
+    }
+
+    // ---------- G9 云厂商签名适配器在**链路内**生效（2026-09-24 真机事故回归） ----------
+
+    /**
+     * 回归防线：`CloudSignatureAdapter` 必须在链的 **OUTBOUND_AUTH 阶段**算 host / canonicalRequest，
+     * 因此出站 URL 必须**在链执行之前**已确定。真机上曾因 `OutboundEngine` 是"链跑完再补 URL" ⇒
+     * 适配器 `URI.create(null)` ⇒ NPE ⇒ HTTP 500「平台内部错误」（既有单测里 URL 是手工塞进 ctx 的 ⇒ 漏网；
+     * 本用例走**完整链路 + 真实 HTTP**，断言签名头真的发出且上游收到）。
+     */
+    @Test
+    void g9_云厂商签名适配器_链路内签名头真实发出() {
+        String app = "M2-CLOUD-APP";
+        String secretId = "AKID-M2-TEST";
+        try {
+            insertAdapterIfAbsent("ADP-901", "云厂商签名(测试)", "auth", "CloudSignatureAdapter",
+                    "{\"scheme\":\"TC3-HMAC-SHA256\",\"service\":\"cvm\",\"region\":\"ap-guangzhou\"}");
+            appService.create(new AppRequest(app, "M2 云签名供应商", null, "ADP-901", null, "ADP-201",
+                    WM_BASE, null, null, null, null, "云厂商签名回归用例"));
+            appService.enable(app);
+            credentialService.update(app, new UpdateRequest("OUTBOUND",
+                    "{\"secretId\":\"" + secretId + "\",\"secretKey\":\"SK-M2-TEST\"}"));
+            long groupId = groupService.create(new GroupRequest(app, "云签名分组", 0));
+            long ifaceId = interfaceService.create(new InterfaceRequest(
+                    "M2-CLOUD-SIG", "云签名用例", "OUTBOUND", "POST", "/test/m2/cloud",
+                    "JSON", "JSON", app, groupId,
+                    "/shop/v1/creatorList", null, null, 3000, 0, "云签名回归用例", 1,
+                    List.of(), List.of(), List.of(), List.of(),
+                    List.of(new BindingDto("AUTH", "ADP-901", null), new BindingDto("MESSAGE", "ADP-201", null))));
+            interfaceService.publish(ifaceId);
+
+            stubFor(post("/shop/v1/creatorList").willReturn(okJson(GOLDEN_RESPONSE)));
+
+            ApiResult<?> result = outboundEngine.dispatch("/test/m2/cloud", "POST",
+                    GOLDEN_REQUEST.getBytes(StandardCharsets.UTF_8), "biz-g9", "trace-g9");
+            // 修复前：这里抛 50000「平台内部错误」（NPE）
+            assertThat(result.code()).isZero();
+
+            // 签名头真实发出（TC3 规范）：Credential=<secretId>/<date>/<service>/tc3_request
+            wireMock.verify(postRequestedFor(urlEqualTo("/shop/v1/creatorList"))
+                    .withHeader("Authorization", matching("TC3-HMAC-SHA256 Credential=" + secretId + "/.*"))
+                    .withHeader("X-TC-Timestamp", matching("\\d+")));
+        } finally {
+            outboundRequestRepository.deleteByApp(app);
+            if (appRepository.existsById(app)) {
+                jdbcTemplate.queryForList("SELECT id FROM interface WHERE app_id = ?", Long.class, app)
+                        .forEach(interfaceRepository::deleteCascade);
+                appRepository.deleteCascade(app);
+            }
+        }
     }
 
     // ---------- G5 诊断字段：out_payload = 映射后出站报文 ----------

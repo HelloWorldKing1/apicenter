@@ -38,6 +38,32 @@ class CloudSignatureAdapterTest {
     private static final String TC3_SAMPLE_BODY =
             "{\"Limit\": 1, \"Filters\": [{\"Values\": [\"\\u672a\\u547d\\u540d\"], \"Name\": \"instance-name\"}]}";
 
+    @Test
+    void 出站URL缺失_明确报40001而非NPE() {
+        // 真机事故回归（2026-09-24）：适配器在链的 AUTH 阶段要算 host / canonicalRequest，
+        // 若 URL 尚未设置（`OutboundEngine` 原先"链跑完再补 URL"），旧实现 `URI.create(null)` ⇒ NPE ⇒
+        // HTTP 500「平台内部错误」。根因已修（URL 在链执行前设置），此处钉住"防御仍有效"。
+        AdapterContext c = ctx(null, "POST", "{}".getBytes(StandardCharsets.UTF_8),
+                Map.of("content-type", "application/json"),
+                "{\"scheme\":\"TC3-HMAC-SHA256\",\"service\":\"cvm\"}");
+        c.outbound().url(null);
+
+        assertThatThrownBy(() -> adapter.process(c))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("出站 URL 尚未确定");
+    }
+
+    @Test
+    void 出站URL非法_明确报40001() {
+        AdapterContext c = ctx("http://exa mple.com/x", "POST", "{}".getBytes(StandardCharsets.UTF_8),
+                Map.of("content-type", "application/json"),
+                "{\"scheme\":\"TC3-HMAC-SHA256\",\"service\":\"cvm\"}");
+
+        assertThatThrownBy(() -> adapter.process(c))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("出站 URL 非法");
+    }
+
     private AdapterContext ctx(String url, String method, byte[] body, Map<String, String> headers, String paramsJson) {
         AdapterContext ctx = AdapterContext.create(ChainPhase.OUTBOUND_AUTH, UnifiedModel.emptyObject(),
                 null, new AdapterContext.AppMeta("t-app", "http://mock"),

@@ -163,15 +163,19 @@ public class OutboundEngine {
         // COMPENSATING / UNKNOWN 两个出口永远走不到。
         AdapterContext ctx;
         try {
+            // ⚠️ URL 必须**在链执行之前**确定（2026-09-24 真 bug 修复）：链内的 OUTBOUND_AUTH 阶段
+            //    （云厂商签名等）要按「真实要发的请求」算 host / canonical URI / query —— 原先它在链之后才设置，
+            //    导致适配器拿到 null URL ⇒ NPE ⇒ 500（首次真机联调才暴露：单测里是手工塞的 URL）。
+            //    链内其它阶段不需要 URL，提前设置无副作用。
             ctx = chainEngine.execute(iface.id(), UnifiedModel.emptyObject(), traceId, body,
                     Map.of("attempt", attempt, "preCallDepth", 1));
+            ctx.outbound().url(appOf(iface).baseUrl() + iface.upstreamPath());
         } catch (PreStepFailure e) {
             throw classifyPreStepFailure(recordId, e, trigger, how, attempt);
         }
 
         // 出站规格补全：URL / 方法 / 超时（M0-03 §1.2）+ M4 元数据与 traceId 透传（D-M4-4：
         // X-Trace-Id 平台 → 上游公共头，补齐 M2 缺口；元数据供 OUT 方向 call_log 读取）
-        ctx.outbound().url(appOf(iface).baseUrl() + iface.upstreamPath());
         ctx.outbound().method(iface.method());
         ctx.outbound().readTimeoutMs(iface.timeoutMs());
         ctx.outbound().interfaceId(iface.id());
