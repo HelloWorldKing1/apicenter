@@ -140,6 +140,27 @@ public class ChainEngine {
         ctx.attrs().put("rawBody", rawBody);
         initialAttrs.forEach(ctx.attrs()::put);
 
+        // ⚠️ 出站规格必须在**阶段循环之前**补全（2026-09-24 真机事故修复，位置极关键）：
+        //    `OUTBOUND_AUTH` 阶段里的云厂商签名要按「真实要发的请求」算 host / method / canonicalRequest；
+        //    原先 url / method / 超时等是**调用方拿到 ctx 之后**才设的 —— 而调用方拿到 ctx 时链已经跑完，
+        //    于是适配器取到 null ⇒ `URI.create(null)` NPE ⇒ 500（后为明确的 40001）。
+        //    真机暴露过一次"只挪 url 没挪 method"⇒ 整块一起放这里，杜绝第二次。
+        //    顺带修正一处语义：`X-Trace-Id` 也在链前就位 ⇒ **签名覆盖的头部 = 实际发出的头部**（此前签名后追加，
+        //    若用户把 x-trace-id 列入 signedHeaders，供应商侧会因签名不含该头而拒绝）。
+        //    单实例真相：OutboundEngine / PreStepExecutor 不再各自补（见两处的同款注释）。
+        //    入站回调不走这里：INBOUND 的 AUTH 阶段是 Noop，其 url/method 由 InboundEngine 设为 callback_url + POST。
+        if ("OUTBOUND".equals(iface.ifType())) {
+            ctx.outbound().url(app.baseUrl() + iface.upstreamPath());
+            ctx.outbound().method(iface.method());
+            ctx.outbound().readTimeoutMs(iface.timeoutMs());
+            ctx.outbound().interfaceId(iface.id());
+            ctx.outbound().appId(iface.appId());
+            ctx.outbound().traceId(traceId);
+            if (traceId != null && !traceId.isBlank()) {
+                ctx.outbound().header("X-Trace-Id", traceId);
+            }
+        }
+
         for (ChainPhase phase : ChainPhase.values()) {
             ctx.phase(phase);
             ChainStep step = chain.steps.get(phase);

@@ -163,27 +163,17 @@ public class OutboundEngine {
         // COMPENSATING / UNKNOWN 两个出口永远走不到。
         AdapterContext ctx;
         try {
-            // ⚠️ URL 必须**在链执行之前**确定（2026-09-24 真 bug 修复）：链内的 OUTBOUND_AUTH 阶段
-            //    （云厂商签名等）要按「真实要发的请求」算 host / canonical URI / query —— 原先它在链之后才设置，
-            //    导致适配器拿到 null URL ⇒ NPE ⇒ 500（首次真机联调才暴露：单测里是手工塞的 URL）。
-            //    链内其它阶段不需要 URL，提前设置无副作用。
+            // 出站 URL 由 ChainEngine 在建 ctx 后、跑阶段前补全（见其 doExecute 内的同款注释）——
+            // 修复史：这里曾"链跑完再补 URL"，但 OUTBOUND_AUTH 阶段（云厂商签名）届时已执行 ⇒ URL 为 null
+            // ⇒ 真机 500/40001。不要在链外再补一次，避免出现两处真相来源。
             ctx = chainEngine.execute(iface.id(), UnifiedModel.emptyObject(), traceId, body,
                     Map.of("attempt", attempt, "preCallDepth", 1));
-            ctx.outbound().url(appOf(iface).baseUrl() + iface.upstreamPath());
         } catch (PreStepFailure e) {
             throw classifyPreStepFailure(recordId, e, trigger, how, attempt);
         }
 
-        // 出站规格补全：URL / 方法 / 超时（M0-03 §1.2）+ M4 元数据与 traceId 透传（D-M4-4：
-        // X-Trace-Id 平台 → 上游公共头，补齐 M2 缺口；元数据供 OUT 方向 call_log 读取）
-        ctx.outbound().method(iface.method());
-        ctx.outbound().readTimeoutMs(iface.timeoutMs());
-        ctx.outbound().interfaceId(iface.id());
-        ctx.outbound().appId(iface.appId());
-        ctx.outbound().traceId(traceId);
-        if (traceId != null && !traceId.isBlank()) {
-            ctx.outbound().header("X-Trace-Id", traceId);
-        }
+        // 出站规格（url / method / 超时 / 元数据 / X-Trace-Id）已由 ChainEngine 在**跑阶段之前**补全
+        // （M0-03 §1.2 + D-M4-4）。此处刻意不再补：那会形成第二处真相来源，且对 AUTH 阶段太晚（2026-09-24 真机事故）。
 
         // 熔断闸门（D-M4-1，置于 @Retryable Invoker 调用之前，M0-03 §1.4）：
         // OPEN 短路——不发起调用、不触发短重试，转 COMPENSATING 顺延（不 incrementAttempt）；

@@ -156,18 +156,11 @@ public class PreStepExecutor {
                 "parentInterfaceId", parent.iface().id(),
                 "preCallDepth", depth + 1));   // ★ 必传：否则 B 链内的嵌套前置不计深，运行期防护失效
 
-        // 3. 出站规格：B 自己的应用地址 + B 的路径 / 方法 / 超时（凭证由 B 的链在 OUTBOUND_AUTH 注入）
+        // 3. 出站规格：B 自己的地址 / 方法 / 超时 / 元数据 / X-Trace-Id **已由 B 的链在跑阶段之前补全**
+        //    （ChainEngine.doExecute，2026-09-24 真机事故修复点：这里原先在链后补 ⇒ B 若用云厂商签名必炸）。
+        //    仅此一处仍需前置专有信息：step_code（供 OUT 方向 call_log 按步骤筛选）。
         OutboundRequestSpec spec = targetCtx.outbound();
-        spec.url(targetApp.baseUrl() + target.upstreamPath());
-        spec.method(target.method());
-        spec.readTimeoutMs(target.timeoutMs());
-        spec.interfaceId(target.id());
-        spec.appId(target.appId());
-        spec.traceId(traceId);
-        spec.stepCode(step.stepCode());   // 供 OUT 方向 call_log 的 step_code 列（按步骤筛选）
-        if (traceId != null && !traceId.isBlank()) {
-            spec.header("X-Trace-Id", traceId);
-        }
+        spec.stepCode(step.stepCode());
 
         // 4. 熔断：按 B 的 interface_id（短路不触达上游 → 宿主持顺延，见 PreStepFailure）
         if (!circuitBreakerRegistry.tryAcquire(target.id())) {

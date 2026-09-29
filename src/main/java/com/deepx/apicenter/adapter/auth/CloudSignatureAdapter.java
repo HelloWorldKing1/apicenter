@@ -133,7 +133,7 @@ public class CloudSignatureAdapter implements Adapter {
         String url = ctx.outbound() == null ? null : ctx.outbound().url();
         if (url == null || url.isBlank()) {
             throw BizException.fieldInvalid("云厂商签名：出站 URL 尚未确定，无法计算签名"
-                    + "（内部原因：AUTH 阶段早于 URL 补全；请在链执行前设置 outbound.url）");
+                    + "（内部不变量被破坏：ChainEngine 应在阶段循环前补全 outbound.url；请检查是否有新的出站调用路径绕过它）");
         }
         try {
             return URI.create(url);
