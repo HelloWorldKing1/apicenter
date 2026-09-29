@@ -474,7 +474,8 @@ curl -X POST http://localhost:8080/<平台侧路径> -H 'Content-Type: applicati
 
 | 供应商给的是什么 | 用平台哪个能力 | 怎么配 |
 |---|---|---|
-| **只有 AK/SK**（每请求要签名，云厂商风格） | **「云厂商签名」适配器**（`CloudSignatureAdapter`） | 「应用管理」或接口详情的**供应商签名**里选「云厂商签名」；`scheme` 选 `TC3-HMAC-SHA256`（腾讯云）/ `ACS3-HMAC-SHA256`（阿里云 V3）/ `AWS4-HMAC-SHA256`（AWS）/ **`SDK-HMAC-SHA256`（华为云）**；`service`、`region` 按对方要求填；**凭证**（应用 → 凭证卡片）填 JSON：`{"secretId":"…","secretKey":"…"}`（临时凭证再加 `"token":"…"`） |
+| **只有 AK/SK**（每请求要签名，云厂商风格） | **「云厂商签名」适配器**（`CloudSignatureAdapter`） | 「应用管理」或接口详情的**供应商签名**里选「云厂商签名」；`scheme` 选 `TC3-HMAC-SHA256`（腾讯云）/ `ACS3-HMAC-SHA256`（阿里云 V3）/ `AWS4-HMAC-SHA256`（AWS）/ **`SDK-HMAC-SHA256`（华为云）**；`service`、`region` 按对方要求填；**凭证**（应用 → 凭证卡片）填 JSON：`{"secretId":"…","secretKey":"…"}`（**临时凭证(STS)**才加 `"token":"…"`；永久 AK/SK 直签**留空即可** —— 令牌由供应商签发、**平台不会自动生成**，
+过期类令牌建议改用「前置步骤 → 令牌步骤」+ `Token 取值(模型路径)` 动态注入） |
 | **有「换 Token」接口**（STS / OAuth2 client_credentials：先拿 token 再调业务） | **「令牌步骤」**（前置步骤的类型选 `TOKEN`，2026-09-24 落地） | 在业务接口加一个前置步骤：**步骤类型=令牌步骤**、前置接口=那个换 token 接口；再填四项 —— `Token 在响应里的位置`（如 `data.access_token`）、`有效期字段`（如 `data.expires_in` / 阿里腾讯 STS 的 `data.Expiration`）、**有效期语义**（剩余秒 / ISO8601 到期时刻 / 秒·毫秒时间戳）、`兜底有效期`与`提前刷新`。换回的 token 以 **`steps.<步骤名>.access_token`** 暴露，供字段映射或出站鉴权适配器的 **`Token 取值(模型路径)`** 引用 |
 
 > **令牌步骤为什么必须缓存**：换发接口普遍限频（腾讯云文档原话「建议在有效期内重复使用，避免请求该接口频率达到上限被限频」）。

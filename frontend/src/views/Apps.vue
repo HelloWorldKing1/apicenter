@@ -229,6 +229,7 @@ import CredentialEntry from '@/components/CredentialEntry.vue'
 import { adapterMatchesRole, adapterRoleHint } from '@/utils/adapterUsage.mjs'
 // 凭证卡片提示语（含「已解绑但凭证仍在」的解释与清理路径）
 import { credentialHint } from '@/utils/credentialHint.mjs'
+import { buildCredentialPayload } from '@/utils/credentialDraft.mjs'
 
 // ---------- 列表 ----------
 const apps = ref([])
@@ -393,16 +394,10 @@ function credWarning(kind) {
 }
 
 /** 组装提交载荷：留空 = 不改动（null）；部分填写 = 拦截；单字段 → 字符串；多字段 → JSON */
+// 组装规则抽到 utils/credentialDraft.mjs（**按字段的 required 判定**，可留空的字段整键省略）——
+// 曾因"要么全填要么全空"把可选字段（云厂商签名的 `token`）误判为必填（2026-09-24 使用反馈，已修）。
 function buildCredential(kind) {
-  const fields = credFields(adapterIdOf(kind))
-  const draft = credDraft[kind] || {}
-  const filled = fields.filter(f => String(draft[f.key] ?? '').trim() !== '')
-  if (filled.length === 0) return { ok: true, payload: null }
-  if (filled.length < fields.length) {
-    return { ok: false, message: `请填写完整的 ${fields.map(f => f.label).join(' / ')}` }
-  }
-  const pairs = fields.map(f => [f.key, String(draft[f.key]).trim()])
-  return { ok: true, payload: pairs.length === 1 ? pairs[0][1] : JSON.stringify(Object.fromEntries(pairs)) }
+  return buildCredentialPayload(credFields(adapterIdOf(kind)), credDraft[kind] || {})
 }
 
 function collectCredentialDrafts() {
