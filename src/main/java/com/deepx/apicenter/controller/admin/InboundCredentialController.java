@@ -31,6 +31,10 @@ import java.util.List;
  * 前端可逐步从「调用方管理」页切到凭证池页（v1.2 的降级路径）。
  *
  * <p>⚠️ 凭证值**永不回显**（仅尾 4 指纹）；`prepare` 生成的明文**仅响应出现一次**。
+ *
+ * <p><b>行级端点不必传属主</b>（2026-09-24 使用反馈）：`/{id}` 的 `activate` / `finish-rotation` / `retire` /
+ * `label` / `PUT` / `DELETE` 都靠**凭证 id**定位（池表 id 全局唯一）；传了 `ownerType`/`ownerId` 则**校验一致**，
+ * 不一致报 40001（防止拿错属主操作到别的行）。只有**新建**（`POST`）必须给属主。
  */
 @RestController
 @RequestMapping("/api/admin/inbound-credentials")
@@ -59,16 +63,19 @@ public class InboundCredentialController {
         return ApiResult.ok(credentialService.prepare(req.ownerType(), req.ownerId(), req.kind(), req.label()));
     }
 
-    /** 录入（第三方给的密钥）：一步 ACTIVE，旧 ACTIVE 转入 ROTATING 并存 24h */
+    /**
+     * 录入（第三方给的密钥）：一步 ACTIVE，旧 ACTIVE 转入 ROTATING 并存 24h。
+     * 属主可省（靠路径 id 定位）；传了会校验与库内一致。
+     */
     @PutMapping("/{id}")
     public ApiResult<Void> update(@PathVariable long id, @Valid @RequestBody PoolUpdateRequest req) {
-        credentialService.update(req.ownerType(), req.ownerId(), req.kind(), req.credential(), req.label());
+        credentialService.update(req.ownerType(), req.ownerId(), req.kind(), req.credential(), req.label(), id);
         return ApiResult.ok();
     }
 
     /** 仅改备注（「发给谁 / 何时」）：账号出事时靠它叫得上人 */
     @PutMapping("/{id}/label")
-    public ApiResult<Void> updateLabel(@PathVariable long id, @RequestParam String ownerType,
+    public ApiResult<Void> updateLabel(@PathVariable long id, @RequestParam(required = false) String ownerType,
                                        @RequestParam(required = false) String ownerId,
                                        @RequestBody PoolLabelRequest req) {
         credentialService.updateLabel(ownerType, ownerId, id, req == null ? null : req.label());
@@ -77,7 +84,7 @@ public class InboundCredentialController {
 
     /** 激活轮换：目标 ROTATING → ACTIVE，旧 ACTIVE → ROTATING（并存 +24h） */
     @PostMapping("/{id}/activate")
-    public ApiResult<Void> activate(@PathVariable long id, @RequestParam String ownerType,
+    public ApiResult<Void> activate(@PathVariable long id, @RequestParam(required = false) String ownerType,
                                     @RequestParam(required = false) String ownerId) {
         credentialService.activate(ownerType, ownerId, id);
         return ApiResult.ok();
@@ -85,7 +92,7 @@ public class InboundCredentialController {
 
     /** 完成轮换（提前收尾）：ROTATING → RETIRED */
     @PostMapping("/{id}/finish-rotation")
-    public ApiResult<Void> finishRotation(@PathVariable long id, @RequestParam String ownerType,
+    public ApiResult<Void> finishRotation(@PathVariable long id, @RequestParam(required = false) String ownerType,
                                           @RequestParam(required = false) String ownerId) {
         credentialService.finishRotation(ownerType, ownerId, id);
         return ApiResult.ok();
@@ -96,7 +103,7 @@ public class InboundCredentialController {
      * 若该类型已无 ACTIVE 凭证，msg 返回告警文案（引导补发）。
      */
     @PostMapping("/{id}/retire")
-    public ApiResult<String> retire(@PathVariable long id, @RequestParam String ownerType,
+    public ApiResult<String> retire(@PathVariable long id, @RequestParam(required = false) String ownerType,
                                     @RequestParam(required = false) String ownerId) {
         // ⚠️ 告警文案走 **data**（`ApiResult.ok(msg)`）而不是 `error(0, msg)`：
         //    前端 `api/http.js` 在 `code===0` 时只取 `data`，塞进 msg 会被**静默吞掉**
@@ -106,7 +113,7 @@ public class InboundCredentialController {
 
     /** 删除（仅 RETIRED 可删，状态机保护） */
     @DeleteMapping("/{id}")
-    public ApiResult<Void> delete(@PathVariable long id, @RequestParam String ownerType,
+    public ApiResult<Void> delete(@PathVariable long id, @RequestParam(required = false) String ownerType,
                                   @RequestParam(required = false) String ownerId) {
         credentialService.delete(ownerType, ownerId, id);
         return ApiResult.ok();

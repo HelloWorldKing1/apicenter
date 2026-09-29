@@ -24,8 +24,12 @@ public final class InboundCredentialDtos {
                                      String label) {
     }
 
-    /** 录入（**第三方给的密钥**：一步入 ACTIVE，旧 ACTIVE 转入 ROTATING 并存 24h） */
-    public record PoolUpdateRequest(@NotBlank(message = "属主类型不能为空") String ownerType,
+    /**
+     * 录入（**第三方给的密钥**：一步入 ACTIVE，旧 ACTIVE 转入 ROTATING 并存 24h）。
+     * <p>属主（`ownerType` / `ownerId`）**可省** —— 行级操作靠路径里的凭证 id 定位（2026-09-24）；
+     * 传了则校验与库内一致。
+     */
+    public record PoolUpdateRequest(String ownerType,
                                     String ownerId,
                                     @NotBlank(message = "凭证类型不能为空") String kind,
                                     @NotBlank(message = "凭证内容不能为空") String credential,

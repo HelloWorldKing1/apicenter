@@ -273,7 +273,15 @@ function onOwnerChange() {
 }
 
 /** 所有行级操作的公共查询参数（属主是端点的一部分，防跨属主误操作） */
+/**
+ * 行级操作（激活/完成轮换/吊销/改备注/删除）的附带属主参数：
+ * **凭证 id 已唯一定位**，所以属主可省 —— 只有页面选中了具体属主时才附带（后端会校验一致）。
+ * 例：在「全部属主」或「全部接口」视图下操作某一行，就完全不传属主。
+ */
 function ownerQuery() {
+  if (!ownerType.value) {
+    return {}
+  }
   return { ownerType: ownerType.value, ownerId: ownerId.value || undefined }
 }
 

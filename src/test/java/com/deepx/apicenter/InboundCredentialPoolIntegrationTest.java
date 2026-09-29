@@ -363,6 +363,48 @@ class InboundCredentialPoolIntegrationTest {
                 });
     }
 
+    /**
+     * **行级操作不必传属主**（2026-09-24 使用反馈）：凭证 id 在池表全局唯一 ⇒
+     * `retire` / `delete` / `activate` / `updateLabel` 只用 id 就能定位；传了属主则**校验一致**。
+     */
+    @Test
+    void 行级操作_不传属主也能吊销与删除_传错属主则报错() {
+        long interfaceId = newFixtureInterface();
+        String kind = freePlatformKind();
+        CredentialIssuedView issued = poolService.prepare("INTERFACE", String.valueOf(interfaceId),
+                kind, "单测·行级操作免传属主");
+        createdCredentialIds.add(issued.id());
+        poolService.activate(null, null, issued.id());                     // ★ 不传属主：激活
+        assertThat(poolService.list("INTERFACE", String.valueOf(interfaceId)).stream()
+                .filter(v -> v.id() == issued.id()).findFirst().orElseThrow().status()).isEqualTo("ACTIVE");
+
+        poolService.updateLabel(null, null, issued.id(), "单测·改了备注");   // ★ 不传属主：改备注
+        assertThat(poolService.list(null, null).stream()
+                .filter(v -> v.id() == issued.id()).findFirst().orElseThrow().label()).isEqualTo("单测·改了备注");
+
+        assertThat(poolService.retire(null, null, issued.id())).isNotNull();   // ★ 不传属主：吊销（返回"已无 ACTIVE"告警）
+        poolService.delete(null, null, issued.id());                           // ★ 不传属主：删除（仅 RETIRED 可删）
+        assertThat(credentialRepository.findOwnerRefById(issued.id())).isEmpty();
+
+        // 传了**错的属主** ⇒ 必须报错（不能拿错属主把别的行删了）
+        CredentialIssuedView another = poolService.prepare("INTERFACE", String.valueOf(interfaceId),
+                kind, "单测·属主校验");
+        createdCredentialIds.add(another.id());
+        assertThatThrownBy(() -> poolService.retire("PLATFORM", null, another.id()))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("凭证不属于该属主");
+        assertThatThrownBy(() -> poolService.delete("INTERFACE", "999999", another.id()))
+                .as("形参顺序 = (ownerType, ownerId, id)：属主标识不匹配 ⇒ 拒绝")
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("凭证不属于该属主");
+        // 但"只给类型、不给 ownerId"是合法用法（对应页面在「全部接口」视图下操作某一行）：只校验类型
+        poolService.retire("INTERFACE", null, another.id());
+        // 不存在的 id ⇒ 明确 40001
+        assertThatThrownBy(() -> poolService.retire(null, null, 999_999_999L))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("凭证不存在");
+    }
+
     // ---------- 夹具 ----------
 
     /** 第二个夹具接口（用于证明"接口池留空 = 跨接口列出"） */

@@ -9,6 +9,7 @@ import com.deepx.apicenter.dto.CredentialDtos.UpdateRequest;
 import com.deepx.apicenter.exception.BizException;
 import com.deepx.apicenter.repository.ClientAppRepository;
 import com.deepx.apicenter.repository.CredentialOwner;
+import com.deepx.apicenter.repository.CredentialRepository;
 import com.deepx.apicenter.repository.InterfaceRepository;
 import org.springframework.stereotype.Service;
 
@@ -40,13 +41,16 @@ import java.util.Locale;
 public class InboundCredentialService {
 
     private final CredentialStore store;
+    private final CredentialRepository credentialRepository;
     private final ClientAppRepository clientAppRepository;
     private final InterfaceRepository interfaceRepository;
 
     public InboundCredentialService(CredentialStore store,
+                                    CredentialRepository credentialRepository,
                                     ClientAppRepository clientAppRepository,
                                     InterfaceRepository interfaceRepository) {
         this.store = store;
+        this.credentialRepository = credentialRepository;
         this.clientAppRepository = clientAppRepository;
         this.interfaceRepository = interfaceRepository;
     }
@@ -95,6 +99,31 @@ public class InboundCredentialService {
                 .toList();
     }
 
+    /**
+     * **行级操作的属主定位**（2026-09-24 使用反馈）：凭证 `id` 在池表全局唯一 ⇒
+     * `retire` / `delete` / `activate` / `finishRotation` / `updateLabel` / `update` **不必再传 ownerType+ownerId**；
+     * 传了则**校验与库内一致**（防止拿错属主去操作别的行 —— 报 40001 而不是静默按 id 执行）。
+     */
+    private RowOwner rowOwner(String ownerType, String ownerId, long id) {
+        var ref = credentialRepository.findOwnerRefById(id)
+                .orElseThrow(() -> BizException.fieldInvalid("凭证不存在：" + id));
+        CredentialOwner actual = CredentialOwner.valueOf(ref.ownerType());
+        if (ownerType != null && !ownerType.isBlank()) {
+            CredentialOwner given = resolveOwner(ownerType);
+            String normalized = normalizeOwnerId(given, ownerId);
+            // 「给了什么就校什么」：ownerId 未给（如页面在"全部接口"视图）⇒ 只校验类型，不判不匹配
+            if (given != actual || (normalized != null && !java.util.Objects.equals(normalized, ref.ownerId()))) {
+                throw BizException.fieldInvalid("凭证不属于该属主（实际属主：" + actual.name()
+                        + (ref.ownerId() == null ? "" : "#" + ref.ownerId()) + "）");
+            }
+        }
+        return new RowOwner(actual, ref.ownerId());
+    }
+
+    /** 行级操作解析出的属主（类型 + 属主标识） */
+    private record RowOwner(CredentialOwner owner, String ownerId) {
+    }
+
     /** 属主展示名（按行）：平台池固定文案；接口/调用方取批量查到的名字，缺失时给出可读提示 */
     private String ownerNameOf(CredentialOwner owner, String ownerId, Map<String, String> names) {
         return switch (owner) {
@@ -131,42 +160,39 @@ public class InboundCredentialService {
     }
 
     /** 录入（第三方给的密钥）：一步入 `ACTIVE`，旧 `ACTIVE` 转入 `ROTATING`（并存 24h） */
-    public void update(String ownerType, String ownerId, String kind, String credential, String label) {
-        CredentialOwner owner = resolveOwner(ownerType);
-        String normalized = normalizeOwnerId(owner, ownerId);
-        requireOwnerExists(owner, normalized);
-        store.update(owner, normalized, new UpdateRequest(kind, credential), label);
+    public void update(String ownerType, String ownerId, String kind, String credential, String label,
+                       long id) {
+        RowOwner r = rowOwner(ownerType, ownerId, id);   // 行级操作：属主可省（按 id 定位）
+        store.update(r.owner(), r.ownerId(), new UpdateRequest(kind, credential), label);
     }
 
     /** 仅改备注（不改值、不流转状态）：给「这把密钥是谁的」补上说明 */
     public void updateLabel(String ownerType, String ownerId, long id, String label) {
-        CredentialOwner owner = resolveOwner(ownerType);
-        String normalized = normalizeOwnerId(owner, ownerId);
-        requireOwnerExists(owner, normalized);
-        store.updateLabel(owner, normalized, id, label);
+        RowOwner r = rowOwner(ownerType, ownerId, id);
+        store.updateLabel(r.owner(), r.ownerId(), id, label);
     }
 
     public void activate(String ownerType, String ownerId, long id) {
-        CredentialOwner owner = resolveOwner(ownerType);
-        store.activate(owner, normalizeOwnerId(owner, ownerId), id);
+        RowOwner r = rowOwner(ownerType, ownerId, id);
+        store.activate(r.owner(), r.ownerId(), id);
     }
 
     /** 即时失效（**单独吊销某个调用方的正式手段**）；该类型已无 ACTIVE 时返回告警文案 */
     public String retire(String ownerType, String ownerId, long id) {
-        CredentialOwner owner = resolveOwner(ownerType);
-        return store.retire(owner, normalizeOwnerId(owner, ownerId), id);
+        RowOwner r = rowOwner(ownerType, ownerId, id);
+        return store.retire(r.owner(), r.ownerId(), id);
     }
 
     /** 完成轮换：`ROTATING` → `RETIRED`（提前收尾，未到 24h 窗口也可手动结束） */
     public void finishRotation(String ownerType, String ownerId, long id) {
-        CredentialOwner owner = resolveOwner(ownerType);
-        store.finishRotation(owner, normalizeOwnerId(owner, ownerId), id);
+        RowOwner r = rowOwner(ownerType, ownerId, id);
+        store.finishRotation(r.owner(), r.ownerId(), id);
     }
 
     /** 删除已失效凭证（仅 `RETIRED` 可删，状态机保护） */
     public void delete(String ownerType, String ownerId, long id) {
-        CredentialOwner owner = resolveOwner(ownerType);
-        store.delete(owner, normalizeOwnerId(owner, ownerId), id);
+        RowOwner r = rowOwner(ownerType, ownerId, id);
+        store.delete(r.owner(), r.ownerId(), id);
     }
 
     // ---------- 私有 ----------

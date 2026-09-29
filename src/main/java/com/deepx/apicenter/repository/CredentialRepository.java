@@ -106,6 +106,21 @@ public class CredentialRepository {
         return jdbc.query("SELECT * FROM " + owner.table() + " WHERE " + owner.ownerPredicate() + " ORDER BY kind, created_at DESC", owner.rowMapper(), ownerId);
     }
 
+    /** 凭证的属主引用（行级操作免传属主用） */
+    public record OwnerRef(String ownerType, String ownerId) {
+    }
+
+    /**
+     * 按 `id` 定位**池内**凭证的属主（**不限属主**）—— 2026-09-24 使用反馈：
+     * 凭证 id 在池表里全局唯一 ⇒ 吊销 / 删除 / 激活 / 改备注这类**行级操作**不必再传 ownerType+ownerId。
+     * 只查 `client_credential`（`app_credential` 的 id 空间独立，池端点不涉及）。
+     */
+    public java.util.Optional<OwnerRef> findOwnerRefById(long id) {
+        return jdbc.query("SELECT owner_type, owner_id FROM client_credential WHERE id = ?",
+                (rs, i) -> new OwnerRef(rs.getString("owner_type"), rs.getString("owner_id")), id)
+                .stream().findFirst();
+    }
+
     /**
      * 列**某属主类型的全部凭证**（2026-09-24，使用反馈）：接口专属池/档案池默认要能"一次看全部"，
      * 而不是一次只能查一个 ownerId。`PLATFORM` 等价于 `findByOwner(PLATFORM, null)`。
